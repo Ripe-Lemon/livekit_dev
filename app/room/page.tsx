@@ -4,12 +4,9 @@ import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react
 import { useRouter, useSearchParams } from 'next/navigation';
 import { 
     LiveKitRoom, 
+    VideoConference, 
     formatChatMessageLinks, 
     useRoomContext,
-    Chat,
-    ControlBar,
-    GridLayout,
-    ParticipantTile,
     RoomAudioRenderer,
     useTracks,
     useParticipants
@@ -26,23 +23,16 @@ import { ControlBar as CustomControlBar } from '../components/room/ControlBar';
 import ConnectionStatus from '../components/room/ConnectionStatus';
 import RoomInfo from '../components/room/RoomInfo';
 import { ParticipantList } from '../components/room/ParticipantList';
-import VideoConference from '../components/room/VideoConference';
-import { MessageItem } from '../components/chat/MessageItem';
-import { MessageInput } from '../components/chat/MessageInput';
+import CustomVideoConference from '../components/room/VideoConference';
 import FloatingChat from '../components/room/FloatingChat';
-import ChatContainer from '../components/room/ChatContainer';
 import { ChatPanel } from '../components/room/ChatPanel';
 
 // Hooks
 import { useImagePreview } from '../hooks/useImagePreview';
 import { useAudioManager } from '../hooks/useAudioManager';
-import { useDeviceManager } from '../hooks/useDeviceManager';
 import { useChat } from '../hooks/useChat';
-import { useRoom } from '../hooks/useRoom';
 
 // Types
-import { RoomConnectionParams } from '../types/room';
-import { SoundEvent } from '../types/audio';
 import { DisplayMessage, ChatState } from '../types/chat';
 
 // Styles
@@ -86,15 +76,7 @@ function RoomInnerContent({
     toggleFullscreen, 
     leaveRoom, 
     addNotification,
-    setChatWidth,
-    chatState,
-    sendTextMessage,
-    sendImageMessage,
-    clearMessages,
-    retryMessage,
-    deleteMessage,
-    previewImage,
-    setPreviewImage
+    setChatWidth
 }: {
     roomName: string;
     username: string;
@@ -104,20 +86,44 @@ function RoomInnerContent({
     leaveRoom: () => void;
     addNotification: (notification: Omit<Notification, 'id' | 'timestamp'>) => void;
     setChatWidth: (width: number) => void;
-    chatState: ChatState;
-    sendTextMessage: (message: string) => Promise<void>;
-    sendImageMessage: (file: File) => Promise<void>;
-    clearMessages: () => void;
-    retryMessage: (messageId: string) => Promise<void>;
-    deleteMessage: (messageId: string) => void;
-    previewImage: string | null;
-    setPreviewImage: (src: string | null) => void;
 }) {
     const room = useRoomContext();
     const participants = useParticipants();
     
+    // 在 LiveKit Room 内部使用聊天 Hook
+    const { 
+        chatState, 
+        sendTextMessage, 
+        sendImageMessage, 
+        clearMessages, 
+        retryMessage, 
+        deleteMessage 
+    } = useChat({
+        maxMessages: 100,
+        enableSounds: true,
+        autoScrollToBottom: true
+    });
+
     // 音频管理
-    const { playSound } = useAudioManager();
+    const { playSound } = useAudioManager({
+        autoInitialize: true,
+        globalVolume: 0.7,
+        enabled: true
+    });
+
+    // 图片预览
+    const { 
+        previewState, 
+        openPreview, 
+        closePreview 
+    } = useImagePreview();
+
+    // 包装 openPreview 以处理 null 值
+    const handlePreviewImage = useCallback((src: string | null) => {
+        if (src) {
+            openPreview(src);
+        }
+    }, [openPreview]);
 
     useEffect(() => {
         if (!room) return;
@@ -172,11 +178,9 @@ function RoomInnerContent({
         <div className="relative w-full h-full flex">
             {/* 主视频区域 */}
             <div className="relative bg-black" style={videoAreaStyle}>
+                {/* 使用 LiveKit 默认的 VideoConference 组件 */}
                 <VideoConference 
-                    className="w-full h-full"
-                    layout="grid"
-                    showParticipantNames={true}
-                    maxParticipants={25}
+                    chatMessageFormatter={formatChatMessageLinks}
                 />
                 
                 {/* 自定义控制栏 */}
@@ -205,7 +209,7 @@ function RoomInnerContent({
                         onClearMessages={clearMessages}
                         onRetryMessage={retryMessage}
                         onDeleteMessage={deleteMessage}
-                        onImageClick={setPreviewImage}
+                        onImageClick={openPreview}
                         onClose={() => toggleUIPanel('showChat')}
                         className="h-full"
                     />
@@ -293,7 +297,9 @@ function RoomInnerContent({
                             {/* 房间信息 */}
                             <div>
                                 <h4 className="font-medium text-white mb-3">房间信息</h4>
-                                <RoomInfo className="bg-gray-700 rounded-lg p-3" />
+                                <RoomInfo 
+                                    className="bg-gray-700 rounded-lg"
+                                />
                             </div>
                         </div>
                     </div>
@@ -303,17 +309,17 @@ function RoomInnerContent({
             {/* 悬浮聊天窗口 */}
             {uiState.showFloatingChat && (
                 <FloatingChat 
-                    setPreviewImage={setPreviewImage}
+                    setPreviewImage={handlePreviewImage}
                     position="top-right"
                     size="medium"
                 />
             )}
 
             {/* 图片预览 */}
-            {previewImage && (
+            {previewState.isOpen && (
                 <ImagePreview
-                    src={previewImage}
-                    onClose={() => setPreviewImage(null)}
+                    src={previewState.src}
+                    onClose={closePreview}
                 />
             )}
         </div>
@@ -350,32 +356,11 @@ function RoomPageContent() {
     });
 
     const [notifications, setNotifications] = useState<Notification[]>([]);
-    const [previewImage, setPreviewImage] = useState<string | null>(null);
 
     // Refs
     const roomRef = useRef<Room | null>(null);
     const isMountedRef = useRef(true);
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-    // Hooks
-    const { 
-        chatState, 
-        sendTextMessage, 
-        sendImageMessage, 
-        clearMessages, 
-        retryMessage, 
-        deleteMessage 
-    } = useChat({
-        maxMessages: 100,
-        enableSounds: true,
-        autoScrollToBottom: true
-    });
-
-    const { playSound } = useAudioManager({
-        autoInitialize: true,
-        globalVolume: 0.7,
-        enabled: true
-    });
 
     // 验证必需参数
     const validateParams = useCallback(() => {
@@ -517,21 +502,19 @@ function RoomPageContent() {
     // 房间事件处理
     const handleRoomConnected = useCallback(() => {
         console.log('LiveKit 房间连接成功');
-        playSound('user-join');
         
         addNotification({
             type: 'success',
             title: '房间连接成功',
             message: `欢迎加入 "${roomName}"`
         });
-    }, [addNotification, roomName, playSound]);
+    }, [addNotification, roomName]);
 
     const handleRoomDisconnected = useCallback((reason?: DisconnectReason) => {
         console.log('房间断开连接:', reason);
         roomRef.current = null;
         
         if (reason !== DisconnectReason.CLIENT_INITIATED) {
-            playSound('error');
             addNotification({
                 type: 'warning',
                 title: '连接断开',
@@ -553,7 +536,7 @@ function RoomPageContent() {
                 });
             }
         }
-    }, [addNotification, roomState.connectionAttempts, initializeRoom, playSound]);
+    }, [addNotification, roomState.connectionAttempts, initializeRoom]);
 
     const handleRoomError = useCallback((error: Error) => {
         console.error('房间错误:', error);
@@ -563,13 +546,12 @@ function RoomPageContent() {
             return;
         }
         
-        playSound('error');
         addNotification({
             type: 'error',
             title: '房间错误',
             message: error.message
         });
-    }, [addNotification, playSound]);
+    }, [addNotification]);
 
     // UI 控制函数
     const toggleUIPanel = useCallback((panel: keyof UIState) => {
@@ -762,9 +744,6 @@ function RoomPageContent() {
                         </div>
                         
                         <div className="flex items-center space-x-4">
-                            {/* 连接状态指示器 */}
-                            <ConnectionStatus compact={true} />
-                            
                             {/* 快捷操作按钮 */}
                             <div className="flex items-center space-x-2">
                                 <Button
@@ -827,14 +806,6 @@ function RoomPageContent() {
                             leaveRoom={leaveRoom}
                             addNotification={addNotification}
                             setChatWidth={setChatWidth}
-                            chatState={chatState}
-                            sendTextMessage={sendTextMessage}
-                            sendImageMessage={sendImageMessage}
-                            clearMessages={clearMessages}
-                            retryMessage={retryMessage}
-                            deleteMessage={deleteMessage}
-                            previewImage={previewImage}
-                            setPreviewImage={setPreviewImage}
                         />
                     </LiveKitRoom>
                 </div>

@@ -108,11 +108,87 @@ function RoomInfo() {
     );
 }
 
+// 添加悬浮聊天组件
+function FloatingChat() {
+    const [isOpen, setIsOpen] = useState(false);
+
+    return (
+        <>
+            {/* 悬浮聊天面板 */}
+            <div
+                className={`
+                    fixed top-6 right-20 z-40 h-96 w-80 
+                    transform transition-all duration-300 ease-in-out
+                    ${isOpen ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0 pointer-events-none'}
+                `}
+            >
+                <div className="h-full rounded-lg bg-gray-900/95 backdrop-blur-sm shadow-2xl border border-gray-700">
+                    {/* 聊天头部 */}
+                    <div className="flex items-center justify-between p-4 border-b border-gray-700">
+                        <h3 className="text-lg font-medium text-white">聊天</h3>
+                        <button
+                            onClick={() => setIsOpen(false)}
+                            className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:bg-gray-800 hover:text-white transition-colors"
+                        >
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="16"
+                                height="16"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                            >
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+                    </div>
+                    
+                    {/* 聊天内容 */}
+                    <div className="h-full">
+                        <Chat className="h-full" />
+                    </div>
+                </div>
+            </div>
+
+            {/* 聊天按钮 */}
+            <button
+                onClick={() => setIsOpen(!isOpen)}
+                className={`
+                    fixed top-6 right-96 z-50 flex h-12 w-12 items-center justify-center 
+                    rounded-full shadow-lg backdrop-blur-sm transition-all
+                    ${isOpen 
+                        ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                        : 'bg-black/60 text-white hover:bg-black/80 hover:scale-105'
+                    }
+                `}
+                aria-label={isOpen ? "关闭聊天" : "打开聊天"}
+            >
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                >
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                </svg>
+            </button>
+        </>
+    );
+}
+
 // 核心房间逻辑
 function LiveKitRoom() {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [showChat, setShowChat] = useState(false);
 
     const [room] = useState(() => new Room({
         adaptiveStream: true,
@@ -234,30 +310,15 @@ function LiveKitRoom() {
 
     return (
         <RoomContext.Provider value={room}>
-            {/* 2. 在 RoomContext 内部，用 LayoutContextProvider 包裹所有 UI 组件 */}
             <LayoutContextProvider>
                 <div data-lk-theme="default" className="flex h-screen flex-col bg-gray-900">
-                    <div className="flex flex-1 overflow-hidden">
-                        {/* 左侧聊天面板 */}
-                        <div
-                            className={`
-                                flex flex-col transition-all duration-300
-                                ${showChat ? 'w-full max-w-sm' : 'w-0'}
-                            `}
-                        >
-                            {/* Chat 组件现在可以安全地访问 LayoutContext */}
-                            {showChat && <Chat className="flex-1" />}
-                        </div>
-
-                        {/* 右侧主视频区域 */}
-                        <div className="flex-1 flex flex-col">
-                            {/* MyVideoConference (及其中的 GridLayout) 也能访问 LayoutContext */}
-                            <MyVideoConference />
-                            <RoomAudioRenderer />
-                        </div>
+                    {/* 移除左侧聊天面板，现在整个区域都是视频 */}
+                    <div className="flex-1 flex flex-col">
+                        <MyVideoConference />
+                        <RoomAudioRenderer />
                     </div>
 
-                    {/* 统一的底部控制栏 - 修改为双行布局 */}
+                    {/* 统一的底部控制栏 - 移除聊天按钮 */}
                     <div className="flex flex-col gap-3 p-4 bg-gray-900/80 backdrop-blur-sm">
                         {/* 第一行：房间信息和音频处理控制 */}
                         <div className="flex items-center justify-between">
@@ -275,7 +336,7 @@ function LiveKitRoom() {
                             </div>
                         </div>
                         
-                        {/* 第二行：主要控制按钮居中 */}
+                        {/* 第二行：主要控制按钮居中 - 移除聊天按钮 */}
                         <div className="flex items-center justify-center gap-4">
                             <ControlBar
                                 variation="minimal"
@@ -285,11 +346,12 @@ function LiveKitRoom() {
                                     screenShare: true,
                                 }}
                             />
-                            <div className="h-6 w-px bg-gray-600"></div>
-                            <Chat />
                         </div>
                     </div>
                 </div>
+
+                {/* 悬浮聊天组件 */}
+                <FloatingChat />
             </LayoutContextProvider>
         </RoomContext.Provider>
     );

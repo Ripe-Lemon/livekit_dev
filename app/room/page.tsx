@@ -38,7 +38,7 @@ export default function Page() {
                 }
 
                 // 从你的 API 获取 token
-                const resp = await fetch(`/api/token?room=${roomName}&username=${participantName}`);
+                const resp = await fetch(`https://livekit-api.gui.ink/api/token?room=${roomName}&username=${participantName}`);
                 const data = await resp.json();
 
                 if (!mounted) return;

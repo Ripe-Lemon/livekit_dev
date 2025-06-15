@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { LiveKitRoom, VideoConference, formatChatMessageLinks, useRoomContext } from '@livekit/components-react';
-import { Room, DisconnectReason } from 'livekit-client';
+import { Room, DisconnectReason, ConnectionQuality } from 'livekit-client';
 
 // Components
 import { LoadingSpinner, PageLoadingSpinner } from '../components/ui/LoadingSpinner';
@@ -11,25 +11,13 @@ import { ErrorDisplay } from '../components/ui/ErrorDisplay';
 import { ImagePreview } from '../components/ui/ImagePreview';
 import { NotificationCenter } from '../components/ui/NotificationCenter';
 
-// 这些组件不能导入，因为它们可能在内部使用了 room context
-// import { ChatPanel } from '../components/room/ChatPanel';
-// import { ParticipantList } from '../components/room/ParticipantList';
-// import { ControlBar } from '../components/room/ControlBar';
-// import { SettingsPanel } from '../components/room/SettingsPanel';
-// import { ConnectionStatus } from '../components/room/ConnectionStatus';
-
-// Hooks - 移除可能访问 room context 的 hooks
-// import { useRoom } from '../hooks/useRoom';
-// import { useChat } from '../hooks/useChat';
+// Hooks
 import { useAudioManager } from '../hooks/useAudioManager';
 import { useImagePreview } from '../hooks/useImagePreview';
 
 // Types
 import { RoomConnectionParams } from '../types/room';
 import { SoundEvent } from '../types/audio';
-
-// Utils
-import { generateAccessToken } from '../utils/tokenUtils';
 
 // Styles
 import '@livekit/components-styles';
@@ -42,6 +30,7 @@ interface RoomState {
     error: string | null;
     token: string | null;
     serverUrl: string | null;
+    connectionAttempts: number;
 }
 
 interface UIState {
@@ -171,6 +160,12 @@ function RoomInnerContent({
     useEffect(() => {
         if (!room) return;
 
+        console.log('房间连接成功，房间信息:', {
+            name: room.name,
+            participants: room.numParticipants,
+            localParticipant: room.localParticipant?.identity
+        });
+
         const handleParticipantConnected = (participant: any) => {
             console.log('参与者加入:', participant.identity);
             addNotification({
@@ -189,12 +184,18 @@ function RoomInnerContent({
             });
         };
 
+        const handleConnectionQualityChanged = (quality: ConnectionQuality, participant: any) => {
+            console.log('连接质量变化:', quality, participant.identity);
+        };
+
         room.on('participantConnected', handleParticipantConnected);
         room.on('participantDisconnected', handleParticipantDisconnected);
+        room.on('connectionQualityChanged', handleConnectionQualityChanged);
 
         return () => {
             room.off('participantConnected', handleParticipantConnected);
             room.off('participantDisconnected', handleParticipantDisconnected);
+            room.off('connectionQualityChanged', handleConnectionQualityChanged);
         };
     }, [room, addNotification]);
 
@@ -214,7 +215,6 @@ function RoomInnerContent({
                 isFullscreen={uiState.isFullscreen}
             />
 
-            {/* 暂时移除复杂的面板，直到我们确保它们不会访问 room context */}
             {/* 聊天面板 */}
             {uiState.showChat && (
                 <div className="absolute top-0 right-0 h-full w-80 bg-gray-800 border-l border-gray-700 z-10">
@@ -253,7 +253,15 @@ function RoomInnerContent({
                             </button>
                         </div>
                         <div className="text-gray-300">
-                            参与者列表开发中...
+                            {room ? (
+                                <div>
+                                    <p>房间: {room.name}</p>
+                                    <p>参与者数量: {room.numParticipants}</p>
+                                    <p>我的身份: {room.localParticipant?.identity}</p>
+                                </div>
+                            ) : (
+                                <p>参与者列表开发中...</p>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -307,11 +315,12 @@ function RoomPageContent() {
         isConnected: false,
         error: null,
         token: null,
-        serverUrl: null
+        serverUrl: null,
+        connectionAttempts: 0
     });
 
     const [uiState, setUIState] = useState<UIState>({
-        showChat: false, // 默认关闭聊天
+        showChat: false,
         showParticipants: false,
         showSettings: false,
         isFullscreen: false,
@@ -325,127 +334,71 @@ function RoomPageContent() {
     const isMountedRef = useRef(true);
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-    // Hooks（在 LiveKitRoom 外部的 hooks - 确保这些不访问 room context）
-    const { playSound } = useAudioManager({ autoInitialize: true });
-
     // 验证必需参数
     const validateParams = useCallback(() => {
         if (!roomName || !username) {
             return '缺少必需的房间参数';
         }
         
-        if (roomName.length < 3 || roomName.length > 50) {
-            return '房间名称长度必须在3-50个字符之间';
+        if (roomName.length < 1 || roomName.length > 50) {
+            return '房间名称长度必须在1-50个字符之间';
         }
         
-        if (username.length < 2 || username.length > 30) {
-            return '用户名长度必须在2-30个字符之间';
+        if (username.length < 1 || username.length > 30) {
+            return '用户名长度必须在1-30个字符之间';
         }
         
         return null;
     }, [roomName, username]);
 
-    // 检查房间是否存在
-    const checkRoomExists = useCallback(async (roomName: string): Promise<boolean> => {
+    // 获取访问令牌 - 修复 API 调用
+    const getAccessToken = useCallback(async (): Promise<{token: string, wsUrl: string}> => {
         try {
-            const response = await fetch('https://livekit-api.2k2.cc/api/rooms', {
-                method: 'GET'
-            });
-
-            if (!response.ok) {
-                console.warn('无法获取房间列表，假设房间存在');
-                return true; // 如果无法获取列表，假设房间存在
-            }
-
-            const data = await response.json();
-            const rooms = data.rooms || [];
-            
-            // 检查房间是否在列表中
-            return rooms.some((room: any) => room.name === roomName);
-        } catch (error) {
-            console.warn('检查房间存在性失败:', error);
-            return true; // 出错时假设房间存在
-        }
-    }, []);
-
-    // 创建或加入房间
-    const createOrJoinRoom = useCallback(async (): Promise<string> => {
-        try {
-            // 检查参数是否存在
             if (!roomName || !username) {
                 throw new Error('房间名称和用户名不能为空');
             }
             
-            // 直接在 URL 中拼接 room 和 identity 参数
-            const url = `https://livekit-api.2k2.cc/api/room?room=${encodeURIComponent(roomName)}&identity=${encodeURIComponent(username)}`;
-
-            // 发起请求
-            const response = await fetch(url, {
+            console.log('正在获取访问令牌...', { roomName, username });
+            
+            // 修正 API 调用 - 使用正确的端点和参数
+            const response = await fetch(`https://livekit-api.2k2.cc/api/room?room=${encodeURIComponent(roomName)}&identity=${encodeURIComponent(username)}`, {
                 method: 'GET',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
             });
 
-            // 检查响应是否成功
+            console.log('Token API 响应状态:', response.status);
+
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || `生成访问令牌失败: HTTP ${response.status}`);
+                let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+                try {
+                    const errorData = await response.json();
+                    errorMessage = errorData.error || errorMessage;
+                } catch (e) {
+                    console.warn('无法解析错误响应:', e);
+                }
+                throw new Error(errorMessage);
             }
 
-            const tokenData = await response.json();
-            return tokenData.token;
+            const data = await response.json();
+            console.log('Token API 响应数据:', data);
 
-        } catch (error) {
-            console.error('创建房间或生成令牌失败:', error);
-            throw error instanceof Error ? error : new Error('创建房间或生成令牌失败');
-        }
-    }, [roomName, username]);
+            if (!data.token) {
+                throw new Error('响应中缺少访问令牌');
+            }
 
-    // 获取访问令牌
-    const getAccessToken = useCallback(async (): Promise<string> => {
-        try {
-            return await createOrJoinRoom();
+            return {
+                token: data.token,
+                wsUrl: data.wsUrl || 'wss://livekit-wss.2k2.cc'
+            };
+
         } catch (error) {
             console.error('获取访问令牌失败:', error);
             throw error instanceof Error ? error : new Error('获取访问令牌失败');
         }
-    }, [createOrJoinRoom]);
-
-    // 获取房间信息
-    const getRoomInfo = useCallback(async (roomName: string) => {
-        try {
-            const response = await fetch(`https://livekit-api.2k2.cc/api/rooms?room=${encodeURIComponent(roomName)}`, {
-                method: 'GET'
-            });
-
-            if (!response.ok) {
-                return null;
-            }
-
-            const data = await response.json();
-            return data;
-        } catch (error) {
-            console.warn('获取房间信息失败:', error);
-            return null;
-        }
-    }, []);
-
-    // 获取房间参与者
-    const getRoomParticipants = useCallback(async (roomName: string) => {
-        try {
-            const response = await fetch(`https://livekit-api.2k2.cc/api/room/participants?room=${encodeURIComponent(roomName)}`, {
-                method: 'GET'
-            });
-
-            if (!response.ok) {
-                return [];
-            }
-
-            const data = await response.json();
-            return data.participants || [];
-        } catch (error) {
-            console.warn('获取房间参与者失败:', error);
-            return [];
-        }
-    }, []);
+    }, [roomName, username]);
 
     // 初始化房间连接
     const initializeRoom = useCallback(async () => {
@@ -458,50 +411,33 @@ function RoomPageContent() {
         setRoomState(prev => ({ 
             ...prev, 
             isConnecting: true, 
-            error: null 
+            error: null,
+            connectionAttempts: prev.connectionAttempts + 1
         }));
 
         try {
-            // 获取服务器URL
-            const serverUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL;
-            if (!serverUrl) {
-                throw new Error('LiveKit 服务器URL未配置');
-            }
-
-            // 获取访问令牌
-            const token = await getAccessToken();
+            console.log('开始初始化房间连接...');
+            
+            // 获取访问令牌和服务器URL
+            const { token, wsUrl } = await getAccessToken();
+            
+            console.log('Token 获取成功，WS URL:', wsUrl);
 
             if (isMountedRef.current) {
                 setRoomState(prev => ({
                     ...prev,
                     token,
-                    serverUrl,
+                    serverUrl: wsUrl,
                     isConnecting: false,
                     isConnected: true
                 }));
-
-                // 播放连接成功音效
-                playSound('call-start');
 
                 // 添加成功通知
                 addNotification({
                     type: 'success',
                     title: '连接成功',
-                    message: `已成功加入房间 "${roomName}"`
+                    message: `正在连接到房间 "${roomName}"`
                 });
-
-                // 可选：获取房间信息和参与者列表
-                try {
-                    if (roomName) {
-                        const roomInfo = await getRoomInfo(roomName);
-                        const participants = await getRoomParticipants(roomName);
-                        
-                        console.log('房间信息:', roomInfo);
-                        console.log('当前参与者:', participants);
-                    }
-                } catch (infoError) {
-                    console.warn('获取房间详细信息失败:', infoError);
-                }
             }
         } catch (error) {
             console.error('初始化房间失败:', error);
@@ -514,9 +450,6 @@ function RoomPageContent() {
                     error: errorMessage
                 }));
 
-                // 播放错误音效
-                playSound('error');
-
                 // 添加错误通知
                 addNotification({
                     type: 'error',
@@ -525,7 +458,7 @@ function RoomPageContent() {
                 });
             }
         }
-    }, [validateParams, getAccessToken, roomName, playSound, getRoomInfo, getRoomParticipants]);
+    }, [validateParams, getAccessToken, roomName]);
 
     // 添加通知
     const addNotification = useCallback((notification: Omit<Notification, 'id' | 'timestamp'>) => {
@@ -545,49 +478,59 @@ function RoomPageContent() {
 
     // 房间事件处理
     const handleRoomConnected = useCallback(() => {
-        console.log('房间连接成功');
+        console.log('LiveKit 房间连接成功');
         
-        playSound('call-start');
         addNotification({
             type: 'success',
             title: '房间连接成功',
             message: `欢迎加入 "${roomName}"`
         });
-    }, [playSound, addNotification, roomName]);
+    }, [addNotification, roomName]);
 
     const handleRoomDisconnected = useCallback((reason?: DisconnectReason) => {
         console.log('房间断开连接:', reason);
         roomRef.current = null;
         
         if (reason !== DisconnectReason.CLIENT_INITIATED) {
-            playSound('connection-lost');
             addNotification({
                 type: 'warning',
                 title: '连接断开',
-                message: '正在尝试重新连接...'
+                message: '连接意外断开'
             });
             
-            // 尝试重连
-            reconnectTimeoutRef.current = setTimeout(() => {
-                if (isMountedRef.current) {
-                    initializeRoom();
-                }
-            }, 3000);
-        } else {
-            playSound('call-end');
+            // 限制重连次数
+            if (roomState.connectionAttempts < 3) {
+                console.log('尝试重新连接...');
+                reconnectTimeoutRef.current = setTimeout(() => {
+                    if (isMountedRef.current) {
+                        initializeRoom();
+                    }
+                }, 3000);
+            } else {
+                addNotification({
+                    type: 'error',
+                    title: '连接失败',
+                    message: '多次重连失败，请手动重试'
+                });
+            }
         }
-    }, [playSound, addNotification, initializeRoom]);
+    }, [addNotification, roomState.connectionAttempts, initializeRoom]);
 
     const handleRoomError = useCallback((error: Error) => {
         console.error('房间错误:', error);
         
-        playSound('error');
+        // 过滤掉 "Client initiated disconnect" 错误，这是正常的断开连接
+        if (error.message.includes('Client initiated disconnect')) {
+            console.log('客户端主动断开连接，忽略错误');
+            return;
+        }
+        
         addNotification({
             type: 'error',
             title: '房间错误',
             message: error.message
         });
-    }, [playSound, addNotification]);
+    }, [addNotification]);
 
     // UI 控制函数
     const toggleUIPanel = useCallback((panel: keyof UIState) => {
@@ -610,16 +553,17 @@ function RoomPageContent() {
 
     const leaveRoom = useCallback(async () => {
         try {
-            if (roomRef.current) {
-                await roomRef.current.disconnect();
-            }
+            console.log('准备离开房间...');
             
             // 清理定时器
             if (reconnectTimeoutRef.current) {
                 clearTimeout(reconnectTimeoutRef.current);
             }
             
-            // 返回首页
+            // 标记为客户端主动断开
+            isMountedRef.current = false;
+            
+            // 直接返回首页，让 LiveKitRoom 组件自己处理断开连接
             router.push('/');
         } catch (error) {
             console.error('离开房间失败:', error);
@@ -683,8 +627,11 @@ function RoomPageContent() {
     useEffect(() => {
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
             if (roomState.isConnected) {
-                e.preventDefault();
-                e.returnValue = '确定要离开房间吗？';
+                // 不显示确认对话框，直接清理
+                isMountedRef.current = false;
+                if (reconnectTimeoutRef.current) {
+                    clearTimeout(reconnectTimeoutRef.current);
+                }
             }
         };
 
@@ -713,7 +660,10 @@ function RoomPageContent() {
                         title="房间连接失败"
                         message={roomState.error}
                         showRetry
-                        onRetry={initializeRoom}
+                        onRetry={() => {
+                            setRoomState(prev => ({ ...prev, error: null, connectionAttempts: 0 }));
+                            initializeRoom();
+                        }}
                     />
                 </div>
             </div>
@@ -795,6 +745,18 @@ function RoomPageContent() {
                         video={true}
                         screen={true}
                         data-lk-theme="default"
+                        // 添加额外的配置
+                        options={{
+                            // 适应性质量
+                            adaptiveStream: true,
+                            // 断线重连
+                            reconnectPolicy: {
+                                nextRetryDelayInMs: (context) => {
+                                    console.log('重连策略:', context);
+                                    return Math.min(1000 * Math.pow(2, context.retryCount), 10000);
+                                }
+                            }
+                        }}
                     >
                         <RoomInnerContent
                             roomName={roomName}

@@ -8,54 +8,89 @@ import {
     RoomAudioRenderer,
     useTracks,
     RoomContext,
-    useRoomContext, // <--- 新增导入
+    useRoomContext,
 } from '@livekit/components-react';
 import {
     Room,
     Track,
     createLocalAudioTrack,
-    createLocalVideoTrack,
-    VideoPresets,
     AudioPresets,
+    LocalAudioTrack,
 } from 'livekit-client';
 import '@livekit/components-styles';
-import { useEffect, useState, Suspense } from 'react';
+import { useEffect, useState, Suspense, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
-// ==============================================================
-//           ↓↓↓ 新增点: 创建一个用于显示房间信息的组件 ↓↓↓
-// ==============================================================
-function RoomHeader() {
-    // 使用 useRoomContext Hook 来获取 room 对象
-    const room = useRoomContext();
+
+// =======================================================================
+//     ↓↓↓ 修改点: 更新音频控制组件的样式，使其悬浮在顶部中央 ↓↓↓
+// =======================================================================
+interface AudioProcessingControlsProps {
+    isNoiseSuppressionEnabled: boolean;
+    onToggleNoiseSuppression: () => void;
+    isEchoCancellationEnabled: boolean;
+    onToggleEchoCancellation: () => void;
+}
+
+function AudioProcessingControls({
+                                     isNoiseSuppressionEnabled,
+                                     onToggleNoiseSuppression,
+                                     isEchoCancellationEnabled,
+                                     onToggleEchoCancellation,
+                                 }: AudioProcessingControlsProps) {
+    // 按钮的基础样式
+    const baseButtonStyles = "px-4 py-2 text-sm rounded-md text-white transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400";
+    // 激活状态的样式
+    const enabledStyles = "bg-blue-600 hover:bg-blue-700";
+    // 关闭状态的样式
+    const disabledStyles = "bg-gray-800/80 hover:bg-gray-700/80";
 
     return (
+        // 中文注释: 使用 fixed 定位，并用 left-1/2 和 -translate-x-1/2 的组合来实现水平居中
         <div
             className="
-                fixed          /* 固定定位 */
+                fixed          /* 固定定位，悬浮于页面之上 */
                 top-6          /* 距离顶部 1.5rem */
-                left-6         /* 距离左侧 1.5rem */
+                left-1/2       /* 定位到屏幕中心线 */
+                -translate-x-1/2 /* 向左移动自身宽度的一半，实现完美居中 */
                 z-50           /* 确保在最上层 */
+                flex           /* 使用 flex 布局排列内部按钮 */
+                items-center
+                gap-3          /* 按钮之间的间距 */
                 rounded-lg     /* 圆角 */
-                bg-black/60    /* 半透明黑色背景 */
-                px-4           /* 横向内边距 */
-                py-2           /* 纵向内边距 */
+                bg-black/60    /* 半透明黑色背景，与其它悬浮按钮统一 */
+                p-2            /* 内部留白 */
                 shadow-lg      /* 添加阴影 */
-                backdrop-blur-sm /* 背景模糊效果 */
-                transition-all   /* 平滑过渡 */
+                backdrop-blur-sm /* 背景模糊效果 (毛玻璃) */
             "
         >
-            {/* 房间名 */}
-            <p className="text-xl font-medium text-gray-200">{room.name}</p>
-            {/* 在线人数 */}
-            <p className="text-sm text-gray-300">
-                {room.numParticipants} 人在线
-            </p>
+            <button
+                onClick={onToggleNoiseSuppression}
+                className={`${baseButtonStyles} ${isNoiseSuppressionEnabled ? enabledStyles : disabledStyles}`}
+            >
+                降噪: {isNoiseSuppressionEnabled ? '开启' : '关闭'}
+            </button>
+            <button
+                onClick={onToggleEchoCancellation}
+                className={`${baseButtonStyles} ${isEchoCancellationEnabled ? enabledStyles : disabledStyles}`}
+            >
+                回声消除: {isEchoCancellationEnabled ? '开启' : '关闭'}
+            </button>
         </div>
     );
 }
 
+
+function RoomHeader() {
+    const room = useRoomContext();
+    return (
+        <div className="fixed top-6 left-6 z-50 rounded-lg bg-black/60 px-4 py-2 shadow-lg backdrop-blur-sm transition-all">
+            <p className="text-xl font-medium text-gray-200">{room.name}</p>
+            <p className="text-sm text-gray-300">{room.numParticipants} 人在线</p>
+        </div>
+    );
+}
 
 // 将核心逻辑封装在一个新组件中
 function LiveKitRoom() {
@@ -66,7 +101,40 @@ function LiveKitRoom() {
         dynacast: true,
     }));
 
+    const [isNoiseSuppressionEnabled, setIsNoiseSuppressionEnabled] = useState(false);
+    const [isEchoCancellationEnabled, setIsEchoCancellationEnabled] = useState(false);
+
+
     const searchParams = useSearchParams();
+
+    const publishAudioTrack = useCallback(async (noiseSuppression: boolean, echoCancellation: boolean) => {
+        const existingTrackPublication = room.localParticipant.getTrackPublication(Track.Source.Microphone);
+        if (existingTrackPublication && existingTrackPublication.track) {
+            existingTrackPublication.track.stop();
+            await room.localParticipant.unpublishTrack(existingTrackPublication.track);
+        }
+
+        console.log(`正在创建音轨, 降噪: ${noiseSuppression}, 回声消除: ${echoCancellation}`);
+        try {
+            const audioTrack = await createLocalAudioTrack({
+                channelCount: 2,
+                echoCancellation: echoCancellation,
+                noiseSuppression: noiseSuppression,
+            });
+
+            await room.localParticipant.publishTrack(audioTrack, {
+                audioPreset: AudioPresets.musicHighQualityStereo,
+                dtx: false,
+                red: false,
+                source: Track.Source.Microphone
+            });
+            console.log('新的音频轨道发布成功。');
+        } catch (e) {
+            console.error("创建或发布音频轨道失败:", e);
+            setError(`无法应用音频设置: ${e instanceof Error ? e.message : String(e)}`);
+        }
+    }, [room]);
+
 
     useEffect(() => {
         let mounted = true;
@@ -102,19 +170,7 @@ function LiveKitRoom() {
                     if (!mounted) return;
                     console.log(`成功连接到 LiveKit 房间: ${roomName}`);
 
-                    console.log('正在以最大比特率模式发布音频...');
-                    const audioTrack = await createLocalAudioTrack({
-                        channelCount: 2,
-                        echoCancellation: false,
-                        noiseSuppression: false,
-                    });
-                    await room.localParticipant.publishTrack(audioTrack, {
-                        audioPreset: AudioPresets.musicHighQualityStereo,
-                        dtx: false,
-                        red: false,
-                        source: Track.Source.Microphone
-                    });
-                    console.log('最大比特率音频轨道发布成功。');
+                    await publishAudioTrack(isNoiseSuppressionEnabled, isEchoCancellationEnabled);
 
                 } else {
                     throw new Error(data.error || '无法从服务器获取 Token');
@@ -141,7 +197,21 @@ function LiveKitRoom() {
             mounted = false;
             room.disconnect();
         };
-    }, [room, searchParams]);
+    }, [room, searchParams, publishAudioTrack, isNoiseSuppressionEnabled, isEchoCancellationEnabled]);
+
+
+    const handleToggleNoiseSuppression = async () => {
+        const newValue = !isNoiseSuppressionEnabled;
+        setIsNoiseSuppressionEnabled(newValue);
+        await publishAudioTrack(newValue, isEchoCancellationEnabled);
+    };
+
+    const handleToggleEchoCancellation = async () => {
+        const newValue = !isEchoCancellationEnabled;
+        setIsEchoCancellationEnabled(newValue);
+        await publishAudioTrack(isNoiseSuppressionEnabled, newValue);
+    };
+
 
     if (isLoading) {
         return <div className="flex h-screen items-center justify-center text-xl">正在连接房间...</div>;
@@ -162,12 +232,23 @@ function LiveKitRoom() {
     return (
         <RoomContext.Provider value={room}>
             <div data-lk-theme="default" style={{ height: '100dvh' }}>
-                {/* ========================================================= */}
-                {/* ↓↓↓ 修改点: 在此处添加新的 RoomHeader 组件 ↓↓↓        */}
-                {/* ========================================================= */}
                 <RoomHeader />
+                {/* ============================================================== */}
+                {/* ↓↓↓ 修改点: 将音频控件移到这里，使其成为顶级UI元素 ↓↓↓        */}
+                {/* ============================================================== */}
+                <AudioProcessingControls
+                    isNoiseSuppressionEnabled={isNoiseSuppressionEnabled}
+                    onToggleNoiseSuppression={handleToggleNoiseSuppression}
+                    isEchoCancellationEnabled={isEchoCancellationEnabled}
+                    onToggleEchoCancellation={handleToggleEchoCancellation}
+                />
+
                 <MyVideoConference />
                 <RoomAudioRenderer />
+
+                {/* ============================================================== */}
+                {/* ↓↓↓ 修改点: ControlBar 现在不再包含自定义控件 ↓↓↓        */}
+                {/* ============================================================== */}
                 <ControlBar />
             </div>
         </RoomContext.Provider>
@@ -199,28 +280,9 @@ export default function Page() {
             {/* 回到大厅的悬浮按钮 */}
             <Link
                 href="/"
-                className="
-                    fixed          /* 固定定位，相对于视口 */
-                    top-6          /* 距离顶部 1.5rem */
-                    right-6        /* 距离右侧 1.5rem */
-                    z-50           /* 确保在最上层 */
-                    flex
-                    h-14           /* 高度 */
-                    w-14           /* 宽度 */
-                    items-center
-                    justify-center
-                    rounded-full   /* 圆形 */
-                    bg-black/60    /* 半透明黑色背景 */
-                    text-white     /* 图标颜色 */
-                    shadow-lg      /* 添加阴影 */
-                    backdrop-blur-sm /* 背景模糊效果 */
-                    transition-all /* 平滑过渡效果 */
-                    hover:bg-black/80 /* 鼠标悬浮时变暗 */
-                    hover:scale-105 /* 鼠标悬浮时轻微放大 */
-                "
+                className="fixed top-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-black/60 text-white shadow-lg backdrop-blur-sm transition-all hover:bg-black/80 hover:scale-105"
                 aria-label="返回大厅"
             >
-                {/* 内联 SVG Home 图标 */}
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
                     width="28"

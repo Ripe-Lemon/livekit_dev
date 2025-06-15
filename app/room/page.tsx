@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { LiveKitRoom, VideoConference, formatChatMessageLinks } from '@livekit/components-react';
+import { LiveKitRoom, VideoConference, formatChatMessageLinks, useRoomContext } from '@livekit/components-react';
 import { Room, DisconnectReason } from 'livekit-client';
 
 // Components
@@ -50,6 +50,135 @@ interface UIState {
     sidebarCollapsed: boolean;
 }
 
+interface Notification {
+    id: string;
+    type: 'info' | 'success' | 'warning' | 'error';
+    title: string;
+    message: string;
+    timestamp: Date;
+}
+
+// 房间内部组件 - 可以访问 LiveKit Room Context
+function RoomInnerContent({ 
+    roomName, 
+    username, 
+    uiState, 
+    toggleUIPanel, 
+    toggleFullscreen, 
+    leaveRoom, 
+    addNotification 
+}: {
+    roomName: string;
+    username: string;
+    uiState: UIState;
+    toggleUIPanel: (panel: keyof UIState) => void;
+    toggleFullscreen: () => void;
+    leaveRoom: () => void;
+    addNotification: (notification: Omit<Notification, 'id' | 'timestamp'>) => void;
+}) {
+    // 这些 hooks 现在在 LiveKitRoom 内部，可以正常访问 room context
+    const { 
+        previewState, 
+        openPreview, 
+        closePreview 
+    } = useImagePreview();
+    
+    const {
+        chatState,
+        sendTextMessage,
+        sendImageMessage,
+        toggleChat,
+        clearUnreadCount,
+        clearMessages,
+        retryMessage,
+        deleteMessage
+    } = useChat({
+        maxMessages: 200,
+        enableSounds: true,
+        autoScrollToBottom: true
+    });
+
+    // 房间事件处理（现在在正确的上下文中）
+    const room = useRoomContext();
+
+    useEffect(() => {
+        if (!room) return;
+
+        const handleParticipantConnected = (participant: any) => {
+            console.log('参与者加入:', participant.identity);
+            addNotification({
+                type: 'info',
+                title: '用户加入',
+                message: `${participant.identity} 加入了房间`
+            });
+        };
+
+        const handleParticipantDisconnected = (participant: any) => {
+            console.log('参与者离开:', participant.identity);
+            addNotification({
+                type: 'info',
+                title: '用户离开',
+                message: `${participant.identity} 离开了房间`
+            });
+        };
+
+        room.on('participantConnected', handleParticipantConnected);
+        room.on('participantDisconnected', handleParticipantDisconnected);
+
+        return () => {
+            room.off('participantConnected', handleParticipantConnected);
+            room.off('participantDisconnected', handleParticipantDisconnected);
+        };
+    }, [room, addNotification]);
+
+    return (
+        <>
+            <VideoConference 
+                chatMessageFormatter={formatChatMessageLinks}
+            />
+            
+            {/* 自定义控制栏 */}
+            <ControlBar
+                onToggleChat={() => toggleUIPanel('showChat')}
+                onToggleParticipants={() => toggleUIPanel('showParticipants')}
+                onToggleSettings={() => toggleUIPanel('showSettings')}
+                onToggleFullscreen={toggleFullscreen}
+                onLeaveRoom={leaveRoom}
+                isFullscreen={uiState.isFullscreen}
+                chatUnreadCount={chatState.unreadCount}
+            />
+
+            {/* 右侧聊天面板 */}
+            {uiState.showChat && (
+                <div className="absolute top-0 right-0 h-full w-80 bg-gray-800 border-l border-gray-700 z-10">
+                    <ChatPanel
+                        chatState={chatState}
+                        onSendMessage={sendTextMessage}
+                        onSendImage={sendImageMessage}
+                        onToggleChat={() => toggleUIPanel('showChat')}
+                        onClearMessages={clearMessages}
+                        onRetryMessage={retryMessage}
+                        onDeleteMessage={deleteMessage}
+                        onImageClick={openPreview}
+                        onClose={() => {
+                            toggleUIPanel('showChat');
+                            clearUnreadCount();
+                        }}
+                    />
+                </div>
+            )}
+
+            {/* 图片预览 */}
+            {previewState.isOpen && (
+                <ImagePreview
+                    src={previewState.src}
+                    onClose={closePreview}
+                />
+            )}
+        </>
+    );
+}
+
 function RoomPageContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -76,47 +205,15 @@ function RoomPageContent() {
         sidebarCollapsed: false
     });
 
-    const [notifications, setNotifications] = useState<Array<{
-        id: string;
-        type: 'info' | 'success' | 'warning' | 'error';
-        title: string;
-        message: string;
-        timestamp: Date;
-    }>>([]);
+    const [notifications, setNotifications] = useState<Notification[]>([]);
 
     // Refs
     const roomRef = useRef<Room | null>(null);
     const isMountedRef = useRef(true);
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-    // Hooks
+    // Hooks（在 LiveKitRoom 外部的 hooks）
     const { playSound } = useAudioManager({ autoInitialize: true });
-    const { 
-        previewState, 
-        openPreview, 
-        closePreview,
-        zoom,
-        position,
-        zoomIn,
-        zoomOut,
-        resetZoom,
-        setPosition
-    } = useImagePreview();
-    
-    const {
-        chatState,
-        sendTextMessage,
-        sendImageMessage,
-        toggleChat,
-        clearUnreadCount,
-        clearMessages,
-        retryMessage,
-        deleteMessage
-    } = useChat({
-        maxMessages: 200,
-        enableSounds: true,
-        autoScrollToBottom: true
-    });
 
     // 验证必需参数
     const validateParams = useCallback(() => {
@@ -231,7 +328,7 @@ function RoomPageContent() {
     }, [validateParams, getAccessToken, roomName, playSound]);
 
     // 添加通知
-    const addNotification = useCallback((notification: Omit<typeof notifications[0], 'id' | 'timestamp'>) => {
+    const addNotification = useCallback((notification: Omit<Notification, 'id' | 'timestamp'>) => {
         const newNotification = {
             ...notification,
             id: `notification_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -289,28 +386,6 @@ function RoomPageContent() {
             type: 'error',
             title: '房间错误',
             message: error.message
-        });
-    }, [playSound, addNotification]);
-
-    const handleParticipantConnected = useCallback((participant: any) => {
-        console.log('参与者加入:', participant.identity);
-        
-        playSound('user-join');
-        addNotification({
-            type: 'info',
-            title: '用户加入',
-            message: `${participant.identity} 加入了房间`
-        });
-    }, [playSound, addNotification]);
-
-    const handleParticipantDisconnected = useCallback((participant: any) => {
-        console.log('参与者离开:', participant.identity);
-        
-        playSound('user-leave');
-        addNotification({
-            type: 'info',
-            title: '用户离开',
-            message: `${participant.identity} 离开了房间`
         });
     }, [playSound, addNotification]);
 
@@ -456,6 +531,22 @@ function RoomPageContent() {
         );
     }
 
+    // 确保必要参数存在
+    if (!roomName || !username) {
+        return (
+            <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
+                <div className="max-w-md w-full">
+                    <ErrorDisplay
+                        title="参数错误"
+                        message="缺少必需的房间参数"
+                        showRetry
+                        onRetry={() => router.push('/')}
+                    />
+                </div>
+            </div>
+        );
+    }
+
     // 主要房间界面
     return (
         <div className={`min-h-screen bg-gray-900 flex flex-col ${uiState.isFullscreen ? 'fixed inset-0 z-50' : ''}`}>
@@ -497,25 +588,6 @@ function RoomPageContent() {
                             </button>
                             
                             <button
-                                onClick={() => toggleUIPanel('showChat')}
-                                className={`p-2 rounded-lg transition-colors relative ${
-                                    uiState.showChat 
-                                        ? 'bg-blue-600 text-white' 
-                                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                                }`}
-                                title="聊天"
-                            >
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                                </svg>
-                                {chatState.unreadCount > 0 && (
-                                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                                        {chatState.unreadCount > 9 ? '9+' : chatState.unreadCount}
-                                    </span>
-                                )}
-                            </button>
-                            
-                            <button
                                 onClick={() => toggleUIPanel('showSettings')}
                                 className={`p-2 rounded-lg transition-colors ${
                                     uiState.showSettings 
@@ -554,7 +626,7 @@ function RoomPageContent() {
                 )}
 
                 {/* 中央视频区域 */}
-                <div className="flex-1 flex flex-col bg-black">
+                <div className="flex-1 flex flex-col bg-black relative">
                     <LiveKitRoom
                         token={roomState.token}
                         serverUrl={roomState.serverUrl}
@@ -567,51 +639,18 @@ function RoomPageContent() {
                         screen={true}
                         data-lk-theme="default"
                     >
-                        <VideoConference 
-                            chatMessageFormatter={formatChatMessageLinks}
-                        />
-                        
-                        {/* 自定义控制栏 */}
-                        <ControlBar
-                            onToggleChat={() => toggleUIPanel('showChat')}
-                            onToggleParticipants={() => toggleUIPanel('showParticipants')}
-                            onToggleSettings={() => toggleUIPanel('showSettings')}
-                            onToggleFullscreen={toggleFullscreen}
-                            onLeaveRoom={leaveRoom}
-                            isFullscreen={uiState.isFullscreen}
-                            chatUnreadCount={chatState.unreadCount}
+                        <RoomInnerContent
+                            roomName={roomName}
+                            username={username}
+                            uiState={uiState}
+                            toggleUIPanel={toggleUIPanel}
+                            toggleFullscreen={toggleFullscreen}
+                            leaveRoom={leaveRoom}
+                            addNotification={addNotification}
                         />
                     </LiveKitRoom>
                 </div>
-
-                {/* 右侧聊天面板 */}
-                {uiState.showChat && (
-                    <div className="w-80 bg-gray-800 border-l border-gray-700">
-                        <ChatPanel
-                            chatState={chatState}
-                            onSendMessage={sendTextMessage}
-                            onSendImage={sendImageMessage}
-                            onToggleChat={() => toggleUIPanel('showChat')}
-                            onClearMessages={clearMessages}
-                            onRetryMessage={retryMessage}
-                            onDeleteMessage={deleteMessage}
-                            onImageClick={openPreview}
-                            onClose={() => {
-                                toggleUIPanel('showChat');
-                                clearUnreadCount();
-                            }}
-                        />
-                    </div>
-                )}
             </div>
-
-            {/* 图片预览 */}
-            {previewState.isOpen && (
-                <ImagePreview
-                    src={previewState.src}
-                    onClose={closePreview}
-                />
-            )}
 
             {/* 通知中心 */}
             <NotificationCenter

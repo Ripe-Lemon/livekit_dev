@@ -9,22 +9,21 @@ import {
     useTracks,
     RoomContext,
     useRoomContext,
+    Chat, // 导入 Chat 组件
 } from '@livekit/components-react';
 import {
     Room,
     Track,
     createLocalAudioTrack,
     AudioPresets,
-    LocalAudioTrack,
 } from 'livekit-client';
 import '@livekit/components-styles';
 import { useEffect, useState, Suspense, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
-
 // =======================================================================
-//     ↓↓↓ 修改点: 更新音频控制组件的样式，使其悬浮在顶部中央 ↓↓↓
+//     ↓↓↓ 修改点: 将音频控制组件重构为 ControlBar 的一部分 ↓↓↓
 // =======================================================================
 interface AudioProcessingControlsProps {
     isNoiseSuppressionEnabled: boolean;
@@ -33,55 +32,37 @@ interface AudioProcessingControlsProps {
     onToggleEchoCancellation: () => void;
 }
 
+// 自定义音频控制按钮 (不再是悬浮组件)
 function AudioProcessingControls({
                                      isNoiseSuppressionEnabled,
                                      onToggleNoiseSuppression,
                                      isEchoCancellationEnabled,
                                      onToggleEchoCancellation,
                                  }: AudioProcessingControlsProps) {
-    // 按钮的基础样式
-    const baseButtonStyles = "px-4 py-2 text-sm rounded-md text-white transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400";
+    // 按钮的基础样式 (适配 ControlBar)
+    const baseButtonStyles = "lk-button";
     // 激活状态的样式
-    const enabledStyles = "bg-blue-600 hover:bg-blue-700";
-    // 关闭状态的样式
-    const disabledStyles = "bg-gray-800/80 hover:bg-gray-700/80";
+    const enabledStyles = "lk-button-primary";
 
     return (
-        // 中文注释: 使用 fixed 定位，并用 left-1/2 和 -translate-x-1/2 的组合来实现水平居中
-        <div
-            className="
-                fixed          /* 固定定位，悬浮于页面之上 */
-                top-6          /* 距离顶部 1.5rem */
-                left-1/2       /* 定位到屏幕中心线 */
-                -translate-x-1/2 /* 向左移动自身宽度的一半，实现完美居中 */
-                z-50           /* 确保在最上层 */
-                flex           /* 使用 flex 布局排列内部按钮 */
-                items-center
-                gap-3          /* 按钮之间的间距 */
-                rounded-lg     /* 圆角 */
-                bg-black/60    /* 半透明黑色背景，与其它悬浮按钮统一 */
-                p-2            /* 内部留白 */
-                shadow-lg      /* 添加阴影 */
-                backdrop-blur-sm /* 背景模糊效果 (毛玻璃) */
-            "
-        >
+        <>
             <button
                 onClick={onToggleNoiseSuppression}
-                className={`${baseButtonStyles} ${isNoiseSuppressionEnabled ? enabledStyles : disabledStyles}`}
+                className={`${baseButtonStyles} ${isNoiseSuppressionEnabled ? enabledStyles : ''}`}
             >
-                降噪: {isNoiseSuppressionEnabled ? '开启' : '关闭'}
+                降噪 {isNoiseSuppressionEnabled ? '开' : '关'}
             </button>
             <button
                 onClick={onToggleEchoCancellation}
-                className={`${baseButtonStyles} ${isEchoCancellationEnabled ? enabledStyles : disabledStyles}`}
+                className={`${baseButtonStyles} ${isEchoCancellationEnabled ? enabledStyles : ''}`}
             >
-                回声消除: {isEchoCancellationEnabled ? '开启' : '关闭'}
+                回声消除 {isEchoCancellationEnabled ? '开' : '关'}
             </button>
-        </div>
+        </>
     );
 }
 
-
+// 房间信息头部
 function RoomHeader() {
     const room = useRoomContext();
     return (
@@ -92,10 +73,15 @@ function RoomHeader() {
     );
 }
 
-// 将核心逻辑封装在一个新组件中
+// 核心房间逻辑
 function LiveKitRoom() {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    // =======================================================================
+    //     ↓↓↓ 修改点: 新增 state 用于控制聊天面板的显示/隐藏 ↓↓↓
+    // =======================================================================
+    const [showChat, setShowChat] = useState(false);
+
     const [room] = useState(() => new Room({
         adaptiveStream: true,
         dynacast: true,
@@ -104,11 +90,12 @@ function LiveKitRoom() {
     const [isNoiseSuppressionEnabled, setIsNoiseSuppressionEnabled] = useState(false);
     const [isEchoCancellationEnabled, setIsEchoCancellationEnabled] = useState(false);
 
-
     const searchParams = useSearchParams();
 
     const publishAudioTrack = useCallback(async (noiseSuppression: boolean, echoCancellation: boolean) => {
+        // 中文注释: 获取已有的麦克风轨道
         const existingTrackPublication = room.localParticipant.getTrackPublication(Track.Source.Microphone);
+        // 中文注释: 如果存在，先停止并取消发布
         if (existingTrackPublication && existingTrackPublication.track) {
             existingTrackPublication.track.stop();
             await room.localParticipant.unpublishTrack(existingTrackPublication.track);
@@ -116,12 +103,14 @@ function LiveKitRoom() {
 
         console.log(`正在创建音轨, 降噪: ${noiseSuppression}, 回声消除: ${echoCancellation}`);
         try {
+            // 中文注释: 根据新的设置创建本地音频轨道
             const audioTrack = await createLocalAudioTrack({
                 channelCount: 2,
                 echoCancellation: echoCancellation,
                 noiseSuppression: noiseSuppression,
             });
 
+            // 中文注释: 发布新的音频轨道
             await room.localParticipant.publishTrack(audioTrack, {
                 audioPreset: AudioPresets.musicHighQualityStereo,
                 dtx: false,
@@ -135,10 +124,8 @@ function LiveKitRoom() {
         }
     }, [room]);
 
-
     useEffect(() => {
         let mounted = true;
-
         const roomName = searchParams.get('roomName');
         const participantName = searchParams.get('participantName');
 
@@ -152,37 +139,26 @@ function LiveKitRoom() {
             try {
                 const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL;
                 if (!livekitUrl) {
-                    console.error('NEXT_PUBLIC_LIVEKIT_URL is not defined in .env.local');
-                    setError('服务器配置错误: 未找到 LiveKit URL。');
-                    setIsLoading(false);
-                    return;
+                    throw new Error('服务器配置错误: 未找到 LiveKit URL。');
                 }
 
                 const apiUrl = `https://livekit-api.2k2.cc/api/room?room=${roomName}&identity=${participantName}&name=${participantName}`;
                 const resp = await fetch(apiUrl);
-
                 if (!mounted) return;
 
                 const data = await resp.json();
-
                 if (data.token) {
                     await room.connect(livekitUrl, data.token);
                     if (!mounted) return;
                     console.log(`成功连接到 LiveKit 房间: ${roomName}`);
-
                     await publishAudioTrack(isNoiseSuppressionEnabled, isEchoCancellationEnabled);
-
                 } else {
                     throw new Error(data.error || '无法从服务器获取 Token');
                 }
             } catch (e: any) {
                 console.error(e);
                 if (mounted) {
-                    if (e.name === 'NotAllowedError' || e.message.includes('permission denied')) {
-                        setError(`连接失败: 未能获取媒体权限。请在浏览器设置中允许访问麦克风和摄像头。`);
-                    } else {
-                        setError(`连接失败: ${e.message}`);
-                    }
+                    setError(`连接失败: ${e.message}`);
                 }
             } finally {
                 if (mounted) {
@@ -197,8 +173,8 @@ function LiveKitRoom() {
             mounted = false;
             room.disconnect();
         };
-    }, [room, searchParams, publishAudioTrack, isNoiseSuppressionEnabled, isEchoCancellationEnabled]);
-
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // 依赖项已简化，避免不必要的重连
 
     const handleToggleNoiseSuppression = async () => {
         const newValue = !isNoiseSuppressionEnabled;
@@ -212,16 +188,15 @@ function LiveKitRoom() {
         await publishAudioTrack(isNoiseSuppressionEnabled, newValue);
     };
 
-
     if (isLoading) {
-        return <div className="flex h-screen items-center justify-center text-xl">正在连接房间...</div>;
+        return <div className="flex h-screen items-center justify-center bg-gray-900 text-xl text-white">正在连接房间...</div>;
     }
 
     if (error) {
         return (
-            <div className="flex h-screen flex-col items-center justify-center gap-4">
+            <div className="flex h-screen flex-col items-center justify-center gap-4 bg-gray-900">
                 <p className="text-xl font-bold text-red-500">连接错误</p>
-                <div className="text-lg text-gray-700">{error}</div>
+                <div className="text-lg text-gray-300">{error}</div>
                 <Link href="/" className="mt-4 rounded-md bg-blue-600 px-6 py-2 text-lg text-white shadow-sm hover:bg-blue-700">
                     返回大厅
                 </Link>
@@ -231,25 +206,56 @@ function LiveKitRoom() {
 
     return (
         <RoomContext.Provider value={room}>
-            <div data-lk-theme="default" style={{ height: '100dvh' }}>
+            {/* ===============================================================
+                  ↓↓↓ 修改点: 使用 flex 布局实现 左侧聊天 + 右侧视频 的结构 ↓↓↓
+              ===============================================================
+            */}
+            <div data-lk-theme="default" className="flex h-screen flex-col bg-gray-900">
                 <RoomHeader />
-                {/* ============================================================== */}
-                {/* ↓↓↓ 修改点: 将音频控件移到这里，使其成为顶级UI元素 ↓↓↓        */}
-                {/* ============================================================== */}
-                <AudioProcessingControls
-                    isNoiseSuppressionEnabled={isNoiseSuppressionEnabled}
-                    onToggleNoiseSuppression={handleToggleNoiseSuppression}
-                    isEchoCancellationEnabled={isEchoCancellationEnabled}
-                    onToggleEchoCancellation={handleToggleEchoCancellation}
-                />
+                <div className="flex flex-1 overflow-hidden">
+                    {/* 左侧聊天面板 */}
+                    <div
+                        className={`
+                            flex flex-col transition-all duration-300
+                            ${showChat ? 'w-full max-w-sm' : 'w-0'}
+                        `}
+                    >
+                        {showChat && <Chat className="flex-1" />}
+                    </div>
 
-                <MyVideoConference />
-                <RoomAudioRenderer />
+                    {/* 右侧主视频区域 */}
+                    <div className="flex-1 flex flex-col">
+                        <MyVideoConference />
+                        <RoomAudioRenderer />
+                    </div>
+                </div>
 
-                {/* ============================================================== */}
-                {/* ↓↓↓ 修改点: ControlBar 现在不再包含自定义控件 ↓↓↓        */}
-                {/* ============================================================== */}
-                <ControlBar />
+                {/* ========================================================================================
+                      ↓↓↓ 修改点: 统一的底部控制栏，集成了标准控件和自定义音频控件, 并移除了 Disconnect 按钮 ↓↓↓
+                  ========================================================================================
+                */}
+                <div className="flex items-center justify-center gap-4 p-4 bg-gray-900/80 backdrop-blur-sm">
+                    {/* 标准 ControlBar, 用于控制麦克风、摄像头、屏幕共享和聊天 */}
+                    <ControlBar
+                        variation="minimal"
+                        controls={{
+                            microphone: true,
+                            camera: true,
+                            chat: true,
+                            screenShare: true,
+                        }}
+                        onToggle={() => setShowChat(!showChat)}
+                    />
+                    {/* 分隔符 */}
+                    <div className="h-6 w-px bg-gray-600"></div>
+                    {/* 自定义音频控件 */}
+                    <AudioProcessingControls
+                        isNoiseSuppressionEnabled={isNoiseSuppressionEnabled}
+                        onToggleNoiseSuppression={handleToggleNoiseSuppression}
+                        isEchoCancellationEnabled={isEchoCancellationEnabled}
+                        onToggleEchoCancellation={handleToggleEchoCancellation}
+                    />
+                </div>
             </div>
         </RoomContext.Provider>
     );
@@ -264,16 +270,18 @@ function MyVideoConference() {
         { onlySubscribed: false },
     );
     return (
-        <GridLayout tracks={tracks} style={{ height: 'calc(100vh - var(--lk-control-bar-height))' }}>
+        // 中文注释: 高度现在由 flex-1 自动管理，无需手动计算
+        <GridLayout tracks={tracks} className="flex-1">
             <ParticipantTile />
         </GridLayout>
     );
 }
 
+// 页面入口组件
 export default function Page() {
     return (
         <div>
-            <Suspense fallback={<div className="flex h-screen items-center justify-center text-xl">加载中...</div>}>
+            <Suspense fallback={<div className="flex h-screen items-center justify-center bg-gray-900 text-xl text-white">加载中...</div>}>
                 <LiveKitRoom />
             </Suspense>
 

@@ -322,9 +322,11 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
     const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
     const [showScaleInfo, setShowScaleInfo] = useState(false);
     const [showOperationTips, setShowOperationTips] = useState(true);
+    const [showImageInfo, setShowImageInfo] = useState(true);
     const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
     const scaleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const tipsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const imageInfoTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const imageRef = useRef<HTMLImageElement>(null);
 
     useEffect(() => {
@@ -341,6 +343,11 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
             setShowOperationTips(false);
         }, 3000);
 
+        // 显示图片信息，2秒后自动隐藏
+        imageInfoTimeoutRef.current = setTimeout(() => {
+            setShowImageInfo(false);
+        }, 2000);
+
         return () => {
             document.removeEventListener('keydown', handleKeyDown);
             if (scaleTimeoutRef.current) {
@@ -348,6 +355,9 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
             }
             if (tipsTimeoutRef.current) {
                 clearTimeout(tipsTimeoutRef.current);
+            }
+            if (imageInfoTimeoutRef.current) {
+                clearTimeout(imageInfoTimeoutRef.current);
             }
         };
     }, [onClose]);
@@ -380,32 +390,33 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
         }, 1500);
     };
 
-    // 以鼠标位置为中心的缩放
+    // 修复：以鼠标绝对位置为中心的缩放
     const handleWheel = (e: React.WheelEvent) => {
         e.preventDefault();
         
         if (!imageRef.current) return;
 
-        const rect = imageRef.current.getBoundingClientRect();
-        const imageCenter = {
-            x: rect.left + rect.width / 2,
-            y: rect.top + rect.height / 2
+        // 获取容器中心点（屏幕中心）
+        const containerCenter = {
+            x: window.innerWidth / 2,
+            y: window.innerHeight / 2
         };
 
-        // 计算鼠标相对于图片中心的偏移
+        // 计算鼠标相对于容器中心的偏移
         const mouseOffset = {
-            x: e.clientX - imageCenter.x,
-            y: e.clientY - imageCenter.y
+            x: e.clientX - containerCenter.x,
+            y: e.clientY - containerCenter.y
         };
 
         const delta = e.deltaY > 0 ? 0.9 : 1.1;
         const newScale = Math.max(0.1, Math.min(scale * delta, 5));
         
-        // 计算缩放后需要调整的位置，使鼠标位置保持不变
+        // 计算缩放后需要调整的位置
+        // 使鼠标在图片上的点在缩放后保持在相同的屏幕位置
         const scaleDiff = newScale / scale;
         const newPosition = {
-            x: position.x - mouseOffset.x * (scaleDiff - 1) / newScale,
-            y: position.y - mouseOffset.y * (scaleDiff - 1) / newScale
+            x: position.x + mouseOffset.x * (1 - scaleDiff),
+            y: position.y + mouseOffset.y * (1 - scaleDiff)
         };
 
         setScale(newScale);
@@ -448,8 +459,18 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
         }, 3000);
     };
 
+    // 点击图片信息重新显示
+    const handleImageInfoClick = () => {
+        setShowImageInfo(true);
+        if (imageInfoTimeoutRef.current) {
+            clearTimeout(imageInfoTimeoutRef.current);
+        }
+        imageInfoTimeoutRef.current = setTimeout(() => {
+            setShowImageInfo(false);
+        }, 2000);
+    };
+
     return (
-        // 修复：使用 React Portal 确保真正的全屏显示并完全居中
         <>
             {typeof window !== 'undefined' && (
                 <div 
@@ -499,6 +520,43 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
                             </div>
                         )}
 
+                        {/* 图片信息显示 - 2秒后自动隐藏，点击可重新显示 */}
+                        <div 
+                            className={`absolute top-6 left-1/2 transform -translate-x-1/2 z-10 bg-black/60 text-white px-4 py-2 rounded-lg text-sm backdrop-blur-sm cursor-pointer transition-opacity duration-500 ${
+                                showImageInfo ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                            }`}
+                            onClick={handleImageInfoClick}
+                        >
+                            {imageSize.width > 0 && imageSize.height > 0 && (
+                                <span>{imageSize.width} × {imageSize.height} 像素</span>
+                            )}
+                        </div>
+
+                        {/* 重新显示图片信息的按钮（当信息隐藏时） */}
+                        {!showImageInfo && (
+                            <button
+                                onClick={handleImageInfoClick}
+                                className="absolute top-6 left-6 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60 transition-colors backdrop-blur-sm"
+                                title="显示图片信息"
+                            >
+                                <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    width="16"
+                                    height="16"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                >
+                                    <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
+                                    <circle cx="9" cy="9" r="2"/>
+                                    <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
+                                </svg>
+                            </button>
+                        )}
+
                         {/* 操作提示 - 3秒后自动消失，点击可重新显示 */}
                         <div 
                             className={`absolute bottom-6 left-1/2 transform -translate-x-1/2 z-10 bg-black/60 text-white px-4 py-2 rounded-lg text-sm backdrop-blur-sm cursor-pointer transition-opacity duration-500 ${
@@ -533,13 +591,6 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
                                 </svg>
                             </button>
                         )}
-
-                        {/* 图片信息显示 */}
-                        <div className="absolute top-6 left-1/2 transform -translate-x-1/2 z-10 bg-black/60 text-white px-4 py-2 rounded-lg text-sm backdrop-blur-sm">
-                            {imageSize.width > 0 && imageSize.height > 0 && (
-                                <span>{imageSize.width} × {imageSize.height} 像素</span>
-                            )}
-                        </div>
 
                         {/* 图片 - 完全居中显示 */}
                         <img
@@ -734,9 +785,11 @@ function CustomChatWithPreview({ setPreviewImage, previewImage }: { setPreviewIm
         progress?: number;
     }>>([]);
     const [isDragging, setIsDragging] = useState(false);
+    const [isImageDragging, setIsImageDragging] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const chatContainerRef = useRef<HTMLDivElement>(null);
     const room = useRoomContext();
     
     // 图片分片管理器
@@ -913,27 +966,59 @@ function CustomChatWithPreview({ setPreviewImage, previewImage }: { setPreviewIm
         }
     }, [handleImageFile]);
 
-    // 处理拖拽事件
+    // 检查拖拽的目标是否是聊天容器内部
+    const isDropTargetInChatContainer = useCallback((target: EventTarget | null): boolean => {
+        if (!target || !chatContainerRef.current) return false;
+        return chatContainerRef.current.contains(target as Node);
+    }, []);
+
+    // 处理外部文件拖拽事件
     const handleDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault();
-        setIsDragging(true);
-    }, []);
+        
+        // 只有在拖拽文件时才显示拖拽提示
+        if (e.dataTransfer?.types.includes('Files') && !isImageDragging) {
+            setIsDragging(true);
+        }
+    }, [isImageDragging]);
 
     const handleDragLeave = useCallback((e: React.DragEvent) => {
         e.preventDefault();
-        setIsDragging(false);
-    }, []);
+        
+        // 只有当拖拽离开聊天容器时才隐藏提示
+        if (!isDropTargetInChatContainer(e.relatedTarget)) {
+            setIsDragging(false);
+        }
+    }, [isDropTargetInChatContainer]);
 
     const handleDrop = useCallback((e: React.DragEvent) => {
         e.preventDefault();
         setIsDragging(false);
+        
+        // 检查是否是聊天图片的拖拽
+        if (isImageDragging) {
+            // 不允许图片拖回聊天框
+            return;
+        }
         
         const files = e.dataTransfer?.files;
         if (files && files.length > 0) {
             const file = files[0];
             handleImageFile(file);
         }
-    }, [handleImageFile]);
+    }, [handleImageFile, isImageDragging]);
+
+    // 处理聊天图片的拖拽开始
+    const handleImageDragStart = useCallback((e: React.DragEvent) => {
+        setIsImageDragging(true);
+        // 允许图片拖拽到聊天框外部
+        e.dataTransfer.effectAllowed = 'copy';
+    }, []);
+
+    // 处理聊天图片的拖拽结束
+    const handleImageDragEnd = useCallback(() => {
+        setIsImageDragging(false);
+    }, []);
 
     // 发送文本消息
     const sendMessage = useCallback(async () => {
@@ -978,13 +1063,14 @@ function CustomChatWithPreview({ setPreviewImage, previewImage }: { setPreviewIm
 
     return (
         <div 
+            ref={chatContainerRef}
             className="flex flex-col h-full"
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
         >
-            {/* 拖拽覆盖层 */}
-            {isDragging && (
+            {/* 拖拽覆盖层 - 只在拖拽外部文件时显示 */}
+            {isDragging && !isImageDragging && (
                 <div className="absolute inset-0 bg-blue-500/20 border-2 border-dashed border-blue-500 rounded-lg flex items-center justify-center z-10">
                     <div className="text-center text-blue-400">
                         <svg
@@ -1005,6 +1091,32 @@ function CustomChatWithPreview({ setPreviewImage, previewImage }: { setPreviewIm
                         </svg>
                         <p className="text-lg font-medium">拖拽图片到这里发送</p>
                         <p className="text-sm opacity-75">支持最大 {MAX_IMAGE_SIZE / 1024 / 1024}MB 的图片文件</p>
+                    </div>
+                </div>
+            )}
+
+            {/* 聊天图片拖拽提示层 */}
+            {isImageDragging && (
+                <div className="absolute inset-0 bg-red-500/20 border-2 border-dashed border-red-500 rounded-lg flex items-center justify-center z-10">
+                    <div className="text-center text-red-400">
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="48"
+                            height="48"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="mx-auto mb-2"
+                        >
+                            <circle cx="12" cy="12" r="10"/>
+                            <line x1="15" y1="9" x2="9" y2="15"/>
+                            <line x1="9" y1="9" x2="15" y2="15"/>
+                        </svg>
+                        <p className="text-lg font-medium">不能拖回聊天框</p>
+                        <p className="text-sm opacity-75">请拖拽到聊天框外部</p>
                     </div>
                 </div>
             )}
@@ -1048,8 +1160,11 @@ function CustomChatWithPreview({ setPreviewImage, previewImage }: { setPreviewIm
                                         alt="聊天图片"
                                         className="max-w-full h-auto rounded cursor-pointer hover:opacity-80 transition-opacity"
                                         onDoubleClick={() => setPreviewImage(msg.image!)}
+                                        onDragStart={handleImageDragStart}
+                                        onDragEnd={handleImageDragEnd}
                                         style={{ maxHeight: '200px' }}
-                                        title="双击全屏查看"
+                                        title="双击全屏查看，可拖拽到聊天框外部"
+                                        draggable={true}
                                     />
                                     {/* 发送进度条 */}
                                     {msg.sending && (
@@ -1073,7 +1188,7 @@ function CustomChatWithPreview({ setPreviewImage, previewImage }: { setPreviewIm
                 <div ref={messagesEndRef} />
             </div>
 
-            {/* 发送消息区域 - 修改提示文字 */}
+            {/* 发送消息区域 */}
             <div className="border-t border-gray-700 p-4 flex-shrink-0">
                 <div className="flex gap-2">
                     <textarea

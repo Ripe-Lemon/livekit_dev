@@ -2,8 +2,20 @@
 
 import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { LiveKitRoom, VideoConference, formatChatMessageLinks, useRoomContext } from '@livekit/components-react';
-import { Room, DisconnectReason, ConnectionQuality } from 'livekit-client';
+import { 
+    LiveKitRoom, 
+    VideoConference, 
+    formatChatMessageLinks, 
+    useRoomContext,
+    Chat,
+    ControlBar,
+    GridLayout,
+    ParticipantTile,
+    RoomAudioRenderer,
+    useTracks,
+    useParticipants
+} from '@livekit/components-react';
+import { Room, DisconnectReason, ConnectionQuality, Track } from 'livekit-client';
 
 // Components
 import { LoadingSpinner, PageLoadingSpinner } from '../components/ui/LoadingSpinner';
@@ -12,12 +24,10 @@ import { ImagePreview } from '../components/ui/ImagePreview';
 import { NotificationCenter } from '../components/ui/NotificationCenter';
 
 // Hooks
-import { useAudioManager } from '../hooks/useAudioManager';
 import { useImagePreview } from '../hooks/useImagePreview';
 
 // Types
 import { RoomConnectionParams } from '../types/room';
-import { SoundEvent } from '../types/audio';
 
 // Styles
 import '@livekit/components-styles';
@@ -39,6 +49,7 @@ interface UIState {
     showSettings: boolean;
     isFullscreen: boolean;
     sidebarCollapsed: boolean;
+    chatWidth: number;
 }
 
 interface Notification {
@@ -49,14 +60,15 @@ interface Notification {
     timestamp: Date;
 }
 
-// 简化的控制栏组件 - 不依赖 room context
-function SimpleControlBar({ 
+// 自定义控制栏组件
+function CustomControlBar({ 
     onToggleChat, 
     onToggleParticipants, 
     onToggleSettings, 
     onToggleFullscreen, 
     onLeaveRoom,
-    isFullscreen 
+    isFullscreen,
+    showChat 
 }: {
     onToggleChat: () => void;
     onToggleParticipants: () => void;
@@ -64,13 +76,24 @@ function SimpleControlBar({
     onToggleFullscreen: () => void;
     onLeaveRoom: () => void;
     isFullscreen: boolean;
+    showChat: boolean;
 }) {
     return (
         <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-20">
             <div className="flex items-center space-x-2 bg-gray-800 bg-opacity-90 backdrop-blur-sm rounded-lg px-4 py-2">
+                {/* LiveKit 默认控制栏 */}
+                <div className="flex items-center space-x-2">
+                    <ControlBar variation="minimal" />
+                </div>
+                
+                <div className="w-px h-6 bg-gray-600 mx-2"></div>
+                
+                {/* 自定义按钮 */}
                 <button
                     onClick={onToggleChat}
-                    className="p-2 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-colors"
+                    className={`p-2 rounded-lg text-white transition-colors ${
+                        showChat ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-700 hover:bg-gray-600'
+                    }`}
                     title="聊天"
                 >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -129,6 +152,136 @@ function SimpleControlBar({
     );
 }
 
+// 自定义视频网格组件
+function CustomVideoConference({ uiState }: { uiState: UIState }) {
+    const tracks = useTracks(
+        [
+            { source: Track.Source.Camera, withPlaceholder: true },
+            { source: Track.Source.ScreenShare, withPlaceholder: false },
+        ],
+        { onlySubscribed: false }
+    );
+
+    return (
+        <div className="relative w-full h-full">
+            <GridLayout tracks={tracks} style={{ height: '100%' }}>
+                <ParticipantTile />
+            </GridLayout>
+            <RoomAudioRenderer />
+        </div>
+    );
+}
+
+// 聊天面板组件
+function ChatPanel({ 
+    isOpen, 
+    onClose, 
+    width 
+}: { 
+    isOpen: boolean; 
+    onClose: () => void; 
+    width: number; 
+}) {
+    if (!isOpen) return null;
+
+    return (
+        <div 
+            className="absolute top-0 right-0 h-full bg-gray-800 border-l border-gray-700 z-10 flex flex-col"
+            style={{ width: `${width}px` }}
+        >
+            {/* 聊天头部 */}
+            <div className="flex items-center justify-between p-4 border-b border-gray-700">
+                <h3 className="text-lg font-semibold text-white">聊天</h3>
+                <button
+                    onClick={onClose}
+                    className="text-gray-400 hover:text-white transition-colors"
+                >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            
+            {/* 聊天内容 */}
+            <div className="flex-1">
+                <Chat 
+                    messageFormatter={formatChatMessageLinks}
+                    style={{ height: '100%' }}
+                />
+            </div>
+        </div>
+    );
+}
+
+// 参与者面板组件
+function ParticipantsPanel({ 
+    isOpen, 
+    onClose 
+}: { 
+    isOpen: boolean; 
+    onClose: () => void; 
+}) {
+    const room = useRoomContext();
+    const participants = useParticipants();
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="absolute top-0 left-0 h-full w-80 bg-gray-800 border-r border-gray-700 z-10">
+            <div className="p-4">
+                <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-white">参与者</h3>
+                    <button
+                        onClick={onClose}
+                        className="text-gray-400 hover:text-white"
+                    >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                
+                <div className="space-y-4">
+                    {room && (
+                        <div className="text-sm text-gray-300">
+                            <p className="mb-2">房间: {room.name}</p>
+                            <p className="mb-4">总参与者: {participants.length}</p>
+                        </div>
+                    )}
+                    
+                    <div className="space-y-2">
+                        <h4 className="font-medium text-white">在线用户</h4>
+                        {participants.map((participant) => (
+                            <div key={participant.identity} className="flex items-center space-x-3 p-2 rounded-lg bg-gray-700">
+                                <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium text-white">
+                                        {participant.identity}
+                                        {participant.isLocal && ' (我)'}
+                                    </p>
+                                    <p className="text-xs text-gray-400">
+                                        {participant.isSpeaking ? '正在说话' : '静默'}
+                                    </p>
+                                </div>
+                                {participant.isCameraEnabled && (
+                                    <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                    </svg>
+                                )}
+                                {participant.isMicrophoneEnabled && (
+                                    <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                                    </svg>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 // 房间内部组件 - 可以访问 LiveKit Room Context
 function RoomInnerContent({ 
     roomName, 
@@ -137,7 +290,8 @@ function RoomInnerContent({
     toggleUIPanel, 
     toggleFullscreen, 
     leaveRoom, 
-    addNotification 
+    addNotification,
+    setChatWidth
 }: {
     roomName: string;
     username: string;
@@ -146,11 +300,11 @@ function RoomInnerContent({
     toggleFullscreen: () => void;
     leaveRoom: () => void;
     addNotification: (notification: Omit<Notification, 'id' | 'timestamp'>) => void;
+    setChatWidth: (width: number) => void;
 }) {
-    // 现在在 LiveKitRoom 内部，可以安全访问 room context
     const room = useRoomContext();
+    const participants = useParticipants();
     
-    // 图片预览 hook 应该是安全的
     const { 
         previewState, 
         openPreview, 
@@ -162,7 +316,7 @@ function RoomInnerContent({
 
         console.log('房间连接成功，房间信息:', {
             name: room.name,
-            participants: room.numParticipants,
+            participants: participants.length,
             localParticipant: room.localParticipant?.identity
         });
 
@@ -188,84 +342,61 @@ function RoomInnerContent({
             console.log('连接质量变化:', quality, participant.identity);
         };
 
+        // 聊天消息事件
+        const handleDataReceived = (payload: any, participant: any) => {
+            if (payload && typeof payload === 'object') {
+                console.log('收到聊天消息:', payload, '来自:', participant?.identity);
+            }
+        };
+
         room.on('participantConnected', handleParticipantConnected);
         room.on('participantDisconnected', handleParticipantDisconnected);
         room.on('connectionQualityChanged', handleConnectionQualityChanged);
+        room.on('dataReceived', handleDataReceived);
 
         return () => {
             room.off('participantConnected', handleParticipantConnected);
             room.off('participantDisconnected', handleParticipantDisconnected);
             room.off('connectionQualityChanged', handleConnectionQualityChanged);
+            room.off('dataReceived', handleDataReceived);
         };
-    }, [room, addNotification]);
+    }, [room, participants.length, addNotification]);
+
+    // 计算视频区域宽度（考虑聊天栏）
+    const videoAreaStyle = {
+        width: uiState.showChat ? `calc(100% - ${uiState.chatWidth}px)` : '100%'
+    };
 
     return (
-        <div className="relative w-full h-full">
-            <VideoConference 
-                chatMessageFormatter={formatChatMessageLinks}
-            />
-            
-            {/* 简化的控制栏 */}
-            <SimpleControlBar
-                onToggleChat={() => toggleUIPanel('showChat')}
-                onToggleParticipants={() => toggleUIPanel('showParticipants')}
-                onToggleSettings={() => toggleUIPanel('showSettings')}
-                onToggleFullscreen={toggleFullscreen}
-                onLeaveRoom={leaveRoom}
-                isFullscreen={uiState.isFullscreen}
-            />
+        <div className="relative w-full h-full flex">
+            {/* 主视频区域 */}
+            <div className="relative bg-black" style={videoAreaStyle}>
+                <CustomVideoConference uiState={uiState} />
+                
+                {/* 自定义控制栏 */}
+                <CustomControlBar
+                    onToggleChat={() => toggleUIPanel('showChat')}
+                    onToggleParticipants={() => toggleUIPanel('showParticipants')}
+                    onToggleSettings={() => toggleUIPanel('showSettings')}
+                    onToggleFullscreen={toggleFullscreen}
+                    onLeaveRoom={leaveRoom}
+                    isFullscreen={uiState.isFullscreen}
+                    showChat={uiState.showChat}
+                />
+            </div>
 
             {/* 聊天面板 */}
-            {uiState.showChat && (
-                <div className="absolute top-0 right-0 h-full w-80 bg-gray-800 border-l border-gray-700 z-10">
-                    <div className="p-4">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-lg font-semibold text-white">聊天</h3>
-                            <button
-                                onClick={() => toggleUIPanel('showChat')}
-                                className="text-gray-400 hover:text-white"
-                            >
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        </div>
-                        <div className="text-gray-300">
-                            聊天功能开发中...
-                        </div>
-                    </div>
-                </div>
-            )}
+            <ChatPanel
+                isOpen={uiState.showChat}
+                onClose={() => toggleUIPanel('showChat')}
+                width={uiState.chatWidth}
+            />
 
             {/* 参与者面板 */}
-            {uiState.showParticipants && (
-                <div className="absolute top-0 left-0 h-full w-80 bg-gray-800 border-r border-gray-700 z-10">
-                    <div className="p-4">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-lg font-semibold text-white">参与者</h3>
-                            <button
-                                onClick={() => toggleUIPanel('showParticipants')}
-                                className="text-gray-400 hover:text-white"
-                            >
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        </div>
-                        <div className="text-gray-300">
-                            {room ? (
-                                <div>
-                                    <p>房间: {room.name}</p>
-                                    <p>参与者数量: {room.numParticipants}</p>
-                                    <p>我的身份: {room.localParticipant?.identity}</p>
-                                </div>
-                            ) : (
-                                <p>参与者列表开发中...</p>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
+            <ParticipantsPanel
+                isOpen={uiState.showParticipants}
+                onClose={() => toggleUIPanel('showParticipants')}
+            />
 
             {/* 设置面板 */}
             {uiState.showSettings && (
@@ -282,8 +413,35 @@ function RoomInnerContent({
                                 </svg>
                             </button>
                         </div>
-                        <div className="text-gray-300">
-                            设置面板开发中...
+                        
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-2">
+                                    聊天栏宽度
+                                </label>
+                                <input
+                                    type="range"
+                                    min="280"
+                                    max="500"
+                                    value={uiState.chatWidth}
+                                    onChange={(e) => setChatWidth(Number(e.target.value))}
+                                    className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                                />
+                                <div className="text-xs text-gray-400 mt-1">
+                                    当前宽度: {uiState.chatWidth}px
+                                </div>
+                            </div>
+                            
+                            <div className="text-gray-300">
+                                <h4 className="font-medium mb-2">房间信息</h4>
+                                {room && (
+                                    <div className="text-sm space-y-1">
+                                        <p>房间名称: {room.name}</p>
+                                        <p>我的身份: {room.localParticipant?.identity}</p>
+                                        <p>连接状态: {room.state}</p>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -324,7 +482,8 @@ function RoomPageContent() {
         showParticipants: false,
         showSettings: false,
         isFullscreen: false,
-        sidebarCollapsed: false
+        sidebarCollapsed: false,
+        chatWidth: 350
     });
 
     const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -351,7 +510,7 @@ function RoomPageContent() {
         return null;
     }, [roomName, username]);
 
-    // 获取访问令牌 - 修复 API 调用
+    // 获取访问令牌
     const getAccessToken = useCallback(async (): Promise<{token: string, wsUrl: string}> => {
         try {
             if (!roomName || !username) {
@@ -360,7 +519,6 @@ function RoomPageContent() {
             
             console.log('正在获取访问令牌...', { roomName, username });
             
-            // 修正 API 调用 - 使用正确的端点和参数
             const response = await fetch(`https://livekit-api.2k2.cc/api/room?room=${encodeURIComponent(roomName)}&identity=${encodeURIComponent(username)}`, {
                 method: 'GET',
                 headers: {
@@ -418,7 +576,6 @@ function RoomPageContent() {
         try {
             console.log('开始初始化房间连接...');
             
-            // 获取访问令牌和服务器URL
             const { token, wsUrl } = await getAccessToken();
             
             console.log('Token 获取成功，WS URL:', wsUrl);
@@ -432,7 +589,6 @@ function RoomPageContent() {
                     isConnected: true
                 }));
 
-                // 添加成功通知
                 addNotification({
                     type: 'success',
                     title: '连接成功',
@@ -450,7 +606,6 @@ function RoomPageContent() {
                     error: errorMessage
                 }));
 
-                // 添加错误通知
                 addNotification({
                     type: 'error',
                     title: '连接失败',
@@ -470,7 +625,6 @@ function RoomPageContent() {
         
         setNotifications(prev => [...prev, newNotification]);
 
-        // 自动移除通知
         setTimeout(() => {
             setNotifications(prev => prev.filter(n => n.id !== newNotification.id));
         }, 5000);
@@ -498,7 +652,6 @@ function RoomPageContent() {
                 message: '连接意外断开'
             });
             
-            // 限制重连次数
             if (roomState.connectionAttempts < 3) {
                 console.log('尝试重新连接...');
                 reconnectTimeoutRef.current = setTimeout(() => {
@@ -519,7 +672,6 @@ function RoomPageContent() {
     const handleRoomError = useCallback((error: Error) => {
         console.error('房间错误:', error);
         
-        // 过滤掉 "Client initiated disconnect" 错误，这是正常的断开连接
         if (error.message.includes('Client initiated disconnect')) {
             console.log('客户端主动断开连接，忽略错误');
             return;
@@ -535,6 +687,10 @@ function RoomPageContent() {
     // UI 控制函数
     const toggleUIPanel = useCallback((panel: keyof UIState) => {
         setUIState(prev => ({ ...prev, [panel]: !prev[panel] }));
+    }, []);
+
+    const setChatWidth = useCallback((width: number) => {
+        setUIState(prev => ({ ...prev, chatWidth: width }));
     }, []);
 
     const toggleFullscreen = useCallback(async () => {
@@ -555,19 +711,14 @@ function RoomPageContent() {
         try {
             console.log('准备离开房间...');
             
-            // 清理定时器
             if (reconnectTimeoutRef.current) {
                 clearTimeout(reconnectTimeoutRef.current);
             }
             
-            // 标记为客户端主动断开
             isMountedRef.current = false;
-            
-            // 直接返回首页，让 LiveKitRoom 组件自己处理断开连接
             router.push('/');
         } catch (error) {
             console.error('离开房间失败:', error);
-            // 强制返回首页
             router.push('/');
         }
     }, [router]);
@@ -575,31 +726,26 @@ function RoomPageContent() {
     // 键盘快捷键
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            // 全屏切换
             if (e.key === 'F11') {
                 e.preventDefault();
                 toggleFullscreen();
             }
             
-            // 聊天切换
             if (e.key === 'c' && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
                 toggleUIPanel('showChat');
             }
             
-            // 参与者列表切换
             if (e.key === 'p' && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
                 toggleUIPanel('showParticipants');
             }
             
-            // 设置面板切换
             if (e.key === 's' && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
                 toggleUIPanel('showSettings');
             }
             
-            // 离开房间
             if (e.key === 'Escape' && e.ctrlKey) {
                 e.preventDefault();
                 leaveRoom();
@@ -627,7 +773,6 @@ function RoomPageContent() {
     useEffect(() => {
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
             if (roomState.isConnected) {
-                // 不显示确认对话框，直接清理
                 isMountedRef.current = false;
                 if (reconnectTimeoutRef.current) {
                     clearTimeout(reconnectTimeoutRef.current);
@@ -732,8 +877,7 @@ function RoomPageContent() {
 
             {/* 主要内容区域 */}
             <div className="flex-1 flex overflow-hidden">
-                {/* 中央视频区域 */}
-                <div className="flex-1 flex flex-col bg-black relative">
+                <div className="flex-1 relative">
                     <LiveKitRoom
                         token={roomState.token}
                         serverUrl={roomState.serverUrl}
@@ -745,11 +889,8 @@ function RoomPageContent() {
                         video={true}
                         screen={true}
                         data-lk-theme="default"
-                        // 添加额外的配置
                         options={{
-                            // 适应性质量
                             adaptiveStream: true,
-                            // 断线重连
                             reconnectPolicy: {
                                 nextRetryDelayInMs: (context) => {
                                     console.log('重连策略:', context);
@@ -766,6 +907,7 @@ function RoomPageContent() {
                             toggleFullscreen={toggleFullscreen}
                             leaveRoom={leaveRoom}
                             addNotification={addNotification}
+                            setChatWidth={setChatWidth}
                         />
                     </LiveKitRoom>
                 </div>

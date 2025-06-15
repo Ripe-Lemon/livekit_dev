@@ -258,22 +258,16 @@ function RoomPageContent() {
     // 创建或加入房间
     const createOrJoinRoom = useCallback(async (): Promise<string> => {
         try {
-            const response = await fetch('https://livekit-api.2k2.cc/api/room', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    room: roomName,
-                    identity: username, // 使用 identity 而不是 username
-                    name: username,     // 显示名称
-                    metadata: JSON.stringify({
-                        displayName: username,
-                        joinedAt: new Date().toISOString()
-                    })
-                }),
+            // 直接在 URL 中拼接 room 和 identity 参数
+            // 使用 encodeURIComponent 来确保特殊字符（如房间名中含有的空格）被正确编码
+            const url = `https://livekit-api.2k2.cc/api/room?room=${encodeURIComponent(roomName)}&identity=${encodeURIComponent(username)}`;
+
+            // 发起请求，无需 body 或特殊 headers
+            const response = await fetch(url, {
+                method: 'GET', // 或者 'GET', 取决于你的 API 设计
             });
 
+            // 检查响应是否成功
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
                 throw new Error(errorData.error || `生成访问令牌失败: HTTP ${response.status}`);
@@ -286,9 +280,11 @@ function RoomPageContent() {
             console.error('创建房间或生成令牌失败:', error);
             throw error instanceof Error ? error : new Error('创建房间或生成令牌失败');
         }
-    }, [roomName, username]);
+    }, [roomName, username]); // 依赖项为 roomName 和 username
 
-    // 获取访问令牌（修改为使用正确的 API）
+    /**
+     * 获取访问令牌的包装函数。
+     */
     const getAccessToken = useCallback(async (): Promise<string> => {
         try {
             return await createOrJoinRoom();

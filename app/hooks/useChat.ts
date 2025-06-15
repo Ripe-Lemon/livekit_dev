@@ -20,7 +20,6 @@ import {
 } from '../utils/chatUtils';
 import { compressImage, validateImageFile } from '../utils/imageUtils';
 import { ImageChunkManager } from '../lib/managers/ImageChunkManager';
-import { usePlaySound } from './useAudioManager';
 
 interface UseChatOptions {
     maxMessages?: number;
@@ -62,9 +61,8 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     const pendingMessagesRef = useRef<Map<string, DisplayMessage>>(new Map());
     const isMountedRef = useRef(true);
 
-    // Hooks
+    // 获取 room context（可能为 null）
     const room = useRoomContext();
-    const playSound = usePlaySound();
 
     // 更新聊天状态的辅助函数
     const updateChatState = useCallback((updates: Partial<ChatState>) => {
@@ -79,22 +77,17 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
             messages: limitMessages([...prev.messages, message], maxMessages),
             unreadCount: prev.isOpen ? prev.unreadCount : prev.unreadCount + 1
         }));
-
-        // 播放新消息音效
-        if (enableSounds && !message.user.includes('本地')) {
-            playSound('message-notification');
-        }
-    }, [maxMessages, enableSounds, playSound]);
+    }, [maxMessages]);
 
     // 更新消息状态
     const updateMessage = useCallback((messageId: string, updates: Partial<DisplayMessage>) => {
         setChatState((prev: ChatState) => ({
             ...prev,
             messages: prev.messages.map((msg: DisplayMessage) => 
-            msg.id === messageId ? { ...msg, ...updates } : msg
+                msg.id === messageId ? { ...msg, ...updates } : msg
             )
         }));
-    }, [updateChatState]);
+    }, []);
 
     // 初始化图片分片管理器
     useEffect(() => {
@@ -111,15 +104,11 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         };
 
         const handleImageProgress = (id: string, progress: number) => {
-            // 可以在这里更新进度显示
             console.log(`图片接收进度: ${id} - ${progress}%`);
         };
 
         const handleImageError = (id: string, error: string) => {
             console.error(`图片接收失败: ${id}`, error);
-            if (enableSounds) {
-                playSound('error');
-            }
         };
 
         imageChunkManagerRef.current = new ImageChunkManager(
@@ -138,19 +127,19 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         return () => {
             imageChunkManagerRef.current?.cleanup();
         };
-    }, [addMessage, enableSounds, playSound]);
+    }, [addMessage]);
 
-    // 监听房间数据
+    // 监听房间数据（只有在 room 存在时）
     useEffect(() => {
         if (!room) return;
 
         const handleDataReceived = (data: Uint8Array, participant?: any) => {
-            const chatMessage = parseChatData(data);
-            if (!chatMessage) return;
-
-            const user = participant?.identity || '未知用户';
-
             try {
+                const chatMessage = parseChatData(data);
+                if (!chatMessage) return;
+
+                const user = participant?.identity || '未知用户';
+
                 switch (chatMessage.type) {
                     case 'chat':
                         const textMessage = convertToDisplayMessage(chatMessage, user);
@@ -229,13 +218,9 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
                 failed: true 
             });
 
-            if (enableSounds) {
-                playSound('error');
-            }
-
             throw error;
         }
-    }, [room, addMessage, updateMessage, enableSounds, playSound]);
+    }, [room, addMessage, updateMessage]);
 
     // 发送图片消息
     const sendImageMessage = useCallback(async (file: File) => {
@@ -295,13 +280,9 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
                 progress: 0
             });
 
-            if (enableSounds) {
-                playSound('error');
-            }
-
             throw error;
         }
-    }, [room, maxImageSizeMB, addMessage, updateMessage, enableSounds, playSound]);
+    }, [room, maxImageSizeMB, addMessage, updateMessage]);
 
     // 重试发送消息
     const retryMessage = useCallback(async (messageId: string) => {
@@ -312,23 +293,19 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
 
         try {
             if (message.type === 'text' && message.text) {
-                // 重置状态
                 updateMessage(messageId, { 
                     sending: true, 
                     failed: false 
                 });
 
                 await sendTextMessage(message.text);
-            } else if (message.type === 'image' && message.image) {
-                // 对于图片消息，需要重新处理
+            } else if (message.type === 'image') {
                 updateMessage(messageId, { 
                     sending: true, 
                     failed: false,
                     progress: 0
                 });
 
-                // 这里需要从原始文件重新发送，但我们没有保存原始文件
-                // 所以这种情况下可能需要用户重新选择文件
                 throw new Error('图片消息重试需要重新选择文件');
             }
         } catch (error) {
@@ -348,7 +325,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         }));
         
         pendingMessagesRef.current.delete(messageId);
-    }, [updateChatState]);
+    }, []);
 
     // 切换聊天窗口
     const toggleChat = useCallback(() => {

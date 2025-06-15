@@ -1,10 +1,11 @@
-// filepath: /Users/hotxiang/livekit_dev/components/chat/FloatingChat.tsx
-
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { AudioManager } from '../../lib/audio/AudioManager';
-import ChatContainer from './ChatContainer';
+import { useRoomContext } from '@livekit/components-react';
+import { useChat } from '../../hooks/useChat';
+import { useAudioManager } from '../../hooks/useAudioManager';
+import { MessageItem } from '../chat/MessageItem';
+import { MessageInput } from '../chat/MessageInput';
 
 interface FloatingChatProps {
     setPreviewImage: (src: string | null) => void;
@@ -16,13 +17,32 @@ interface FloatingChatProps {
 export default function FloatingChat({ 
     setPreviewImage, 
     className = '',
-    position = 'top-right',
+    position = 'bottom-right',
     size = 'medium'
 }: FloatingChatProps) {
     const [isOpen, setIsOpen] = useState(false);
-    const [unreadCount, setUnreadCount] = useState(0);
-    const [audioManager] = useState(() => AudioManager.getInstance());
     const [isMinimized, setIsMinimized] = useState(false);
+
+    // 确保在 LiveKit Room 内部使用这些 hooks
+    const room = useRoomContext();
+    
+    // 只有在 room 存在时才使用聊天功能
+    const { 
+        chatState, 
+        sendTextMessage, 
+        sendImageMessage, 
+        clearMessages 
+    } = useChat({
+        maxMessages: 100,
+        enableSounds: true,
+        autoScrollToBottom: true
+    });
+
+    const { playSound } = useAudioManager({
+        autoInitialize: true,
+        globalVolume: 0.7,
+        enabled: true
+    });
 
     // 尺寸配置
     const sizeConfig = {
@@ -46,38 +66,14 @@ export default function FloatingChat({
         'bottom-left': 'bottom-6 left-6'
     };
 
-    // 监听新消息事件
-    useEffect(() => {
-        const handleNewMessage = () => {
-            // 播放消息通知音效
-            audioManager.playSound('message-notification');
-
-            // 如果悬浮窗关闭或最小化，增加未读数量
-            if (!isOpen || isMinimized) {
-                setUnreadCount(prev => prev + 1);
-            }
-        };
-
-        window.addEventListener('newChatMessage', handleNewMessage);
-        
-        return () => {
-            window.removeEventListener('newChatMessage', handleNewMessage);
-        };
-    }, [isOpen, isMinimized, audioManager]);
-
     // 切换聊天窗口
     const handleToggleChat = useCallback(() => {
         if (!isOpen) {
-            // 打开聊天窗口
             setIsOpen(true);
             setIsMinimized(false);
-            setUnreadCount(0);
         } else if (isMinimized) {
-            // 从最小化状态恢复
             setIsMinimized(false);
-            setUnreadCount(0);
         } else {
-            // 关闭聊天窗口
             setIsOpen(false);
             setIsMinimized(false);
         }
@@ -94,19 +90,33 @@ export default function FloatingChat({
         setIsMinimized(false);
     }, []);
 
-    // 当聊天窗口打开且未最小化时，清除未读数量
-    useEffect(() => {
-        if (isOpen && !isMinimized) {
-            setUnreadCount(0);
+    // 发送消息处理
+    const handleSendMessage = useCallback(async (message: string) => {
+        try {
+            await sendTextMessage(message);
+        } catch (error) {
+            console.error('发送消息失败:', error);
         }
-    }, [isOpen, isMinimized]);
+    }, [sendTextMessage]);
 
-    // 处理新消息回调
-    const handleNewMessage = useCallback(() => {
-        if (isOpen && !isMinimized) {
-            setUnreadCount(0);
+    // 发送图片处理
+    const handleSendImage = useCallback(async (file: File) => {
+        try {
+            await sendImageMessage(file);
+        } catch (error) {
+            console.error('发送图片失败:', error);
         }
-    }, [isOpen, isMinimized]);
+    }, [sendImageMessage]);
+
+    // 图片预览处理
+    const handleImageClick = useCallback((src: string) => {
+        setPreviewImage(src);
+    }, [setPreviewImage]);
+
+    // 如果没有 room 连接，不渲染聊天组件
+    if (!room) {
+        return null;
+    }
 
     return (
         <>
@@ -127,7 +137,6 @@ export default function FloatingChat({
                     {/* 聊天头部 */}
                     <div className="flex items-center justify-between p-4 border-b border-gray-700 flex-shrink-0">
                         <div className="flex items-center gap-2">
-                            {/* 聊天图标 */}
                             <svg
                                 xmlns="http://www.w3.org/2000/svg"
                                 width="20"
@@ -144,7 +153,6 @@ export default function FloatingChat({
                             </svg>
                             <h3 className="text-lg font-medium text-white">聊天</h3>
                             
-                            {/* 在线状态指示器 */}
                             <div className="flex items-center gap-1 ml-2">
                                 <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
                                 <span className="text-xs text-gray-400">在线</span>
@@ -152,7 +160,6 @@ export default function FloatingChat({
                         </div>
                         
                         <div className="flex items-center gap-1">
-                            {/* 最小化按钮 */}
                             <button
                                 onClick={handleMinimize}
                                 className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:bg-gray-800 hover:text-white transition-colors"
@@ -173,7 +180,6 @@ export default function FloatingChat({
                                 </svg>
                             </button>
                             
-                            {/* 关闭按钮 */}
                             <button
                                 onClick={handleClose}
                                 className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:bg-gray-800 hover:text-white transition-colors"
@@ -199,13 +205,39 @@ export default function FloatingChat({
                     
                     {/* 聊天内容区域 */}
                     <div className="flex-1 flex flex-col min-h-0">
-                        <ChatContainer 
-                            messages={[]}
-                            onSendMessage={async (message: string) => {}}
-                            onSendImage={async (file: File) => {}}
-                            onImagePreview={(src: string) => setPreviewImage(src)}
-                            onNewMessage={handleNewMessage}
-                        />
+                        {/* 消息列表 */}
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                            {chatState.messages.map((message) => (
+                                <MessageItem
+                                    key={message.id}
+                                    message={message}
+                                    isOwn={'isOwn' in message ? Boolean(message.isOwn) : false}
+                                    onImageClick={handleImageClick}
+                                    onRetry={() => {}}
+                                    onDelete={() => {}}
+                                />
+                            ))}
+                            
+                            {chatState.messages.length === 0 && (
+                                <div className="flex flex-col items-center justify-center py-8 text-gray-400">
+                                    <svg className="w-12 h-12 mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                                    </svg>
+                                    <p className="text-center">还没有消息</p>
+                                    <p className="text-sm text-center mt-1">开始对话吧！</p>
+                                </div>
+                            )}
+                        </div>
+                        
+                        {/* 消息输入 */}
+                        <div className="border-t border-gray-700 p-4">
+                            <MessageInput
+                                onSendMessage={handleSendMessage}
+                                onSendImage={handleSendImage}
+                                placeholder="输入消息..."
+                                maxLength={1000}
+                            />
+                        </div>
                     </div>
                 </div>
             </div>
@@ -238,9 +270,9 @@ export default function FloatingChat({
                             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1-2-2h14a2 2 0 0 1 2 2z"></path>
                         </svg>
                         <span>聊天已最小化</span>
-                        {unreadCount > 0 && (
+                        {chatState.unreadCount > 0 && (
                             <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full">
-                                {unreadCount > 99 ? '99+' : unreadCount}
+                                {chatState.unreadCount > 99 ? '99+' : chatState.unreadCount}
                             </span>
                         )}
                     </div>
@@ -277,9 +309,9 @@ export default function FloatingChat({
                 </button>
 
                 {/* 未读消息气泡 */}
-                {unreadCount > 0 && (!isOpen || isMinimized) && (
+                {chatState.unreadCount > 0 && (!isOpen || isMinimized) && (
                     <div className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white animate-pulse z-10">
-                        {unreadCount > 99 ? '99+' : unreadCount}
+                        {chatState.unreadCount > 99 ? '99+' : chatState.unreadCount}
                     </div>
                 )}
 

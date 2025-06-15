@@ -1,85 +1,73 @@
-// 文件路径: app/room/components/VolumeControl.tsx (最终版)
+// 文件路径: components/VolumeControl.tsx
 'use client';
 
-import { Track } from 'livekit-client';
-import { useParticipantTracks } from '@livekit/components-react';
-import type { Participant } from 'livekit-client';
-import { useEffect, useState, useRef } from 'react';
-import { FaVolumeUp, FaVolumeMute, FaVolumeDown } from 'react-icons/fa';
+import { useMultibandTrackVolume } from '@livekit/components-react';
+import { TrackReference } from '@livekit/components-core';
+import React from 'react';
 
+// 定义组件的 props 类型
 interface VolumeControlProps {
-    participant: Participant;
+    /** 要监控音量的音轨引用 */
+    trackRef: TrackReference;
+    /** 定义要显示多少个音量条 (频段数量) */
+    bands?: number;
+    /** 更新音量数据的频率 (毫秒) */
+    updateInterval?: number;
 }
 
-export function VolumeControl({ participant }: VolumeControlProps) {
-    const publications = useParticipantTracks(
-        [Track.Source.Microphone],
-        participant.identity,
-    );
+/**
+ * 一个实验性的音量控制组件，使用 useMultibandTrackVolume
+ * 将单个音轨的音量可视化为多个频段的音量条。
+ */
+export function VolumeControl({
+                                  trackRef,
+                                  bands = 5, // 默认显示 5 个音量条
+                                  updateInterval = 100, // 默认每 100ms 更新一次
+                              }: VolumeControlProps) {
 
-    const publication = publications[0];
-    const audioTrack = publication?.publication?.track;
-
-    const [volume, setVolume] = useState(1);
-    const [isMuted, setIsMuted] = useState(false);
-    const lastVolume = useRef(1);
-
-    useEffect(() => {
-        // --- 关键检查点 ---
-        // 请确保您的 if 语句完整且正确
-        if (audioTrack && audioTrack.kind === Track.Kind.Audio) {
-            // 只有在这个 if 内部，调用 setVolume 才是类型安全的
-            audioTrack.isMuted = true;
-        }
-    }, [audioTrack, volume, isMuted]);
-
-    const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const newVolume = parseFloat(e.target.value);
-        setVolume(newVolume);
-        if (newVolume > 0) {
-            setIsMuted(false);
-            lastVolume.current = newVolume;
-        } else {
-            setIsMuted(true);
-        }
-    };
-
-    const toggleMute = () => {
-        setIsMuted((prevIsMuted) => {
-            const newMutedState = !prevIsMuted;
-            if (newMutedState) {
-                lastVolume.current = volume;
-                setVolume(0);
-            } else {
-                setVolume(lastVolume.current > 0 ? lastVolume.current : 0.5);
-            }
-            return newMutedState;
-        });
-    };
-
-    if (participant.isLocal || !publication) {
-        return null;
-    }
-
-    const VolumeIcon = isMuted ? FaVolumeMute : volume > 0.5 ? FaVolumeUp : FaVolumeDown;
+    // 使用 hook 来获取音量数据
+    // volumes 是一个数字数组，每个数字代表一个频段的音量 (0 到 1 之间)
+    const volumes = useMultibandTrackVolume(trackRef, {
+        bands: bands,
+        updateInterval: updateInterval,
+        analyserOptions: {
+            fftSize: 256, // FFT size, 必须是 2 的幂
+            smoothingTimeConstant: 0.8, // 平滑系数，使动画更流畅
+        },
+    });
 
     return (
-        <div className="absolute bottom-10 left-2 right-2 z-10 flex items-center gap-2 rounded-full bg-black/50 p-1.5 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-            <button onClick={toggleMute} className="text-white hover:text-blue-400 transition-colors">
-                <VolumeIcon />
-            </button>
-            <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={isMuted ? 0 : volume}
-                onChange={handleVolumeChange}
-                className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer range-sm"
-                style={{
-                    background: `linear-gradient(to right, #3b82f6 ${((isMuted ? 0 : volume) / 1) * 100}%, #4b5563 ${((isMuted ? 0 : volume) / 1) * 100}%)`
-                }}
-            />
+        <div
+            style={{
+                display: 'flex',
+                alignItems: 'flex-end',
+                gap: '2px', // 音量条之间的间距
+                height: '30px', // 组件总高度
+                width: '100%',
+            }}
+            title={`多频段音量指示器 (实验性)`}
+        >
+            {/* 遍历 hook 返回的音量数组，为每个频段渲染一个音量条 */}
+            {volumes.map((volume, i) => {
+                // 将音量值 (0-1) 转换为高度百分比
+                const barHeight = `${Math.max(2, volume * 100)}%`;
+                // 将音量值转换为颜色 (从绿色到红色)
+                const barColor = `hsl(${120 - volume * 120}, 100%, 50%)`;
+
+                return (
+                    <div
+                        key={i}
+                        style={{
+                            width: `${100 / bands}%`,
+                            height: barHeight,
+                            backgroundColor: barColor,
+                            borderRadius: '2px',
+                            transition: 'height 0.1s ease-out, background-color 0.1s ease-out', // 添加平滑过渡效果
+                            minHeight: '2px', // 保证即使音量为0，也有一个可见的小条
+                        }}
+                    />
+                );
+            })}
         </div>
     );
 }

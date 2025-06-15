@@ -1306,13 +1306,12 @@ function LiveKitRoom() {
             <LayoutContextProvider>
                 <div data-lk-theme="default" className="flex h-screen flex-col bg-gray-900">
                     <div className="flex-1 flex flex-col">
-                        <MyVideoConference /> {/* 修改这个组件 */}
+                        <MyVideoConference />
                         <RoomAudioRenderer />
                     </div>
 
                     {/* 统一的底部控制栏 */}
                     <div className="flex flex-col gap-3 p-4 bg-gray-900/80 backdrop-blur-sm">
-                        {/* 新增: 个人状态编辑器 */}
                         <div className='max-w-md mx-auto w-full'>
                             <MyStatusEditor />
                         </div>
@@ -1321,7 +1320,8 @@ function LiveKitRoom() {
                         <div className="flex items-center justify-between">
                             <RoomInfo />
                             <div className="flex items-center gap-2">
-                                <MuteAllButton /> {/* 新增: 一键静音按钮 */}
+                                {/* 2. 在这里使用 MuteAllButton 组件 */}
+                                <MuteAllButton />
                                 <AudioProcessingControls
                                     isNoiseSuppressionEnabled={isNoiseSuppressionEnabled}
                                     onToggleNoiseSuppression={handleToggleNoiseSuppression}
@@ -1333,7 +1333,7 @@ function LiveKitRoom() {
 
                         {/* 第二行：主要控制按钮居中 */}
                         <div className="flex items-center justify-center gap-4">
-                            <ControlBar /* ...props... */ />
+                            <ControlBar />
                         </div>
                     </div>
                 </div>

@@ -232,33 +232,132 @@ function RoomPageContent() {
         return null;
     }, [roomName, username]);
 
-    // 获取访问令牌
-    const getAccessToken = useCallback(async (): Promise<string> => {
+    // 检查房间是否存在
+    const checkRoomExists = useCallback(async (roomName: string): Promise<boolean> => {
         try {
-            const response = await fetch('/api/room', {
+            const response = await fetch('https://livekit-api.gui.ink/api/rooms', {
+                method: 'GET'
+            });
+
+            if (!response.ok) {
+                console.warn('无法获取房间列表，假设房间存在');
+                return true; // 如果无法获取列表，假设房间存在
+            }
+
+            const data = await response.json();
+            const rooms = data.rooms || [];
+            
+            // 检查房间是否在列表中
+            return rooms.some((room: any) => room.name === roomName);
+        } catch (error) {
+            console.warn('检查房间存在性失败:', error);
+            return true; // 出错时假设房间存在
+        }
+    }, []);
+
+    // 创建或加入房间
+    const createOrJoinRoom = useCallback(async (): Promise<string> => {
+        try {
+            // 首先尝试创建房间
+            const createResponse = await fetch('https://livekit-api.gui.ink/api/rooms', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    name: roomName
+                }),
+            });
+
+            // 如果房间已存在，创建请求可能会失败，但这是正常的
+            if (!createResponse.ok && createResponse.status !== 409) {
+                const errorData = await createResponse.json().catch(() => ({}));
+                console.warn('创建房间失败:', errorData.error);
+                // 继续尝试生成 token，房间可能已经存在
+            } else if (createResponse.ok) {
+                console.log('房间创建成功或已存在');
+            }
+
+            // 生成访问 token
+            // 根据 API 文档，我们需要调用 token API
+            const tokenResponse = await fetch('https://livekit-api.gui.ink/api/token', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
                     room: roomName,
-                    username: username,
-                    password: password || undefined
+                    identity: username, // 使用 identity 而不是 username
+                    name: username,     // 显示名称
+                    metadata: JSON.stringify({
+                        displayName: username,
+                        joinedAt: new Date().toISOString()
+                    })
                 }),
             });
 
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+            if (!tokenResponse.ok) {
+                const errorData = await tokenResponse.json().catch(() => ({}));
+                throw new Error(errorData.error || `生成访问令牌失败: HTTP ${tokenResponse.status}`);
             }
 
-            const data = await response.json();
-            return data.token;
+            const tokenData = await tokenResponse.json();
+            return tokenData.token;
+
+        } catch (error) {
+            console.error('创建房间或生成令牌失败:', error);
+            throw error instanceof Error ? error : new Error('创建房间或生成令牌失败');
+        }
+    }, [roomName, username]);
+
+    // 获取访问令牌（修改为使用正确的 API）
+    const getAccessToken = useCallback(async (): Promise<string> => {
+        try {
+            return await createOrJoinRoom();
         } catch (error) {
             console.error('获取访问令牌失败:', error);
             throw error instanceof Error ? error : new Error('获取访问令牌失败');
         }
-    }, [roomName, username, password]);
+    }, [createOrJoinRoom]);
+
+    // 获取房间信息
+    const getRoomInfo = useCallback(async (roomName: string) => {
+        try {
+            const response = await fetch(`https://livekit-api.gui.ink/api/room?room=${encodeURIComponent(roomName)}`, {
+                method: 'GET'
+            });
+
+            if (!response.ok) {
+                // 房间不存在或其他错误
+                return null;
+            }
+
+            const data = await response.json();
+            return data;
+        } catch (error) {
+            console.warn('获取房间信息失败:', error);
+            return null;
+        }
+    }, []);
+
+    // 获取房间参与者
+    const getRoomParticipants = useCallback(async (roomName: string) => {
+        try {
+            const response = await fetch(`https://livekit-api.gui.ink/api/room/participants?room=${encodeURIComponent(roomName)}`, {
+                method: 'GET'
+            });
+
+            if (!response.ok) {
+                return [];
+            }
+
+            const data = await response.json();
+            return data.participants || [];
+        } catch (error) {
+            console.warn('获取房间参与者失败:', error);
+            return [];
+        }
+    }, []);
 
     // 初始化房间连接
     const initializeRoom = useCallback(async () => {
@@ -275,14 +374,14 @@ function RoomPageContent() {
         }));
 
         try {
-            // 获取访问令牌
-            const token = await getAccessToken();
-            
             // 获取服务器URL
             const serverUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL;
             if (!serverUrl) {
                 throw new Error('LiveKit 服务器URL未配置');
             }
+
+            // 获取访问令牌（这会自动创建房间如果不存在）
+            const token = await getAccessToken();
 
             if (isMountedRef.current) {
                 setRoomState(prev => ({
@@ -302,6 +401,17 @@ function RoomPageContent() {
                     title: '连接成功',
                     message: `已成功加入房间 "${roomName}"`
                 });
+
+                // 可选：获取房间信息和参与者列表
+                try {
+                    const roomInfo = await getRoomInfo(roomName);
+                    const participants = await getRoomParticipants(roomName);
+                    
+                    console.log('房间信息:', roomInfo);
+                    console.log('当前参与者:', participants);
+                } catch (infoError) {
+                    console.warn('获取房间详细信息失败:', infoError);
+                }
             }
         } catch (error) {
             console.error('初始化房间失败:', error);
@@ -325,7 +435,7 @@ function RoomPageContent() {
                 });
             }
         }
-    }, [validateParams, getAccessToken, roomName, playSound]);
+    }, [validateParams, getAccessToken, roomName, playSound, getRoomInfo, getRoomParticipants]);
 
     // 添加通知
     const addNotification = useCallback((notification: Omit<Notification, 'id' | 'timestamp'>) => {

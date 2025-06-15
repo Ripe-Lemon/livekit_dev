@@ -231,12 +231,13 @@ function LiveKitRoom() {
                             controls={{
                                 microphone: true,
                                 camera: true,
-                                chat: true,
                                 screenShare: true,
                             }}
-                            onToggle={() => setShowChat(!showChat)}
                         />
                         <div className="h-6 w-px bg-gray-600"></div>
+
+                            <Chat />
+
                         <AudioProcessingControls
                             isNoiseSuppressionEnabled={isNoiseSuppressionEnabled}
                             onToggleNoiseSuppression={handleToggleNoiseSuppression}

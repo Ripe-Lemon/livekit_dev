@@ -46,7 +46,7 @@ export default function Page() {
                 if (data.token) {
                     // 连接到 LiveKit 房间
                     await room.connect(livekitUrl, data.token);
-                    console.log('Successfully connected to LiveKit room');
+                    console.log('Successfully connected to LiveKit room!');
                 }
             } catch (e) {
                 console.error(e);

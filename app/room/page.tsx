@@ -21,6 +21,9 @@ import '@livekit/components-styles';
 import { useEffect, useState, Suspense, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import {CustomParticipantTile} from "@/app/room/hooks/CustomParticipantTile";
+import {MuteAllButton} from "@/app/room/hooks/MuteAllButton";
+import {MyStatusEditor} from "@/app/room/hooks/MyStatusEditor";
 
 // 分片发送相关的常量和类型
 const CHUNK_SIZE = 60000; // 60KB per chunk (留一些空间给元数据)
@@ -122,7 +125,7 @@ async function sendImageInChunks(
 
             const encoder = new TextEncoder();
             const data = encoder.encode(JSON.stringify(chunk));
-            
+
             await room.localParticipant.publishData(data, { reliable: true });
 
             // 更新进度
@@ -275,12 +278,12 @@ function compressImage(file: File, maxSizeKB: number = 1024): Promise<string> {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         const img = new Image();
-        
+
         img.onload = () => {
             // 计算合适的尺寸，保持宽高比
             let { width, height } = img;
             const maxDimension = 1920; // 最大尺寸
-            
+
             if (width > maxDimension || height > maxDimension) {
                 if (width > height) {
                     height = (height * maxDimension) / width;
@@ -290,25 +293,25 @@ function compressImage(file: File, maxSizeKB: number = 1024): Promise<string> {
                     height = maxDimension;
                 }
             }
-            
+
             canvas.width = width;
             canvas.height = height;
-            
+
             // 绘制图片
             ctx?.drawImage(img, 0, 0, width, height);
-            
+
             // 尝试不同的质量级别直到满足大小要求
             let quality = 0.9;
             let result = canvas.toDataURL('image/jpeg', quality);
-            
+
             while (result.length > maxSizeKB * 1024 * 4/3 && quality > 0.1) { // base64大约比原文件大1/3
                 quality -= 0.1;
                 result = canvas.toDataURL('image/jpeg', quality);
             }
-            
+
             resolve(result);
         };
-        
+
         img.onerror = reject;
         img.src = URL.createObjectURL(file);
     });
@@ -335,7 +338,7 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
         };
 
         document.addEventListener('keydown', handleKeyDown);
-        
+
         // 显示操作提示，3秒后自动隐藏
         tipsTimeoutRef.current = setTimeout(() => {
             setShowOperationTips(false);
@@ -357,14 +360,14 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
         const img = new Image();
         img.onload = () => {
             setImageSize({ width: img.width, height: img.height });
-            
+
             // 计算初始缩放比例以适应屏幕
             const windowWidth = window.innerWidth;
             const windowHeight = window.innerHeight;
             const scaleX = (windowWidth * 0.9) / img.width; // 留10%边距
             const scaleY = (windowHeight * 0.9) / img.height; // 留10%边距
             const initialScale = Math.min(scaleX, scaleY, 1); // 不超过原始大小
-            
+
             setScale(initialScale);
         };
         img.src = src;
@@ -383,7 +386,7 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
     // 以鼠标位置为中心的缩放
     const handleWheel = (e: React.WheelEvent) => {
         e.preventDefault();
-        
+
         if (!imageRef.current) return;
 
         const rect = imageRef.current.getBoundingClientRect();
@@ -400,7 +403,7 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
 
         const delta = e.deltaY > 0 ? 0.9 : 1.1;
         const newScale = Math.max(0.1, Math.min(scale * delta, 5));
-        
+
         // 计算缩放后需要调整的位置，使鼠标位置保持不变
         const scaleDiff = newScale / scale;
         const newPosition = {
@@ -452,9 +455,9 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
         // 修复：使用 React Portal 确保真正的全屏显示并完全居中
         <>
             {typeof window !== 'undefined' && (
-                <div 
+                <div
                     className="fixed bg-black/95 overflow-hidden"
-                    style={{ 
+                    style={{
                         position: 'fixed',
                         top: 0,
                         left: 0,
@@ -500,7 +503,7 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
                         )}
 
                         {/* 操作提示 - 3秒后自动消失，点击可重新显示 */}
-                        <div 
+                        <div
                             className={`absolute bottom-6 left-1/2 transform -translate-x-1/2 z-10 bg-black/60 text-white px-4 py-2 rounded-lg text-sm backdrop-blur-sm cursor-pointer transition-opacity duration-500 ${
                                 showOperationTips ? 'opacity-100' : 'opacity-0 pointer-events-none'
                             }`}
@@ -583,20 +586,20 @@ function FloatingChat() {
     useEffect(() => {
         // 创建一个简单的提示音
         const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-        
+
         const createNotificationSound = () => {
             const oscillator = audioContext.createOscillator();
             const gainNode = audioContext.createGain();
-            
+
             oscillator.connect(gainNode);
             gainNode.connect(audioContext.destination);
-            
+
             oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
             oscillator.frequency.setValueAtTime(600, audioContext.currentTime + 0.1);
-            
+
             gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
             gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-            
+
             oscillator.start(audioContext.currentTime);
             oscillator.stop(audioContext.currentTime + 0.5);
         };
@@ -624,7 +627,7 @@ function FloatingChat() {
 
         // 监听自定义事件
         window.addEventListener('newChatMessage', handleNewMessage);
-        
+
         return () => {
             window.removeEventListener('newChatMessage', handleNewMessage);
         };
@@ -672,7 +675,7 @@ function FloatingChat() {
                             </svg>
                         </button>
                     </div>
-                    
+
                     {/* 聊天内容区域 - 使用自定义聊天组件 */}
                     <div className="flex-1 flex flex-col min-h-0">
                         <CustomChat />
@@ -739,7 +742,7 @@ function CustomChat() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const room = useRoomContext();
-    
+
     // 图片分片管理器
     const chunkManagerRef = useRef<ImageChunkManager | null>(null);
 
@@ -754,11 +757,11 @@ function CustomChat() {
                     timestamp: new Date(),
                     type: 'image' as const
                 }];
-                
+
                 // 触发新消息事件
                 const event = new CustomEvent('newChatMessage');
                 window.dispatchEvent(event);
-                
+
                 return newMessages.slice(-100);
             });
         };
@@ -797,7 +800,7 @@ function CustomChat() {
         try {
             // 压缩图片，但保持更高的质量
             const compressedBase64 = await compressImage(file, 2048); // 压缩到约2MB
-            
+
             setMessages(prev => [...prev, {
                 id: tempId,
                 user: '我',
@@ -813,8 +816,8 @@ function CustomChat() {
                 room,
                 compressedBase64,
                 (progress) => {
-                    setMessages(prev => prev.map(msg => 
-                        msg.id === tempId 
+                    setMessages(prev => prev.map(msg =>
+                        msg.id === tempId
                             ? { ...msg, progress }
                             : msg
                     ));
@@ -822,8 +825,8 @@ function CustomChat() {
             );
 
             // 发送完成，更新消息状态
-            setMessages(prev => prev.map(msg => 
-                msg.id === tempId 
+            setMessages(prev => prev.map(msg =>
+                msg.id === tempId
                     ? { ...msg, sending: false, progress: 100 }
                     : msg
             ));
@@ -831,7 +834,7 @@ function CustomChat() {
         } catch (error) {
             console.error('处理图片失败:', error);
             alert('发送图片失败，请尝试其他图片');
-            
+
             // 移除失败的消息
             setMessages(prev => prev.filter(msg => msg.id !== tempId));
         }
@@ -842,11 +845,11 @@ function CustomChat() {
         const handleDataReceived = (payload: Uint8Array, participant: any) => {
             const decoder = new TextDecoder();
             const message = decoder.decode(payload);
-            
+
             try {
                 const chatMessage = JSON.parse(message);
                 const userName = participant?.name || participant?.identity || '未知用户';
-                
+
                 if (chatMessage.type === 'chat') {
                     setMessages(prev => {
                         const newMessages = [...prev, {
@@ -856,11 +859,11 @@ function CustomChat() {
                             timestamp: new Date(),
                             type: 'text' as const
                         }];
-                        
+
                         // 触发新消息事件
                         const event = new CustomEvent('newChatMessage');
                         window.dispatchEvent(event);
-                        
+
                         return newMessages.slice(-100);
                     });
                 } else if (chatMessage.type === 'image_chunk') {
@@ -876,11 +879,11 @@ function CustomChat() {
                             timestamp: new Date(),
                             type: 'image' as const
                         }];
-                        
+
                         // 触发新消息事件
                         const event = new CustomEvent('newChatMessage');
                         window.dispatchEvent(event);
-                        
+
                         return newMessages.slice(-100);
                     });
                 }
@@ -890,7 +893,7 @@ function CustomChat() {
         };
 
         room.on('dataReceived', handleDataReceived);
-        
+
         return () => {
             room.off('dataReceived', handleDataReceived);
         };
@@ -928,7 +931,7 @@ function CustomChat() {
     const handleDrop = useCallback((e: React.DragEvent) => {
         e.preventDefault();
         setIsDragging(false);
-        
+
         const files = e.dataTransfer?.files;
         if (files && files.length > 0) {
             const file = files[0];
@@ -948,10 +951,10 @@ function CustomChat() {
 
         const encoder = new TextEncoder();
         const data = encoder.encode(JSON.stringify(chatMessage));
-        
+
         try {
             await room.localParticipant.publishData(data, { reliable: true });
-            
+
             // 添加自己的消息到本地显示
             setMessages(prev => {
                 const newMessages = [...prev, {
@@ -963,7 +966,7 @@ function CustomChat() {
                 }];
                 return newMessages.slice(-100);
             });
-            
+
             setMessage('');
         } catch (e) {
             console.error('发送消息失败:', e);
@@ -978,7 +981,7 @@ function CustomChat() {
     };
 
     return (
-        <div 
+        <div
             className="flex flex-col h-full"
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
@@ -1057,7 +1060,7 @@ function CustomChat() {
                                         <div className="absolute inset-0 bg-black/50 rounded flex items-center justify-center">
                                             <div className="text-center text-white">
                                                 <div className="w-20 h-2 bg-gray-600 rounded-full mb-2">
-                                                    <div 
+                                                    <div
                                                         className="h-full bg-blue-500 rounded-full transition-all"
                                                         style={{ width: `${msg.progress || 0}%` }}
                                                     ></div>
@@ -1096,7 +1099,7 @@ function CustomChat() {
                             target.style.height = Math.min(target.scrollHeight, 80) + 'px';
                         }}
                     />
-                    
+
                     {/* 图片上传按钮 */}
                     <button
                         onClick={() => fileInputRef.current?.click()}
@@ -1142,7 +1145,7 @@ function CustomChat() {
                         </svg>
                     </button>
                 </div>
-                
+
                 {/* 隐藏的文件输入 */}
                 <input
                     ref={fileInputRef}
@@ -1157,7 +1160,7 @@ function CustomChat() {
                     }}
                     className="hidden"
                 />
-                
+
                 {/* 简化提示文字 */}
                 <div className="text-xs text-gray-500 mt-2">
                     Enter 发送，支持粘贴/拖拽图片
@@ -1302,21 +1305,23 @@ function LiveKitRoom() {
         <RoomContext.Provider value={room}>
             <LayoutContextProvider>
                 <div data-lk-theme="default" className="flex h-screen flex-col bg-gray-900">
-                    {/* 移除左侧聊天面板，现在整个区域都是视频 */}
                     <div className="flex-1 flex flex-col">
-                        <MyVideoConference />
+                        <MyVideoConference /> {/* 修改这个组件 */}
                         <RoomAudioRenderer />
                     </div>
 
-                    {/* 统一的底部控制栏 - 移除聊天按钮 */}
+                    {/* 统一的底部控制栏 */}
                     <div className="flex flex-col gap-3 p-4 bg-gray-900/80 backdrop-blur-sm">
+                        {/* 新增: 个人状态编辑器 */}
+                        <div className='max-w-md mx-auto w-full'>
+                            <MyStatusEditor />
+                        </div>
+
                         {/* 第一行：房间信息和音频处理控制 */}
                         <div className="flex items-center justify-between">
-                            {/* 左侧：房间信息 */}
                             <RoomInfo />
-                            
-                            {/* 右侧：音频处理控制 */}
                             <div className="flex items-center gap-2">
+                                <MuteAllButton /> {/* 新增: 一键静音按钮 */}
                                 <AudioProcessingControls
                                     isNoiseSuppressionEnabled={isNoiseSuppressionEnabled}
                                     onToggleNoiseSuppression={handleToggleNoiseSuppression}
@@ -1325,40 +1330,37 @@ function LiveKitRoom() {
                                 />
                             </div>
                         </div>
-                        
-                        {/* 第二行：主要控制按钮居中 - 移除聊天按钮 */}
+
+                        {/* 第二行：主要控制按钮居中 */}
                         <div className="flex items-center justify-center gap-4">
-                            <ControlBar
-                                variation="minimal"
-                                controls={{
-                                    microphone: true,
-                                    camera: true,
-                                    screenShare: true,
-                                }}
-                            />
+                            <ControlBar /* ...props... */ />
                         </div>
                     </div>
                 </div>
 
-                {/* 悬浮聊天组件 */}
                 <FloatingChat />
             </LayoutContextProvider>
         </RoomContext.Provider>
     );
 }
 
+// 修改 MyVideoConference 组件以使用我们的自定义 Tile
 function MyVideoConference() {
+    // 使用 useTracks hook 来获取所有需要展示的轨道。
+    // 'withPlaceholder: true' 确保即使参与者没有开启摄像头，也会为他们显示一个占位符。
     const tracks = useTracks(
         [
             { source: Track.Source.Camera, withPlaceholder: true },
             { source: Track.Source.ScreenShare, withPlaceholder: false },
-        ],
-        { onlySubscribed: false },
+        ]
     );
+
     return (
-        // 中文注释: 高度现在由 flex-1 自动管理，无需手动计算
+        // 1. 将 useTracks 返回的、类型正确的 tracks 数组传递给 GridLayout。
+        // 2. 直接将 <CustomParticipantTile /> 作为子组件传递。
+        //    GridLayout 会为每个参与者克隆这个组件，并自动提供 ParticipantContext。
         <GridLayout tracks={tracks} className="flex-1">
-            <ParticipantTile />
+            <CustomParticipantTile />
         </GridLayout>
     );
 }

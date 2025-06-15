@@ -235,7 +235,7 @@ function RoomPageContent() {
     // 获取访问令牌
     const getAccessToken = useCallback(async (): Promise<string> => {
         try {
-            const response = await fetch('/api/token', {
+            const response = await fetch('/api/room', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

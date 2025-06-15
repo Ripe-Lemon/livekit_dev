@@ -201,7 +201,7 @@ function CustomChat() {
         scrollToBottom();
     }, [messages]);
 
-    // 监听聊天消息
+    // 监听聊天消息 - 修复 useEffect 清理函数
     useEffect(() => {
         const handleDataReceived = (payload: Uint8Array, participant: any) => {
             const decoder = new TextDecoder();
@@ -227,7 +227,11 @@ function CustomChat() {
         };
 
         room.on('dataReceived', handleDataReceived);
-        return () => room.off('dataReceived', handleDataReceived);
+        
+        // 修复：返回清理函数，而不是返回 room.off 的结果
+        return () => {
+            room.off('dataReceived', handleDataReceived);
+        };
     }, [room]);
 
     // 发送消息
@@ -288,7 +292,7 @@ function CustomChat() {
                             strokeLinejoin="round"
                             className="mx-auto mb-4 opacity-50"
                         >
-                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1-2-2h14a2 2 0 0 1 2 2z"></path>
                         </svg>
                         <p className="text-sm">还没有消息，开始聊天吧！</p>
                     </div>
@@ -450,7 +454,7 @@ function LiveKitRoom() {
             room.disconnect();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [room, searchParams]);
 
     const handleToggleNoiseSuppression = async () => {
         const newValue = !isNoiseSuppressionEnabled;

@@ -96,7 +96,7 @@ function RoomInfo() {
             room.off('participantDisconnected', handleParticipantDisconnected);
         };
     }, [room]);
-    
+
     return (
         <div className="flex items-center gap-3 px-4 py-2 rounded-lg bg-gray-800/60 text-white">
             <div className="flex items-center gap-2">
@@ -135,6 +135,105 @@ function RoomInfo() {
                     <circle cx="16" cy="11" r="3"/>
                 </svg>
                 <span className="text-sm font-medium">{room.numParticipants}</span>
+            </div>
+        </div>
+    );
+}
+
+// 图片放大预览组件
+function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
+    const [scale, setScale] = useState(1);
+    const [isDragging, setIsDragging] = useState(false);
+    const [position, setPosition] = useState({ x: 0, y: 0 });
+    const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                onClose();
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [onClose]);
+
+    const handleWheel = (e: React.WheelEvent) => {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+        setScale(prev => Math.max(0.1, Math.min(prev * delta, 5)));
+    };
+
+    const handleMouseDown = (e: React.MouseEvent) => {
+        setIsDragging(true);
+        setDragStart({
+            x: e.clientX - position.x,
+            y: e.clientY - position.y
+        });
+    };
+
+    const handleMouseMove = (e: React.MouseEvent) => {
+        if (isDragging) {
+            setPosition({
+                x: e.clientX - dragStart.x,
+                y: e.clientY - dragStart.y
+            });
+        }
+    };
+
+    const handleMouseUp = () => {
+        setIsDragging(false);
+    };
+
+    return (
+        <div 
+            className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center"
+            onClick={onClose}
+        >
+            <div className="relative max-w-full max-h-full overflow-hidden">
+                {/* 关闭按钮 */}
+                <button
+                    onClick={onClose}
+                    className="absolute top-4 right-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors"
+                >
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                    >
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+
+                {/* 缩放提示 */}
+                <div className="absolute top-4 left-4 z-10 bg-black/60 text-white px-3 py-2 rounded-lg text-sm">
+                    缩放: {Math.round(scale * 100)}%
+                </div>
+
+                {/* 图片 */}
+                <img
+                    src={src}
+                    alt="预览图片"
+                    className={`max-w-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+                    style={{
+                        transform: `scale(${scale}) translate(${position.x / scale}px, ${position.y / scale}px)`,
+                        transformOrigin: 'center center'
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    onWheel={handleWheel}
+                    onMouseDown={handleMouseDown}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onMouseLeave={handleMouseUp}
+                    draggable={false}
+                />
             </div>
         </div>
     );
@@ -290,8 +389,19 @@ function FloatingChat() {
 // 自定义聊天组件
 function CustomChat() {
     const [message, setMessage] = useState('');
-    const [messages, setMessages] = useState<Array<{id: string, user: string, text: string, timestamp: Date}>>([]);
+    const [messages, setMessages] = useState<Array<{
+        id: string;
+        user: string;
+        text?: string;
+        image?: string;
+        timestamp: Date;
+        type: 'text' | 'image';
+    }>>([]);
+    const [isDragging, setIsDragging] = useState(false);
+    const [previewImage, setPreviewImage] = useState<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
     const room = useRoomContext();
 
     // 滚动到最新消息
@@ -303,7 +413,60 @@ function CustomChat() {
         scrollToBottom();
     }, [messages]);
 
-    // 监听聊天消息 - 修复 useEffect 清理函数并添加新消息事件
+    // 处理图片文件
+    const handleImageFile = useCallback(async (file: File) => {
+        if (!file.type.startsWith('image/')) {
+            alert('请选择图片文件');
+            return;
+        }
+
+        if (file.size > 5 * 1024 * 1024) { // 5MB 限制
+            alert('图片大小不能超过 5MB');
+            return;
+        }
+
+        try {
+            // 转换为 base64
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const base64 = e.target?.result as string;
+                
+                const chatMessage = {
+                    type: 'image',
+                    image: base64,
+                    timestamp: Date.now()
+                };
+
+                const encoder = new TextEncoder();
+                const data = encoder.encode(JSON.stringify(chatMessage));
+                
+                try {
+                    await room.localParticipant.publishData(data, { reliable: true });
+                    
+                    // 添加自己的图片消息到本地显示
+                    setMessages(prev => {
+                        const newMessages = [...prev, {
+                            id: Date.now().toString(),
+                            user: '我',
+                            image: base64,
+                            timestamp: new Date(),
+                            type: 'image' as const
+                        }];
+                        return newMessages.slice(-100);
+                    });
+                } catch (e) {
+                    console.error('发送图片失败:', e);
+                    alert('发送图片失败');
+                }
+            };
+            reader.readAsDataURL(file);
+        } catch (error) {
+            console.error('处理图片失败:', error);
+            alert('处理图片失败');
+        }
+    }, [room]);
+
+    // 监听聊天消息 - 支持图片消息
     useEffect(() => {
         const handleDataReceived = (payload: Uint8Array, participant: any) => {
             const decoder = new TextDecoder();
@@ -317,14 +480,30 @@ function CustomChat() {
                             id: Date.now().toString(),
                             user: participant?.name || participant?.identity || '未知用户',
                             text: chatMessage.message,
-                            timestamp: new Date()
+                            timestamp: new Date(),
+                            type: 'text' as const
                         }];
                         
                         // 触发新消息事件
                         const event = new CustomEvent('newChatMessage');
                         window.dispatchEvent(event);
                         
-                        // 限制最大消息数量，防止内存占用过多
+                        return newMessages.slice(-100);
+                    });
+                } else if (chatMessage.type === 'image') {
+                    setMessages(prev => {
+                        const newMessages = [...prev, {
+                            id: Date.now().toString(),
+                            user: participant?.name || participant?.identity || '未知用户',
+                            image: chatMessage.image,
+                            timestamp: new Date(),
+                            type: 'image' as const
+                        }];
+                        
+                        // 触发新消息事件
+                        const event = new CustomEvent('newChatMessage');
+                        window.dispatchEvent(event);
+                        
                         return newMessages.slice(-100);
                     });
                 }
@@ -335,13 +514,52 @@ function CustomChat() {
 
         room.on('dataReceived', handleDataReceived);
         
-        // 修复：返回清理函数，而不是返回 room.off 的结果
         return () => {
             room.off('dataReceived', handleDataReceived);
         };
     }, [room]);
 
-    // 发送消息
+    // 处理粘贴事件
+    const handlePaste = useCallback((e: React.ClipboardEvent) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            if (item.type.startsWith('image/')) {
+                e.preventDefault();
+                const file = item.getAsFile();
+                if (file) {
+                    handleImageFile(file);
+                }
+                break;
+            }
+        }
+    }, [handleImageFile]);
+
+    // 处理拖拽事件
+    const handleDragOver = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(true);
+    }, []);
+
+    const handleDragLeave = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+    }, []);
+
+    const handleDrop = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+        
+        const files = e.dataTransfer?.files;
+        if (files && files.length > 0) {
+            const file = files[0];
+            handleImageFile(file);
+        }
+    }, [handleImageFile]);
+
+    // 发送文本消息
     const sendMessage = useCallback(async () => {
         if (!message.trim()) return;
 
@@ -363,7 +581,8 @@ function CustomChat() {
                     id: Date.now().toString(),
                     user: '我',
                     text: message.trim(),
-                    timestamp: new Date()
+                    timestamp: new Date(),
+                    type: 'text' as const
                 }];
                 return newMessages.slice(-100);
             });
@@ -382,7 +601,37 @@ function CustomChat() {
     };
 
     return (
-        <div className="flex flex-col h-full">
+        <div 
+            className="flex flex-col h-full"
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+        >
+            {/* 拖拽覆盖层 */}
+            {isDragging && (
+                <div className="absolute inset-0 bg-blue-500/20 border-2 border-dashed border-blue-500 rounded-lg flex items-center justify-center z-10">
+                    <div className="text-center text-blue-400">
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="48"
+                            height="48"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="mx-auto mb-2"
+                        >
+                            <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
+                            <circle cx="9" cy="9" r="2"/>
+                            <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
+                        </svg>
+                        <p className="text-lg font-medium">拖拽图片到这里发送</p>
+                    </div>
+                </div>
+            )}
+
             {/* 消息列表区域 */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
                 {messages.length === 0 ? (
@@ -402,6 +651,7 @@ function CustomChat() {
                             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1-2-2h14a2 2 0 0 1 2 2z"></path>
                         </svg>
                         <p className="text-sm">还没有消息，开始聊天吧！</p>
+                        <p className="text-xs mt-2 text-gray-500">支持发送文字和图片</p>
                     </div>
                 ) : (
                     messages.map((msg) => (
@@ -410,9 +660,21 @@ function CustomChat() {
                                 <span className="font-medium text-blue-400">{msg.user}</span>
                                 <span className="ml-2">{msg.timestamp.toLocaleTimeString()}</span>
                             </div>
-                            <div className="text-sm text-gray-200 bg-gray-800/50 rounded-lg p-3">
-                                {msg.text}
-                            </div>
+                            {msg.type === 'text' ? (
+                                <div className="text-sm text-gray-200 bg-gray-800/50 rounded-lg p-3">
+                                    {msg.text}
+                                </div>
+                            ) : (
+                                <div className="bg-gray-800/50 rounded-lg p-2 max-w-xs">
+                                    <img
+                                        src={msg.image}
+                                        alt="聊天图片"
+                                        className="max-w-full h-auto rounded cursor-pointer hover:opacity-80 transition-opacity"
+                                        onDoubleClick={() => setPreviewImage(msg.image!)}
+                                        style={{ maxHeight: '200px' }}
+                                    />
+                                </div>
+                            )}
                         </div>
                     ))
                 )}
@@ -423,10 +685,12 @@ function CustomChat() {
             <div className="border-t border-gray-700 p-4 flex-shrink-0">
                 <div className="flex gap-2">
                     <textarea
+                        ref={textareaRef}
                         value={message}
                         onChange={(e) => setMessage(e.target.value)}
                         onKeyPress={handleKeyPress}
-                        placeholder="输入消息..."
+                        onPaste={handlePaste}
+                        placeholder="输入消息... (支持粘贴图片)"
                         className="flex-1 resize-none bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 max-h-20"
                         rows={1}
                         style={{
@@ -439,6 +703,31 @@ function CustomChat() {
                             target.style.height = Math.min(target.scrollHeight, 80) + 'px';
                         }}
                     />
+                    
+                    {/* 图片上传按钮 */}
+                    <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="px-3 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors flex-shrink-0 self-end"
+                        title="发送图片"
+                    >
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                        >
+                            <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
+                            <circle cx="9" cy="9" r="2"/>
+                            <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
+                        </svg>
+                    </button>
+
+                    {/* 发送按钮 */}
                     <button
                         onClick={sendMessage}
                         disabled={!message.trim()}
@@ -460,10 +749,34 @@ function CustomChat() {
                         </svg>
                     </button>
                 </div>
+                
+                {/* 隐藏的文件输入 */}
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                            handleImageFile(file);
+                        }
+                        e.target.value = ''; // 重置输入
+                    }}
+                    className="hidden"
+                />
+                
                 <div className="text-xs text-gray-500 mt-2">
-                    按 Enter 发送，Shift + Enter 换行
+                    Enter 发送，Shift + Enter 换行，支持粘贴/拖拽图片
                 </div>
             </div>
+
+            {/* 图片预览模态框 */}
+            {previewImage && (
+                <ImagePreview
+                    src={previewImage}
+                    onClose={() => setPreviewImage(null)}
+                />
+            )}
         </div>
     );
 }

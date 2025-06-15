@@ -449,25 +449,28 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
     };
 
     return (
-        // 使用 Portal 确保真正的全屏显示
+        // 修复：使用 React Portal 确保真正的全屏显示并完全居中
         <>
             {typeof window !== 'undefined' && (
                 <div 
-                    className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center overflow-hidden"
+                    className="fixed bg-black/95 overflow-hidden"
                     style={{ 
                         position: 'fixed',
                         top: 0,
                         left: 0,
                         width: '100vw',
                         height: '100vh',
-                        zIndex: 9999
+                        zIndex: 9999,
+                        margin: 0,
+                        padding: 0
                     }}
                     onClick={onClose}
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
                     onMouseLeave={handleMouseUp}
                 >
-                    <div className="relative w-full h-full flex items-center justify-center">
+                    {/* 完全居中的容器 */}
+                    <div className="w-full h-full flex items-center justify-center relative">
                         {/* 关闭按钮 */}
                         <button
                             onClick={onClose}
@@ -503,7 +506,7 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
                             }`}
                             onClick={handleTipsClick}
                         >
-                            滚轮缩放 • 拖拽移动 • ESC 或点击背景关闭 • 点击此处重新显示提示
+                            滚轮缩放 • 拖拽移动 • ESC 或点击背景关闭
                         </div>
 
                         {/* 重新显示提示的按钮（当提示隐藏时） */}
@@ -531,47 +534,38 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
                             </button>
                         )}
 
-                        {/* 图片容器 */}
-                        <div 
-                            className="relative flex items-center justify-center"
-                            style={{
-                                width: '100vw',
-                                height: '100vh',
-                                overflow: 'visible'
-                            }}
-                        >
-                            <img
-                                ref={imageRef}
-                                src={src}
-                                alt="预览图片"
-                                className={`select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
-                                style={{
-                                    transform: `scale(${scale}) translate(${position.x / scale}px, ${position.y / scale}px)`,
-                                    transformOrigin: 'center center',
-                                    maxWidth: 'none',
-                                    maxHeight: 'none',
-                                    width: imageSize.width > 0 ? `${imageSize.width}px` : 'auto',
-                                    height: imageSize.height > 0 ? `${imageSize.height}px` : 'auto',
-                                    position: 'relative',
-                                    zIndex: 1
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                                onWheel={handleWheel}
-                                onMouseDown={handleMouseDown}
-                                draggable={false}
-                                onLoad={() => {
-                                    // 图片加载完成后确保正确的初始位置
-                                    setPosition({ x: 0, y: 0 });
-                                }}
-                            />
-                        </div>
-
                         {/* 图片信息显示 */}
                         <div className="absolute top-6 left-1/2 transform -translate-x-1/2 z-10 bg-black/60 text-white px-4 py-2 rounded-lg text-sm backdrop-blur-sm">
                             {imageSize.width > 0 && imageSize.height > 0 && (
                                 <span>{imageSize.width} × {imageSize.height} 像素</span>
                             )}
                         </div>
+
+                        {/* 图片 - 完全居中显示 */}
+                        <img
+                            ref={imageRef}
+                            src={src}
+                            alt="预览图片"
+                            className={`select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+                            style={{
+                                transform: `scale(${scale}) translate(${position.x / scale}px, ${position.y / scale}px)`,
+                                transformOrigin: 'center center',
+                                maxWidth: 'none',
+                                maxHeight: 'none',
+                                width: imageSize.width > 0 ? `${imageSize.width}px` : 'auto',
+                                height: imageSize.height > 0 ? `${imageSize.height}px` : 'auto',
+                                position: 'relative',
+                                zIndex: 1
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            onWheel={handleWheel}
+                            onMouseDown={handleMouseDown}
+                            draggable={false}
+                            onLoad={() => {
+                                // 图片加载完成后确保正确的初始位置
+                                setPosition({ x: 0, y: 0 });
+                            }}
+                        />
                     </div>
                 </div>
             )}
@@ -1080,7 +1074,7 @@ function CustomChat() {
                 <div ref={messagesEndRef} />
             </div>
 
-            {/* 发送消息区域 */}
+            {/* 发送消息区域 - 修改提示文字 */}
             <div className="border-t border-gray-700 p-4 flex-shrink-0">
                 <div className="flex gap-2">
                     <textarea
@@ -1089,7 +1083,7 @@ function CustomChat() {
                         onChange={(e) => setMessage(e.target.value)}
                         onKeyPress={handleKeyPress}
                         onPaste={handlePaste}
-                        placeholder="输入消息... (支持粘贴图片)"
+                        placeholder="输入消息..."
                         className="flex-1 resize-none bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 max-h-20"
                         rows={1}
                         style={{
@@ -1164,8 +1158,9 @@ function CustomChat() {
                     className="hidden"
                 />
                 
+                {/* 简化提示文字 */}
                 <div className="text-xs text-gray-500 mt-2">
-                    Enter 发送，Shift + Enter 换行，支持粘贴/拖拽图片（最大{MAX_IMAGE_SIZE / 1024 / 1024}MB）
+                    Enter 发送，支持粘贴/拖拽图片
                 </div>
             </div>
 

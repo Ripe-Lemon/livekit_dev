@@ -62,13 +62,48 @@ function AudioProcessingControls({
     );
 }
 
-// 房间信息头部
-function RoomHeader() {
+// 房间信息
+function RoomInfo() {
     const room = useRoomContext();
     return (
-        <div className="fixed top-6 left-6 z-50 rounded-lg bg-black/60 px-4 py-2 shadow-lg backdrop-blur-sm transition-all">
-            <p className="text-xl font-medium text-gray-200">{room.name}</p>
-            <p className="text-sm text-gray-300">{room.numParticipants} 人在线</p>
+        <div className="flex items-center gap-3 px-4 py-2 rounded-lg bg-gray-800/60 text-white">
+            <div className="flex items-center gap-2">
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                >
+                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                    <polyline points="9,22 9,12 15,12 15,22"/>
+                </svg>
+                <span className="text-sm font-medium">{room.name}</span>
+            </div>
+            <div className="h-4 w-px bg-gray-600"></div>
+            <div className="flex items-center gap-2">
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                >
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+                    <circle cx="9" cy="7" r="4"/>
+                    <path d="m22 21-2-2"/>
+                    <circle cx="16" cy="11" r="3"/>
+                </svg>
+                <span className="text-sm font-medium">{room.numParticipants} 人在线</span>
+            </div>
         </div>
     );
 }
@@ -202,7 +237,6 @@ function LiveKitRoom() {
             {/* 2. 在 RoomContext 内部，用 LayoutContextProvider 包裹所有 UI 组件 */}
             <LayoutContextProvider>
                 <div data-lk-theme="default" className="flex h-screen flex-col bg-gray-900">
-                    <RoomHeader />
                     <div className="flex flex-1 overflow-hidden">
                         {/* 左侧聊天面板 */}
                         <div
@@ -225,6 +259,11 @@ function LiveKitRoom() {
 
                     {/* 统一的底部控制栏 */}
                     <div className="flex items-center justify-center gap-4 p-4 bg-gray-900/80 backdrop-blur-sm">
+                        {/* 将房间信息放在控制栏的左侧 */}
+                        <RoomInfo />
+                        
+                        <div className="h-6 w-px bg-gray-600"></div>
+                        
                         {/* ControlBar 现在也可以正确地切换聊天面板 */}
                         <ControlBar
                             variation="minimal"

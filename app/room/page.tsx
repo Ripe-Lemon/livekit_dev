@@ -102,7 +102,7 @@ function RoomInfo() {
                     <path d="m22 21-2-2"/>
                     <circle cx="16" cy="11" r="3"/>
                 </svg>
-                <span className="text-sm font-medium">{room.numParticipants} 人在线</span>
+                <span className="text-sm font-medium">{room.numParticipants}</span>
             </div>
         </div>
     );

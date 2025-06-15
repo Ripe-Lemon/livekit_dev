@@ -193,7 +193,7 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
     const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
     const [showScaleInfo, setShowScaleInfo] = useState(false);
     const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
-    const scaleTimeoutRef = useRef<NodeJS.Timeout>();
+    const scaleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {

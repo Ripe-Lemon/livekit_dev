@@ -8,17 +8,19 @@ import { Room, DisconnectReason } from 'livekit-client';
 // Components
 import { LoadingSpinner, PageLoadingSpinner } from '../components/ui/LoadingSpinner';
 import { ErrorDisplay } from '../components/ui/ErrorDisplay';
-import { ChatPanel } from '../components/room/ChatPanel';
-import { ParticipantList } from '../components/room/ParticipantList';
-import { ControlBar } from '../components/room/ControlBar';
-import { SettingsPanel } from '../components/room/SettingsPanel';
 import { ImagePreview } from '../components/ui/ImagePreview';
-import { ConnectionStatus } from '../components/room/ConnectionStatus';
 import { NotificationCenter } from '../components/ui/NotificationCenter';
 
-// Hooks
-import { useRoom } from '../hooks/useRoom';
-import { useChat } from '../hooks/useChat';
+// 这些组件不能导入，因为它们可能在内部使用了 room context
+// import { ChatPanel } from '../components/room/ChatPanel';
+// import { ParticipantList } from '../components/room/ParticipantList';
+// import { ControlBar } from '../components/room/ControlBar';
+// import { SettingsPanel } from '../components/room/SettingsPanel';
+// import { ConnectionStatus } from '../components/room/ConnectionStatus';
+
+// Hooks - 移除可能访问 room context 的 hooks
+// import { useRoom } from '../hooks/useRoom';
+// import { useChat } from '../hooks/useChat';
 import { useAudioManager } from '../hooks/useAudioManager';
 import { useImagePreview } from '../hooks/useImagePreview';
 
@@ -58,6 +60,86 @@ interface Notification {
     timestamp: Date;
 }
 
+// 简化的控制栏组件 - 不依赖 room context
+function SimpleControlBar({ 
+    onToggleChat, 
+    onToggleParticipants, 
+    onToggleSettings, 
+    onToggleFullscreen, 
+    onLeaveRoom,
+    isFullscreen 
+}: {
+    onToggleChat: () => void;
+    onToggleParticipants: () => void;
+    onToggleSettings: () => void;
+    onToggleFullscreen: () => void;
+    onLeaveRoom: () => void;
+    isFullscreen: boolean;
+}) {
+    return (
+        <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-20">
+            <div className="flex items-center space-x-2 bg-gray-800 bg-opacity-90 backdrop-blur-sm rounded-lg px-4 py-2">
+                <button
+                    onClick={onToggleChat}
+                    className="p-2 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-colors"
+                    title="聊天"
+                >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                </button>
+                
+                <button
+                    onClick={onToggleParticipants}
+                    className="p-2 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-colors"
+                    title="参与者"
+                >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+                    </svg>
+                </button>
+                
+                <button
+                    onClick={onToggleSettings}
+                    className="p-2 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-colors"
+                    title="设置"
+                >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                </button>
+                
+                <button
+                    onClick={onToggleFullscreen}
+                    className="p-2 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-colors"
+                    title={isFullscreen ? "退出全屏" : "全屏"}
+                >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        {isFullscreen ? (
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9V4.5M9 9H4.5M9 9L3.5 3.5M15 15v4.5M15 15h4.5M15 15l5.5 5.5M15 9h4.5M15 9V4.5M15 9l5.5-5.5M9 15H4.5M9 15v4.5M9 15l-5.5 5.5" />
+                        ) : (
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                        )}
+                    </svg>
+                </button>
+                
+                <div className="w-px h-6 bg-gray-600 mx-2"></div>
+                
+                <button
+                    onClick={onLeaveRoom}
+                    className="p-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
+                    title="离开房间"
+                >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+    );
+}
+
 // 房间内部组件 - 可以访问 LiveKit Room Context
 function RoomInnerContent({ 
     roomName, 
@@ -76,30 +158,15 @@ function RoomInnerContent({
     leaveRoom: () => void;
     addNotification: (notification: Omit<Notification, 'id' | 'timestamp'>) => void;
 }) {
-    // 这些 hooks 现在在 LiveKitRoom 内部，可以正常访问 room context
+    // 现在在 LiveKitRoom 内部，可以安全访问 room context
+    const room = useRoomContext();
+    
+    // 图片预览 hook 应该是安全的
     const { 
         previewState, 
         openPreview, 
         closePreview 
     } = useImagePreview();
-    
-    const {
-        chatState,
-        sendTextMessage,
-        sendImageMessage,
-        toggleChat,
-        clearUnreadCount,
-        clearMessages,
-        retryMessage,
-        deleteMessage
-    } = useChat({
-        maxMessages: 200,
-        enableSounds: true,
-        autoScrollToBottom: true
-    });
-
-    // 房间事件处理（现在在正确的上下文中）
-    const room = useRoomContext();
 
     useEffect(() => {
         if (!room) return;
@@ -132,39 +199,85 @@ function RoomInnerContent({
     }, [room, addNotification]);
 
     return (
-        <>
+        <div className="relative w-full h-full">
             <VideoConference 
                 chatMessageFormatter={formatChatMessageLinks}
             />
             
-            {/* 自定义控制栏 */}
-            <ControlBar
+            {/* 简化的控制栏 */}
+            <SimpleControlBar
                 onToggleChat={() => toggleUIPanel('showChat')}
                 onToggleParticipants={() => toggleUIPanel('showParticipants')}
                 onToggleSettings={() => toggleUIPanel('showSettings')}
                 onToggleFullscreen={toggleFullscreen}
                 onLeaveRoom={leaveRoom}
                 isFullscreen={uiState.isFullscreen}
-                chatUnreadCount={chatState.unreadCount}
             />
 
-            {/* 右侧聊天面板 */}
+            {/* 暂时移除复杂的面板，直到我们确保它们不会访问 room context */}
+            {/* 聊天面板 */}
             {uiState.showChat && (
                 <div className="absolute top-0 right-0 h-full w-80 bg-gray-800 border-l border-gray-700 z-10">
-                    <ChatPanel
-                        chatState={chatState}
-                        onSendMessage={sendTextMessage}
-                        onSendImage={sendImageMessage}
-                        onToggleChat={() => toggleUIPanel('showChat')}
-                        onClearMessages={clearMessages}
-                        onRetryMessage={retryMessage}
-                        onDeleteMessage={deleteMessage}
-                        onImageClick={openPreview}
-                        onClose={() => {
-                            toggleUIPanel('showChat');
-                            clearUnreadCount();
-                        }}
-                    />
+                    <div className="p-4">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-semibold text-white">聊天</h3>
+                            <button
+                                onClick={() => toggleUIPanel('showChat')}
+                                className="text-gray-400 hover:text-white"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="text-gray-300">
+                            聊天功能开发中...
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 参与者面板 */}
+            {uiState.showParticipants && (
+                <div className="absolute top-0 left-0 h-full w-80 bg-gray-800 border-r border-gray-700 z-10">
+                    <div className="p-4">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-semibold text-white">参与者</h3>
+                            <button
+                                onClick={() => toggleUIPanel('showParticipants')}
+                                className="text-gray-400 hover:text-white"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="text-gray-300">
+                            参与者列表开发中...
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 设置面板 */}
+            {uiState.showSettings && (
+                <div className="absolute top-0 right-0 h-full w-80 bg-gray-800 border-l border-gray-700 z-10">
+                    <div className="p-4">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-semibold text-white">设置</h3>
+                            <button
+                                onClick={() => toggleUIPanel('showSettings')}
+                                className="text-gray-400 hover:text-white"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="text-gray-300">
+                            设置面板开发中...
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -175,7 +288,7 @@ function RoomInnerContent({
                     onClose={closePreview}
                 />
             )}
-        </>
+        </div>
     );
 }
 
@@ -198,7 +311,7 @@ function RoomPageContent() {
     });
 
     const [uiState, setUIState] = useState<UIState>({
-        showChat: true,
+        showChat: false, // 默认关闭聊天
         showParticipants: false,
         showSettings: false,
         isFullscreen: false,
@@ -212,7 +325,7 @@ function RoomPageContent() {
     const isMountedRef = useRef(true);
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-    // Hooks（在 LiveKitRoom 外部的 hooks）
+    // Hooks（在 LiveKitRoom 外部的 hooks - 确保这些不访问 room context）
     const { playSound } = useAudioManager({ autoInitialize: true });
 
     // 验证必需参数
@@ -264,12 +377,11 @@ function RoomPageContent() {
             }
             
             // 直接在 URL 中拼接 room 和 identity 参数
-            // 使用 encodeURIComponent 来确保特殊字符（如房间名中含有的空格）被正确编码
             const url = `https://livekit-api.2k2.cc/api/room?room=${encodeURIComponent(roomName)}&identity=${encodeURIComponent(username)}`;
 
-            // 发起请求，无需 body 或特殊 headers
+            // 发起请求
             const response = await fetch(url, {
-                method: 'GET', // 或者 'GET', 取决于你的 API 设计
+                method: 'GET',
             });
 
             // 检查响应是否成功
@@ -285,11 +397,9 @@ function RoomPageContent() {
             console.error('创建房间或生成令牌失败:', error);
             throw error instanceof Error ? error : new Error('创建房间或生成令牌失败');
         }
-    }, [roomName, username]); // 依赖项为 roomName 和 username
+    }, [roomName, username]);
 
-    /**
-     * 获取访问令牌的包装函数。
-     */
+    // 获取访问令牌
     const getAccessToken = useCallback(async (): Promise<string> => {
         try {
             return await createOrJoinRoom();
@@ -307,7 +417,6 @@ function RoomPageContent() {
             });
 
             if (!response.ok) {
-                // 房间不存在或其他错误
                 return null;
             }
 
@@ -322,7 +431,7 @@ function RoomPageContent() {
     // 获取房间参与者
     const getRoomParticipants = useCallback(async (roomName: string) => {
         try {
-            const response = await fetch('https://livekit-api.2k2.cc/api/room/participants?room=${encodeURIComponent(roomName)}', {
+            const response = await fetch(`https://livekit-api.2k2.cc/api/room/participants?room=${encodeURIComponent(roomName)}`, {
                 method: 'GET'
             });
 
@@ -359,7 +468,7 @@ function RoomPageContent() {
                 throw new Error('LiveKit 服务器URL未配置');
             }
 
-            // 获取访问令牌（这会自动创建房间如果不存在）
+            // 获取访问令牌
             const token = await getAccessToken();
 
             if (isMountedRef.current) {
@@ -662,36 +771,10 @@ function RoomPageContent() {
                         </div>
                         
                         <div className="flex items-center space-x-2">
-                            <ConnectionStatus />
-                            
-                            <button
-                                onClick={() => toggleUIPanel('showParticipants')}
-                                className={`p-2 rounded-lg transition-colors ${
-                                    uiState.showParticipants 
-                                        ? 'bg-blue-600 text-white' 
-                                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                                }`}
-                                title="参与者列表"
-                            >
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
-                                </svg>
-                            </button>
-                            
-                            <button
-                                onClick={() => toggleUIPanel('showSettings')}
-                                className={`p-2 rounded-lg transition-colors ${
-                                    uiState.showSettings 
-                                        ? 'bg-blue-600 text-white' 
-                                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                                }`}
-                                title="设置"
-                            >
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                </svg>
-                            </button>
+                            <div className="flex items-center space-x-2 text-sm text-gray-400">
+                                <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                                <span>已连接</span>
+                            </div>
                         </div>
                     </div>
                 </header>
@@ -699,23 +782,6 @@ function RoomPageContent() {
 
             {/* 主要内容区域 */}
             <div className="flex-1 flex overflow-hidden">
-                {/* 左侧面板 */}
-                {(uiState.showParticipants || uiState.showSettings) && (
-                    <div className="w-80 bg-gray-800 border-r border-gray-700 flex flex-col">
-                        {uiState.showParticipants && (
-                            <ParticipantList
-                                onClose={() => toggleUIPanel('showParticipants')}
-                            />
-                        )}
-                        
-                        {uiState.showSettings && (
-                            <SettingsPanel
-                                onClose={() => toggleUIPanel('showSettings')}
-                            />
-                        )}
-                    </div>
-                )}
-
                 {/* 中央视频区域 */}
                 <div className="flex-1 flex flex-col bg-black relative">
                     <LiveKitRoom

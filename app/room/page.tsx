@@ -65,6 +65,38 @@ function AudioProcessingControls({
 // 房间信息
 function RoomInfo() {
     const room = useRoomContext();
+    const [participantCount, setParticipantCount] = useState(room.numParticipants);
+
+    // 监听参与者加入和离开事件
+    useEffect(() => {
+        const updateParticipantCount = () => {
+            setParticipantCount(room.numParticipants);
+        };
+
+        // 监听参与者连接事件
+        const handleParticipantConnected = () => {
+            updateParticipantCount();
+        };
+
+        // 监听参与者断开连接事件
+        const handleParticipantDisconnected = () => {
+            updateParticipantCount();
+        };
+
+        // 添加事件监听器
+        room.on('participantConnected', handleParticipantConnected);
+        room.on('participantDisconnected', handleParticipantDisconnected);
+
+        // 初始化时更新一次
+        updateParticipantCount();
+
+        // 清理事件监听器
+        return () => {
+            room.off('participantConnected', handleParticipantConnected);
+            room.off('participantDisconnected', handleParticipantDisconnected);
+        };
+    }, [room]);
+    
     return (
         <div className="flex items-center gap-3 px-4 py-2 rounded-lg bg-gray-800/60 text-white">
             <div className="flex items-center gap-2">

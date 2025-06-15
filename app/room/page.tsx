@@ -611,7 +611,8 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
     };
 
     // 点击操作提示重新显示
-    const handleTipsClick = () => {
+    const handleTipsClick = (e: React.MouseEvent) => {
+        e.stopPropagation(); // 阻止事件冒泡
         setShowOperationTips(true);
         if (tipsTimeoutRef.current) {
             clearTimeout(tipsTimeoutRef.current);
@@ -621,8 +622,9 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
         }, 3000);
     };
 
-    // 点击图片信息重新显示
-    const handleImageInfoClick = () => {
+    // 点击图片信息重新显示 - 修复点击事件冲突
+    const handleImageInfoClick = (e: React.MouseEvent) => {
+        e.stopPropagation(); // 阻止事件冒泡，避免触发关闭预览
         setShowImageInfo(true);
         if (imageInfoTimeoutRef.current) {
             clearTimeout(imageInfoTimeoutRef.current);
@@ -630,6 +632,18 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
         imageInfoTimeoutRef.current = setTimeout(() => {
             setShowImageInfo(false);
         }, 2000);
+    };
+
+    // 点击"i"按钮显示图片信息 - 修复点击事件冲突
+    const handleInfoButtonClick = (e: React.MouseEvent) => {
+        e.stopPropagation(); // 阻止事件冒泡，避免触发关闭预览
+        handleImageInfoClick(e);
+    };
+
+    // 点击"?"按钮显示操作提示 - 修复点击事件冒泡
+    const handleTipsButtonClick = (e: React.MouseEvent) => {
+        e.stopPropagation(); // 阻止事件冒泡
+        handleTipsClick(e);
     };
 
     return (
@@ -694,10 +708,10 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
                             )}
                         </div>
 
-                        {/* 重新显示图片信息的按钮 - 修复悬停效果和位置 */}
+                        {/* 重新显示图片信息的按钮 - 修复悬停效果和点击事件 */}
                         {!showImageInfo && (
                             <button
-                                onClick={handleImageInfoClick}
+                                onClick={handleInfoButtonClick}
                                 className="absolute top-6 left-6 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/70 transition-all duration-200 backdrop-blur-sm hover:scale-105"
                                 title="显示图片信息"
                             >
@@ -729,10 +743,10 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
                             滚轮缩放 • 拖拽移动 • ESC 或点击背景关闭
                         </div>
 
-                        {/* 重新显示提示的按钮 - 修复悬停效果 */}
+                        {/* 重新显示提示的按钮 - 修复悬停效果和点击事件 */}
                         {!showOperationTips && (
                             <button
-                                onClick={handleTipsClick}
+                                onClick={handleTipsButtonClick}
                                 className="absolute bottom-6 right-6 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/70 transition-all duration-200 backdrop-blur-sm hover:scale-105"
                                 title="显示操作提示"
                             >
@@ -811,12 +825,24 @@ function FloatingChatWithPreview({ setPreviewImage, previewImage }: { setPreview
         };
     }, [isOpen, audioManager]);
 
+    // 修复：当聊天窗口打开时立即清除未读数量
     const handleToggleChat = () => {
         if (!isOpen) {
+            // 打开聊天窗口时立即清除未读数量
+            setUnreadCount(0);
+            setIsOpen(true);
+        } else {
+            // 关闭聊天窗口
+            setIsOpen(false);
+        }
+    };
+
+    // 添加：当聊天窗口已打开且有新消息时，确保不增加未读数量
+    useEffect(() => {
+        if (isOpen) {
             setUnreadCount(0);
         }
-        setIsOpen(!isOpen);
-    };
+    }, [isOpen]);
 
     return (
         <>
@@ -855,7 +881,16 @@ function FloatingChatWithPreview({ setPreviewImage, previewImage }: { setPreview
                     
                     {/* 聊天内容区域 */}
                     <div className="flex-1 flex flex-col min-h-0">
-                        <CustomChatWithPreview setPreviewImage={setPreviewImage} previewImage={previewImage} />
+                        <CustomChatWithPreview 
+                            setPreviewImage={setPreviewImage} 
+                            previewImage={previewImage}
+                            onNewMessage={() => {
+                                // 当聊天窗口打开时，新消息不增加未读数量
+                                if (isOpen) {
+                                    setUnreadCount(0);
+                                }
+                            }}
+                        />
                     </div>
                 </div>
             </div>
@@ -889,7 +924,7 @@ function FloatingChatWithPreview({ setPreviewImage, previewImage }: { setPreview
                     </svg>
                 </button>
 
-                {/* 未读消息气泡 */}
+                {/* 未读消息气泡 - 修复显示逻辑 */}
                 {unreadCount > 0 && !isOpen && (
                     <div className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white animate-pulse">
                         {unreadCount > 99 ? '99+' : unreadCount}
@@ -901,7 +936,15 @@ function FloatingChatWithPreview({ setPreviewImage, previewImage }: { setPreview
 }
 
 // 自定义聊天组件
-function CustomChatWithPreview({ setPreviewImage, previewImage }: { setPreviewImage: (src: string | null) => void; previewImage: string | null }) {
+function CustomChatWithPreview({ 
+    setPreviewImage, 
+    previewImage, 
+    onNewMessage 
+}: { 
+    setPreviewImage: (src: string | null) => void; 
+    previewImage: string | null;
+    onNewMessage?: () => void;
+}) {
     const [message, setMessage] = useState('');
     const [messages, setMessages] = useState<Array<{
         id: string;
@@ -940,6 +983,9 @@ function CustomChatWithPreview({ setPreviewImage, previewImage }: { setPreviewIm
                 const event = new CustomEvent('newChatMessage');
                 window.dispatchEvent(event);
                 
+                // 调用回调函数
+                onNewMessage?.();
+                
                 return newMessages.slice(-100);
             });
         };
@@ -949,7 +995,7 @@ function CustomChatWithPreview({ setPreviewImage, previewImage }: { setPreviewIm
         return () => {
             chunkManagerRef.current?.cleanup();
         };
-    }, []);
+    }, [onNewMessage]);
 
     // 滚动到最新消息
     const scrollToBottom = () => {
@@ -1042,6 +1088,9 @@ function CustomChatWithPreview({ setPreviewImage, previewImage }: { setPreviewIm
                         const event = new CustomEvent('newChatMessage');
                         window.dispatchEvent(event);
                         
+                        // 调用回调函数
+                        onNewMessage?.();
+                        
                         return newMessages.slice(-100);
                     });
                 } else if (chatMessage.type === 'image_chunk') {
@@ -1062,6 +1111,9 @@ function CustomChatWithPreview({ setPreviewImage, previewImage }: { setPreviewIm
                         const event = new CustomEvent('newChatMessage');
                         window.dispatchEvent(event);
                         
+                        // 调用回调函数
+                        onNewMessage?.();
+                        
                         return newMessages.slice(-100);
                     });
                 }
@@ -1075,7 +1127,9 @@ function CustomChatWithPreview({ setPreviewImage, previewImage }: { setPreviewIm
         return () => {
             room.off('dataReceived', handleDataReceived);
         };
-    }, [room]);
+    }, [room, onNewMessage]);
+
+    // ...existing code for the rest of the component remains the same...
 
     // 处理粘贴事件
     const handlePaste = useCallback((e: React.ClipboardEvent) => {

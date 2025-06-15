@@ -1,3 +1,4 @@
+// 文件路径: app/room/page.tsx
 'use client';
 
 import {
@@ -10,49 +11,66 @@ import {
 } from '@livekit/components-react';
 import { Room, Track } from 'livekit-client';
 import '@livekit/components-styles';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation'; // 1. 导入 useSearchParams 钩子
+import Link from 'next/link';
 
-export default function Page() {
-    // 定义 state 来管理加载状态和连接后的房间实例
-    const [isLoading, setIsLoading] = useState(true); // 1. 使用 isLoading 状态
+// 2. 将核心逻辑封装在一个新组件中，以便在 Suspense 内部使用 useSearchParams
+function LiveKitRoom() {
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [room] = useState(() => new Room({
         adaptiveStream: true,
         dynacast: true,
     }));
 
+    // 3. 使用 useSearchParams 获取 URL 查询参数
+    const searchParams = useSearchParams();
+
     useEffect(() => {
         let mounted = true;
 
-        const connectToRoom = async () => {
-            // 定义在组件内部的常量
-            const roomName = 'quickstart-room';
-            const participantName = 'quickstart-user';
+        // 4. 从 URL 中获取房间名和用户名
+        const roomName = searchParams.get('roomName');
+        const participantName = searchParams.get('participantName');
 
+        // 5. 如果 URL 中缺少参数，则显示错误信息
+        if (!roomName || !participantName) {
+            setError('缺少房间名或用户名参数。');
+            setIsLoading(false);
+            return;
+        }
+
+        const connectToRoom = async () => {
             try {
-                // 2. 检查环境变量是否存在
                 const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL;
                 if (!livekitUrl) {
                     console.error('NEXT_PUBLIC_LIVEKIT_URL is not defined in .env.local');
-                    setIsLoading(false); // 停止加载，显示错误或空状态
+                    setError('服务器配置错误。');
+                    setIsLoading(false);
                     return;
                 }
 
-                // 从你的 API 获取 token
+                // 6. 使用从 URL 获取的参数来请求 token
                 const resp = await fetch(`https://livekit-api.gui.ink/api/token?room=${roomName}&username=${participantName}`);
                 const data = await resp.json();
 
                 if (!mounted) return;
 
                 if (data.token) {
-                    // 连接到 LiveKit 房间
                     await room.connect(livekitUrl, data.token);
-                    console.log('Successfully connected to LiveKit room!');
+                    console.log(`Successfully connected to LiveKit room: ${roomName}`);
+                } else {
+                    throw new Error(data.error || '无法获取 Token');
                 }
-            } catch (e) {
+            } catch (e: any) {
                 console.error(e);
+                if (mounted) {
+                    setError(`连接失败: ${e.message}`);
+                }
             } finally {
                 if (mounted) {
-                    setIsLoading(false); // 无论成功或失败，都结束加载状态
+                    setIsLoading(false);
                 }
             }
         };
@@ -61,16 +79,27 @@ export default function Page() {
 
         return () => {
             mounted = false;
-            // 当组件卸载时，断开连接
             room.disconnect();
         };
-    }, [room]); // 依赖项是 room 实例
+        // 7. 将 searchParams 添加到依赖项数组中
+    }, [room, searchParams]);
 
-    // 3. 使用 isLoading 状态来显示加载信息
     if (isLoading) {
-        return <div>Connecting to room...</div>;
+        return <div className="flex h-screen items-center justify-center">正在连接房间...</div>;
     }
 
+    if (error) {
+        return (
+            <div className="flex h-screen flex-col items-center justify-center gap-4">
+                <div className="text-red-500">{error}</div>
+                <Link href="/" className="rounded-md bg-blue-500 px-4 py-2 text-white">
+                    返回主页
+                </Link>
+            </div>
+        );
+    }
+
+    // 如果连接成功，渲染视频会议界面
     return (
         <RoomContext.Provider value={room}>
             <div data-lk-theme="default" style={{ height: '100dvh' }}>
@@ -94,5 +123,15 @@ function MyVideoConference() {
         <GridLayout tracks={tracks} style={{ height: 'calc(100vh - var(--lk-control-bar-height))' }}>
             <ParticipantTile />
         </GridLayout>
+    );
+}
+
+// 8. 导出的页面组件使用 Suspense 包裹 LiveKitRoom
+//    Suspense 用于处理 useSearchParams 在初始渲染时的异步行为
+export default function Page() {
+    return (
+        <Suspense fallback={<div className="flex h-screen items-center justify-center">加载中...</div>}>
+            <LiveKitRoom />
+        </Suspense>
     );
 }

@@ -801,7 +801,7 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
 }
 
 // 添加悬浮聊天组件
-function FloatingChatWithPreview({ setPreviewImage, previewImage }: { setPreviewImage: (src: string | null) => void; previewImage: string | null }) {
+function FloatingChatWithPreview({ setPreviewImage }: { setPreviewImage: (src: string | null) => void }) {
     const [isOpen, setIsOpen] = useState(false);
     const [unreadCount, setUnreadCount] = useState(0);
     const [audioManager] = useState(() => AudioManager.getInstance());
@@ -883,7 +883,6 @@ function FloatingChatWithPreview({ setPreviewImage, previewImage }: { setPreview
                     <div className="flex-1 flex flex-col min-h-0">
                         <CustomChatWithPreview 
                             setPreviewImage={setPreviewImage} 
-                            previewImage={previewImage}
                             onNewMessage={() => {
                                 // 当聊天窗口打开时，新消息不增加未读数量
                                 if (isOpen) {
@@ -895,8 +894,8 @@ function FloatingChatWithPreview({ setPreviewImage, previewImage }: { setPreview
                 </div>
             </div>
 
-            {/* 聊天按钮 */}
-            <div className="fixed top-6 right-6 z-50">
+            {/* 聊天按钮 - 修复气泡层级问题 */}
+            <div className="fixed top-6 right-6 z-50 relative">
                 <button
                     onClick={handleToggleChat}
                     className={`
@@ -924,9 +923,9 @@ function FloatingChatWithPreview({ setPreviewImage, previewImage }: { setPreview
                     </svg>
                 </button>
 
-                {/* 未读消息气泡 - 修复显示逻辑 */}
+                {/* 未读消息气泡 - 修复层级和显示逻辑 */}
                 {unreadCount > 0 && !isOpen && (
-                    <div className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white animate-pulse">
+                    <div className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white animate-pulse z-10">
                         {unreadCount > 99 ? '99+' : unreadCount}
                     </div>
                 )}
@@ -938,11 +937,9 @@ function FloatingChatWithPreview({ setPreviewImage, previewImage }: { setPreview
 // 自定义聊天组件
 function CustomChatWithPreview({ 
     setPreviewImage, 
-    previewImage, 
     onNewMessage 
 }: { 
     setPreviewImage: (src: string | null) => void; 
-    previewImage: string | null;
     onNewMessage?: () => void;
 }) {
     const [message, setMessage] = useState('');
@@ -1129,7 +1126,7 @@ function CustomChatWithPreview({
         };
     }, [room, onNewMessage]);
 
-    // ...existing code for the rest of the component remains the same...
+    // ...existing code for the rest of the component...
 
     // 处理粘贴事件
     const handlePaste = useCallback((e: React.ClipboardEvent) => {
@@ -1460,14 +1457,6 @@ function CustomChatWithPreview({
                     Enter 发送，支持粘贴/拖拽图片
                 </div>
             </div>
-
-            {/* 图片预览模态框 */}
-            {previewImage && (
-                <ImagePreview
-                    src={previewImage}
-                    onClose={() => setPreviewImage(null)}
-                />
-            )}
         </div>
     );
 }
@@ -1476,7 +1465,6 @@ function CustomChatWithPreview({
 function LiveKitRoomWithPreview({ setPreviewImage }: { setPreviewImage: (src: string | null) => void }) {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [previewImage, setPreviewImageLocal] = useState<string | null>(null);
     const [audioManager] = useState(() => AudioManager.getInstance());
 
     const [room] = useState(() => new Room({
@@ -1654,8 +1642,9 @@ function LiveKitRoomWithPreview({ setPreviewImage }: { setPreviewImage: (src: st
                         />
                     </div>
                 </div>
-                <FloatingChatWithPreview setPreviewImage={setPreviewImageLocal} previewImage={previewImage} />
-                <FloatingChatWithPreview setPreviewImage={setPreviewImage} previewImage={previewImage} />
+
+                {/* 修复：只渲染一个悬浮聊天组件，传递正确的 setPreviewImage */}
+                <FloatingChatWithPreview setPreviewImage={setPreviewImage} />
             </LayoutContextProvider>
         </RoomContext.Provider>
     );

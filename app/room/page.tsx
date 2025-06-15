@@ -22,9 +22,7 @@ import { ImagePreview } from '../components/ui/ImagePreview';
 import { NotificationCenter } from '../components/ui/NotificationCenter';
 import { Button } from '../components/ui/Button';
 import { ControlBar as CustomControlBar } from '../components/room/ControlBar';
-import ConnectionStatus from '../components/room/ConnectionStatus';
-import RoomInfo from '../components/room/RoomInfo';
-import { ParticipantList } from '../components/room/ParticipantList';
+import { Sidebar } from '../components/room/Sidebar';
 import FloatingChat from '../components/room/FloatingChat';
 
 // Hooks
@@ -51,7 +49,6 @@ interface RoomState {
 
 interface UIState {
     showChat: boolean;
-    showParticipants: boolean;
     showSettings: boolean;
     isFullscreen: boolean;
     sidebarCollapsed: boolean;
@@ -92,7 +89,8 @@ function RoomInnerContent({
     uiState, 
     toggleUIPanel, 
     toggleFullscreen, 
-    leaveRoom, 
+    leaveRoom,
+    switchRoom,
     addNotification
 }: {
     roomName: string;
@@ -101,6 +99,7 @@ function RoomInnerContent({
     toggleUIPanel: (panel: keyof UIState) => void;
     toggleFullscreen: () => void;
     leaveRoom: () => void;
+    switchRoom: (newRoomName: string) => void;
     addNotification: (notification: Omit<Notification, 'id' | 'timestamp'>) => void;
 }) {
     const room = useRoomContext();
@@ -133,13 +132,6 @@ function RoomInnerContent({
         openPreview, 
         closePreview 
     } = useImagePreview();
-
-    // 修复图片预览回调类型
-    const handleImagePreview = useCallback((src: string | null) => {
-        if (src) {
-            openPreview(src);
-        }
-    }, [openPreview]);
 
     // 默认设备状态设置
     useEffect(() => {
@@ -210,15 +202,26 @@ function RoomInnerContent({
     }, [room, participants.length, addNotification, playSound]);
 
     return (
-        <div className="relative w-full h-full flex">
+        <div className="flex h-full">
+            {/* 左侧边栏 */}
+            <div className={`transition-all duration-300 ${uiState.sidebarCollapsed ? 'w-0' : 'w-80'} flex-shrink-0`}>
+                {!uiState.sidebarCollapsed && (
+                    <Sidebar
+                        currentRoomName={roomName}
+                        onRoomSwitch={switchRoom}
+                        className="h-full"
+                    />
+                )}
+            </div>
+
             {/* 主视频区域 */}
-            <div className="relative bg-black w-full h-full">
+            <div className="relative bg-black flex-1 h-full">
                 <CustomVideoGrid />
                 
                 {/* 自定义控制栏 - 包含聊天按钮 */}
                 <CustomControlBar
                     onToggleChat={() => toggleUIPanel('showChat')}
-                    onToggleParticipants={() => toggleUIPanel('showParticipants')}
+                    onToggleParticipants={() => toggleUIPanel('sidebarCollapsed')}
                     onToggleSettings={() => toggleUIPanel('showSettings')}
                     onToggleFullscreen={toggleFullscreen}
                     onLeaveRoom={leaveRoom}
@@ -228,128 +231,10 @@ function RoomInnerContent({
                 />
             </div>
 
-            {/* 参与者面板 */}
-            {uiState.showParticipants && (
-                <div className="absolute top-0 left-0 h-full w-80 bg-gray-800 border-r border-gray-700 z-10">
-                    <ParticipantList
-                        onClose={() => toggleUIPanel('showParticipants')}
-                        className="h-full"
-                    />
-                </div>
-            )}
-
-            {/* 设置面板 */}
-            {uiState.showSettings && (
-                <div className="absolute top-0 right-0 h-full w-80 bg-gray-800 border-l border-gray-700 z-10">
-                    <div className="p-4 h-full overflow-y-auto">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-lg font-semibold text-white">设置</h3>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => toggleUIPanel('showSettings')}
-                                className="text-gray-400 hover:text-white"
-                            >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </Button>
-                        </div>
-                        
-                        <div className="space-y-6">
-                            {/* 设备控制 */}
-                            <div>
-                                <h4 className="font-medium text-white mb-3">设备控制</h4>
-                                <div className="space-y-3">
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={async () => {
-                                            if (room?.localParticipant) {
-                                                const isEnabled = room.localParticipant.isCameraEnabled;
-                                                await room.localParticipant.setCameraEnabled(!isEnabled);
-                                            }
-                                        }}
-                                        className="w-full"
-                                    >
-                                        {room?.localParticipant?.isCameraEnabled ? '关闭摄像头' : '开启摄像头'}
-                                    </Button>
-                                    
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={async () => {
-                                            if (room?.localParticipant) {
-                                                const isEnabled = room.localParticipant.isMicrophoneEnabled;
-                                                await room.localParticipant.setMicrophoneEnabled(!isEnabled);
-                                            }
-                                        }}
-                                        className="w-full"
-                                    >
-                                        {room?.localParticipant?.isMicrophoneEnabled ? '关闭麦克风' : '开启麦克风'}
-                                    </Button>
-                                    
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={async () => {
-                                            if (room?.localParticipant) {
-                                                const isEnabled = room.localParticipant.isScreenShareEnabled;
-                                                await room.localParticipant.setScreenShareEnabled(!isEnabled);
-                                            }
-                                        }}
-                                        className="w-full"
-                                    >
-                                        {room?.localParticipant?.isScreenShareEnabled ? '停止屏幕共享' : '开始屏幕共享'}
-                                    </Button>
-                                </div>
-                            </div>
-
-                            {/* 聊天设置 */}
-                            <div>
-                                <h4 className="font-medium text-white mb-3">聊天设置</h4>
-                                <div className="space-y-3">
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={clearMessages}
-                                        className="w-full"
-                                    >
-                                        清除聊天记录
-                                    </Button>
-                                    
-                                    <div className="text-sm text-gray-300">
-                                        <p>消息数量: {chatState.messages.length}</p>
-                                        <p>未读消息: {chatState.unreadCount}</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* 连接状态 */}
-                            <div>
-                                <h4 className="font-medium text-white mb-3">连接状态</h4>
-                                <ConnectionStatus 
-                                    showDetails={true}
-                                    className="bg-gray-700 rounded-lg"
-                                />
-                            </div>
-
-                            {/* 房间信息 */}
-                            <div>
-                                <h4 className="font-medium text-white mb-3">房间信息</h4>
-                                <RoomInfo className="bg-gray-700 rounded-lg p-3" />
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* 悬浮聊天窗口 - 只在显示时渲染 */}
+            {/* 聊天面板 */}
             {uiState.showChat && (
                 <FloatingChat 
-                    setPreviewImage={handleImagePreview}
-                    position="bottom-right"
-                    size="medium"
+                    setPreviewImage={(src) => src && openPreview(src)}
                     onClose={() => toggleUIPanel('showChat')}
                     chatState={chatState}
                     onSendMessage={sendTextMessage}
@@ -375,12 +260,11 @@ function RoomPageContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     
-    // URL 参数
-    const roomName = searchParams.get('room');
-    const username = searchParams.get('username');
-    const password = searchParams.get('password');
+    // 从 URL 参数获取房间信息
+    const roomName = searchParams.get('room') || 'default-room';
+    const username = searchParams.get('username') || `user_${Date.now()}`;
 
-    // 状态管理 - 修复UIState初始化
+    // 房间状态
     const [roomState, setRoomState] = useState<RoomState>({
         isConnecting: false,
         isConnected: false,
@@ -390,205 +274,171 @@ function RoomPageContent() {
         connectionAttempts: 0
     });
 
+    // UI 状态
     const [uiState, setUIState] = useState<UIState>({
         showChat: false,
-        showParticipants: false,
         showSettings: false,
         isFullscreen: false,
         sidebarCollapsed: false
     });
 
+    // 通知系统
     const [notifications, setNotifications] = useState<Notification[]>([]);
 
-    // Refs
-    const roomRef = useRef<Room | null>(null);
-    const isMountedRef = useRef(true);
-    const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-    // 验证必需参数
-    const validateParams = useCallback(() => {
-        if (!roomName || !username) {
-            return '缺少必需的房间参数';
-        }
-        
-        if (roomName.length < 1 || roomName.length > 50) {
-            return '房间名称长度必须在1-50个字符之间';
-        }
-        
-        if (username.length < 1 || username.length > 30) {
-            return '用户名长度必须在1-30个字符之间';
-        }
-        
-        return null;
-    }, [roomName, username]);
-
-    // 获取访问令牌
-    const getAccessToken = useCallback(async (): Promise<{token: string, wsUrl: string}> => {
+    // 获取房间令牌
+    const getToken = useCallback(async (room: string, user: string) => {
         try {
-            if (!roomName || !username) {
-                throw new Error('房间名称和用户名不能为空');
-            }
-            
-            console.log('正在获取访问令牌...', { roomName, username });
-            
-            const response = await fetch(`https://livekit-api.2k2.cc/api/room?room=${encodeURIComponent(roomName)}&identity=${encodeURIComponent(username)}`, {
-                method: 'GET',
+            setRoomState(prev => ({ 
+                ...prev, 
+                isConnecting: true, 
+                error: null,
+                connectionAttempts: prev.connectionAttempts + 1
+            }));
+
+            const response = await fetch('/api/get-participant-token', {
+                method: 'POST',
                 headers: {
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json'
-                }
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ room, username: user }),
             });
 
-            console.log('Token API 响应状态:', response.status);
-
             if (!response.ok) {
-                let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-                try {
-                    const errorData = await response.json();
-                    errorMessage = errorData.error || errorMessage;
-                } catch (e) {
-                    console.warn('无法解析错误响应:', e);
-                }
-                throw new Error(errorMessage);
+                throw new Error(`HTTP error! status: ${response.status}`);
             }
 
             const data = await response.json();
-            console.log('Token API 响应数据:', data);
-
-            if (!data.token) {
-                throw new Error('响应中缺少访问令牌');
+            
+            if (!data.token || !data.serverUrl) {
+                throw new Error('Invalid response from server');
             }
 
-            return {
+            setRoomState(prev => ({
+                ...prev,
                 token: data.token,
-                wsUrl: data.wsUrl || 'wss://livekit-wss.2k2.cc'
-            };
+                serverUrl: data.serverUrl,
+                isConnecting: false,
+                error: null
+            }));
 
+            return data;
         } catch (error) {
-            console.error('获取访问令牌失败:', error);
-            throw error instanceof Error ? error : new Error('获取访问令牌失败');
+            console.error('获取令牌失败:', error);
+            setRoomState(prev => ({
+                ...prev,
+                isConnecting: false,
+                error: error instanceof Error ? error.message : '获取房间令牌失败'
+            }));
+            throw error;
         }
-    }, [roomName, username]);
+    }, []);
 
     // 初始化房间连接
-    const initializeRoom = useCallback(async () => {
-        const validationError = validateParams();
-        if (validationError) {
-            setRoomState(prev => ({ ...prev, error: validationError }));
-            return;
+    useEffect(() => {
+        if (roomName && username) {
+            getToken(roomName, username).catch(console.error);
         }
+    }, [roomName, username, getToken]);
 
-        setRoomState(prev => ({ 
-            ...prev, 
-            isConnecting: true, 
-            error: null,
-            connectionAttempts: prev.connectionAttempts + 1
+    // 切换 UI 面板
+    const toggleUIPanel = useCallback((panel: keyof UIState) => {
+        setUIState(prev => ({
+            ...prev,
+            [panel]: !prev[panel]
         }));
+    }, []);
 
-        try {
-            console.log('开始初始化房间连接...');
-            
-            const { token, wsUrl } = await getAccessToken();
-            
-            console.log('Token 获取成功，WS URL:', wsUrl);
-
-            if (isMountedRef.current) {
-                setRoomState(prev => ({
-                    ...prev,
-                    token,
-                    serverUrl: wsUrl,
-                    isConnecting: false,
-                    isConnected: true
-                }));
-
-                addNotification({
-                    type: 'success',
-                    title: '连接成功',
-                    message: `正在连接到房间 "${roomName}"`
-                });
-            }
-        } catch (error) {
-            console.error('初始化房间失败:', error);
-            
-            if (isMountedRef.current) {
-                const errorMessage = error instanceof Error ? error.message : '连接失败';
-                setRoomState(prev => ({
-                    ...prev,
-                    isConnecting: false,
-                    error: errorMessage
-                }));
-
-                addNotification({
-                    type: 'error',
-                    title: '连接失败',
-                    message: errorMessage
-                });
-            }
+    // 切换全屏
+    const toggleFullscreen = useCallback(() => {
+        if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen().then(() => {
+                setUIState(prev => ({ ...prev, isFullscreen: true }));
+            });
+        } else {
+            document.exitFullscreen().then(() => {
+                setUIState(prev => ({ ...prev, isFullscreen: false }));
+            });
         }
-    }, [validateParams, getAccessToken, roomName]);
+    }, []);
+
+    // 离开房间
+    const leaveRoom = useCallback(() => {
+        router.push('/');
+    }, [router]);
+
+    // 切换房间
+    const switchRoom = useCallback(async (newRoomName: string) => {
+        if (newRoomName === roomName) return;
+        
+        try {
+            const newUrl = `/room?room=${encodeURIComponent(newRoomName)}&username=${encodeURIComponent(username)}`;
+            router.push(newUrl);
+        } catch (error) {
+            console.error('切换房间失败:', error);
+            addNotification({
+                type: 'error',
+                title: '切换房间失败',
+                message: error instanceof Error ? error.message : '未知错误'
+            });
+        }
+    }, [roomName, username, router]);
 
     // 添加通知
     const addNotification = useCallback((notification: Omit<Notification, 'id' | 'timestamp'>) => {
-        const newNotification = {
+        const newNotification: Notification = {
             ...notification,
             id: `notification_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
             timestamp: new Date()
         };
-        
+
         setNotifications(prev => [...prev, newNotification]);
 
+        // 自动移除通知
         setTimeout(() => {
             setNotifications(prev => prev.filter(n => n.id !== newNotification.id));
         }, 5000);
     }, []);
 
+    // 手动移除通知
+    const dismissNotification = useCallback((id: string) => {
+        setNotifications(prev => prev.filter(n => n.id !== id));
+    }, []);
+
     // 房间事件处理
     const handleRoomConnected = useCallback(() => {
-        console.log('LiveKit 房间连接成功');
-        
+        console.log('房间连接成功');
+        setRoomState(prev => ({ ...prev, isConnected: true }));
         addNotification({
             type: 'success',
-            title: '房间连接成功',
-            message: `欢迎加入 "${roomName}"`
+            title: '连接成功',
+            message: `已连接到房间 ${roomName}`
         });
-    }, [addNotification, roomName]);
+    }, [roomName, addNotification]);
 
     const handleRoomDisconnected = useCallback((reason?: DisconnectReason) => {
-        console.log('房间断开连接:', reason);
-        roomRef.current = null;
+        console.log('房间连接断开:', reason);
+        setRoomState(prev => ({ ...prev, isConnected: false }));
         
-        if (reason !== DisconnectReason.CLIENT_INITIATED) {
+        if (reason === DisconnectReason.PARTICIPANT_REMOVED) {
             addNotification({
                 type: 'warning',
-                title: '连接断开',
-                message: '连接意外断开'
+                title: '被移出房间',
+                message: '您已被管理员移出房间'
             });
-            
-            if (roomState.connectionAttempts < 3) {
-                console.log('尝试重新连接...');
-                reconnectTimeoutRef.current = setTimeout(() => {
-                    if (isMountedRef.current) {
-                        initializeRoom();
-                    }
-                }, 3000);
-            } else {
-                addNotification({
-                    type: 'error',
-                    title: '连接失败',
-                    message: '多次重连失败，请手动重试'
-                });
-            }
+            router.push('/');
+        } else if (reason === DisconnectReason.ROOM_DELETED) {
+            addNotification({
+                type: 'warning',
+                title: '房间已关闭',
+                message: '房间已被删除'
+            });
+            router.push('/');
         }
-    }, [addNotification, roomState.connectionAttempts, initializeRoom]);
+    }, [addNotification, router]);
 
     const handleRoomError = useCallback((error: Error) => {
         console.error('房间错误:', error);
-        
-        if (error.message.includes('Client initiated disconnect')) {
-            console.log('客户端主动断开连接，忽略错误');
-            return;
-        }
-        
+        setRoomState(prev => ({ ...prev, error: error.message }));
         addNotification({
             type: 'error',
             title: '房间错误',
@@ -596,150 +446,52 @@ function RoomPageContent() {
         });
     }, [addNotification]);
 
-    // UI 控制函数
-    const toggleUIPanel = useCallback((panel: keyof UIState) => {
-        setUIState(prev => ({ ...prev, [panel]: !prev[panel] }));
-    }, []);
-
-    const toggleFullscreen = useCallback(async () => {
-        try {
-            if (!document.fullscreenElement) {
-                await document.documentElement.requestFullscreen();
-                setUIState(prev => ({ ...prev, isFullscreen: true }));
-            } else {
-                await document.exitFullscreen();
-                setUIState(prev => ({ ...prev, isFullscreen: false }));
-            }
-        } catch (error) {
-            console.error('全屏切换失败:', error);
+    // 重试连接
+    const retryConnection = useCallback(() => {
+        if (roomName && username) {
+            getToken(roomName, username).catch(console.error);
         }
-    }, []);
+    }, [roomName, username, getToken]);
 
-    const leaveRoom = useCallback(async () => {
-        try {
-            console.log('准备离开房间...');
-            
-            if (reconnectTimeoutRef.current) {
-                clearTimeout(reconnectTimeoutRef.current);
-            }
-            
-            isMountedRef.current = false;
-            router.push('/');
-        } catch (error) {
-            console.error('离开房间失败:', error);
-            router.push('/');
-        }
-    }, [router]);
-
-    // 键盘快捷键
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'F11') {
-                e.preventDefault();
-                toggleFullscreen();
-            }
-            
-            if (e.key === 'p' && (e.ctrlKey || e.metaKey)) {
-                e.preventDefault();
-                toggleUIPanel('showParticipants');
-            }
-            
-            if (e.key === 's' && (e.ctrlKey || e.metaKey)) {
-                e.preventDefault();
-                toggleUIPanel('showSettings');
-            }
-            
-            if (e.key === 'Escape' && e.ctrlKey) {
-                e.preventDefault();
-                leaveRoom();
-            }
-        };
-
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [toggleFullscreen, toggleUIPanel, leaveRoom]);
-
-    // 全屏状态监听
-    useEffect(() => {
-        const handleFullscreenChange = () => {
-            setUIState(prev => ({ 
-                ...prev, 
-                isFullscreen: !!document.fullscreenElement 
-            }));
-        };
-
-        document.addEventListener('fullscreenchange', handleFullscreenChange);
-        return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
-    }, []);
-
-    // 页面离开时清理
-    useEffect(() => {
-        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-            if (roomState.isConnected) {
-                isMountedRef.current = false;
-                if (reconnectTimeoutRef.current) {
-                    clearTimeout(reconnectTimeoutRef.current);
-                }
-            }
-        };
-
-        window.addEventListener('beforeunload', handleBeforeUnload);
-        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-    }, [roomState.isConnected]);
-
-    // 初始化
-    useEffect(() => {
-        initializeRoom();
-        
-        return () => {
-            isMountedRef.current = false;
-            if (reconnectTimeoutRef.current) {
-                clearTimeout(reconnectTimeoutRef.current);
-            }
-        };
-    }, [initializeRoom]);
-
-    // 渲染错误状态
-    if (roomState.error) {
+    // 显示加载状态
+    if (roomState.isConnecting) {
         return (
-            <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
-                <div className="max-w-md w-full">
-                    <ErrorDisplay
-                        title="房间连接失败"
-                        message={roomState.error}
-                        showRetry
-                        onRetry={() => {
-                            setRoomState(prev => ({ ...prev, error: null, connectionAttempts: 0 }));
-                            initializeRoom();
-                        }}
-                    />
+            <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+                <div className="text-center">
+                    <LoadingSpinner size="lg" />
+                    <p className="mt-4 text-white">
+                        正在连接房间 {roomName}...
+                        {roomState.connectionAttempts > 1 && (
+                            <span className="block text-sm text-gray-400 mt-1">
+                                尝试次数: {roomState.connectionAttempts}
+                            </span>
+                        )}
+                    </p>
                 </div>
             </div>
         );
     }
 
-    // 渲染加载状态
-    if (roomState.isConnecting || !roomState.token || !roomState.serverUrl) {
+    // 显示错误状态
+    if (roomState.error) {
         return (
-            <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-                <PageLoadingSpinner 
-                    text={`正在连接房间... (房间: ${roomName} | 用户: ${username})`}
+            <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
+                <ErrorDisplay
+                    title="连接失败"
+                    message={roomState.error}
+                    onRetry={retryConnection}
                 />
             </div>
         );
     }
 
-    // 确保必要参数存在
-    if (!roomName || !username) {
+    // 等待令牌
+    if (!roomState.token || !roomState.serverUrl) {
         return (
-            <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
-                <div className="max-w-md w-full">
-                    <ErrorDisplay
-                        title="参数错误"
-                        message="缺少必需的房间参数"
-                        showRetry
-                        onRetry={() => router.push('/')}
-                    />
+            <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+                <div className="text-center">
+                    <LoadingSpinner size="lg" />
+                    <p className="mt-4 text-white">正在准备房间...</p>
                 </div>
             </div>
         );
@@ -747,53 +499,7 @@ function RoomPageContent() {
 
     // 主要房间界面
     return (
-        <div className={`min-h-screen bg-gray-900 flex flex-col ${uiState.isFullscreen ? 'fixed inset-0 z-50' : ''}`}>
-            {/* 房间标题栏 */}
-            {!uiState.isFullscreen && (
-                <header className="bg-gray-800 border-b border-gray-700 px-4 py-3 flex-shrink-0">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => router.push('/')}
-                                className="text-gray-400 hover:text-white"
-                                icon={
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                                    </svg>
-                                }
-                            >
-                                返回
-                            </Button>
-                            <div>
-                                <h1 className="text-xl font-semibold text-white">{roomName}</h1>
-                                <p className="text-sm text-gray-400">用户: {username}</p>
-                            </div>
-                        </div>
-                        
-                        <div className="flex items-center space-x-4">
-                            {/* 连接状态指示器 */}
-                            <ConnectionStatus compact={true} />
-                            
-                            {/* 快捷操作按钮 */}
-                            <div className="flex items-center space-x-2">
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={toggleFullscreen}
-                                    title="全屏模式"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                                    </svg>
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
-                </header>
-            )}
-
+        <div className={`h-screen bg-gray-900 flex flex-col overflow-hidden ${uiState.isFullscreen ? 'fixed inset-0 z-50' : ''}`}>
             {/* 主要内容区域 */}
             <div className="flex-1 flex overflow-hidden">
                 <div className="flex-1 relative">
@@ -815,7 +521,6 @@ function RoomPageContent() {
                                     console.log('重连策略:', context);
                                     return Math.min(1000 * Math.pow(2, context.retryCount), 10000);
                                 }
-                                // 移除 maxRetryCount，因为它不在 ReconnectPolicy 类型中
                             }
                         }}
                         style={{
@@ -831,6 +536,7 @@ function RoomPageContent() {
                             toggleUIPanel={toggleUIPanel}
                             toggleFullscreen={toggleFullscreen}
                             leaveRoom={leaveRoom}
+                            switchRoom={switchRoom}
                             addNotification={addNotification}
                         />
                     </LiveKitRoom>
@@ -840,33 +546,15 @@ function RoomPageContent() {
             {/* 通知中心 */}
             <NotificationCenter
                 notifications={notifications}
-                onDismiss={(id) => setNotifications(prev => prev.filter(n => n.id !== id))}
-                position="top-right"
-                maxNotifications={5}
+                onDismiss={dismissNotification}
             />
-
-            {/* 快捷键提示（开发环境） */}
-            {process.env.NODE_ENV === 'development' && !uiState.isFullscreen && (
-                <div className="fixed bottom-4 left-4 bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2 text-white text-xs z-40">
-                    <div className="space-y-1">
-                        <div>快捷键:</div>
-                        <div>Ctrl+P - 参与者 | Ctrl+S - 设置</div>
-                        <div>F11 - 全屏 | Ctrl+Esc - 离开</div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }
 
-// 主组件 - 使用 Suspense 包装
-export default function RoomPage(props: RoomPageProps) {
+export default function RoomPage() {
     return (
-        <Suspense fallback={
-            <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-                <PageLoadingSpinner text="正在加载房间..." />
-            </div>
-        }>
+        <Suspense fallback={<PageLoadingSpinner />}>
             <RoomPageContent />
         </Suspense>
     );

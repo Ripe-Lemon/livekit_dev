@@ -7,8 +7,8 @@ interface MessageItemProps {
     message: DisplayMessage;
     currentUser: string;
     onImageClick?: (src: string) => void;
-    onRetry?: () => void;
-    onDelete?: () => void;
+    onRetry?: (messageId: string) => void;
+    onDelete?: (messageId: string) => void;
     className?: string;
 }
 
@@ -120,13 +120,13 @@ export function MessageItem({
                                 </span>
                                 <div className="flex space-x-1">
                                     <button
-                                        onClick={onRetry}
+                                        onClick={() => onRetry?.(message.id)}
                                         className="text-blue-300 hover:text-blue-200 underline"
                                     >
                                         重试
                                     </button>
                                     <button
-                                        onClick={onDelete}
+                                        onClick={() => onDelete?.(message.id)}
                                         className="text-red-300 hover:text-red-200 underline"
                                     >
                                         删除

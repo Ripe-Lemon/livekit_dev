@@ -215,8 +215,6 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
                     onSendImage={handleSendImage}
                     placeholder="输入消息..."
                     disabled={isLoading}
-                    showEmojiPicker={true}
-                    showImageUpload={true}
                 />
             </div>
         </div>

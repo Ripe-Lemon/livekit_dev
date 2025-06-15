@@ -13,11 +13,9 @@ interface FloatingChatProps {
     onSendMessage: (message: string) => Promise<void>;
     onSendImage: (file: File) => Promise<void>;
     onClearMessages: () => void;
-    onRetryMessage: (messageId: string) => Promise<void>;
+    onRetryMessage: (messageId: string) => void;
     onDeleteMessage: (messageId: string) => void;
     className?: string;
-    position?: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left';
-    size?: 'small' | 'medium' | 'large';
 }
 
 export default function FloatingChat({ 
@@ -29,29 +27,19 @@ export default function FloatingChat({
     onClearMessages,
     onRetryMessage,
     onDeleteMessage,
-    className = '',
-    position = 'bottom-right',
-    size = 'medium'
+    className = ''
 }: FloatingChatProps) {
+    const [isVisible, setIsVisible] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     // 确保在 LiveKit Room 内部使用这些 hooks
     const room = useRoomContext();
 
-    // 尺寸配置
-    const sizeConfig = {
-        small: { width: 'w-72', height: 'h-96' },
-        medium: { width: 'w-80', height: 'h-[500px]' },
-        large: { width: 'w-96', height: 'h-[600px]' }
-    };
-
-    // 位置配置 - 现在作为侧边面板
-    const positionConfig = {
-        'top-right': 'top-0 right-0',
-        'top-left': 'top-0 left-0',
-        'bottom-right': 'bottom-0 right-0',
-        'bottom-left': 'bottom-0 left-0'
-    };
+    // 挂载动画
+    useEffect(() => {
+        const timer = setTimeout(() => setIsVisible(true), 10);
+        return () => clearTimeout(timer);
+    }, []);
 
     // 发送消息处理
     const handleSendMessage = useCallback(async (message: string) => {
@@ -76,6 +64,12 @@ export default function FloatingChat({
         setPreviewImage(src);
     }, [setPreviewImage]);
 
+    // 关闭处理 - 添加滑出动画
+    const handleClose = useCallback(() => {
+        setIsVisible(false);
+        setTimeout(onClose, 300); // 等待动画完成
+    }, [onClose]);
+
     // 自动滚动到底部
     useEffect(() => {
         if (messagesEndRef.current) {
@@ -89,8 +83,14 @@ export default function FloatingChat({
     }
 
     return (
-        <div className={`absolute ${positionConfig[position]} ${sizeConfig[size].height} ${sizeConfig[size].width} z-40 ${className}`}>
-            <div className="h-full rounded-lg bg-gray-900/95 backdrop-blur-sm shadow-2xl border border-gray-700 flex flex-col">
+        <div className={`fixed top-0 right-0 h-full w-80 z-40 ${className}`}>
+            <div 
+                className={`
+                    h-full bg-gray-900/95 backdrop-blur-sm shadow-2xl border-l border-gray-700 
+                    flex flex-col transition-transform duration-300 ease-in-out
+                    ${isVisible ? 'transform translate-x-0' : 'transform translate-x-full'}
+                `}
+            >
                 {/* 聊天头部 */}
                 <div className="flex items-center justify-between p-4 border-b border-gray-700 flex-shrink-0">
                     <div className="flex items-center gap-2">
@@ -138,7 +138,7 @@ export default function FloatingChat({
                         </button>
                         
                         <button
-                            onClick={onClose}
+                            onClick={handleClose}
                             className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:bg-gray-800 hover:text-white transition-colors"
                             title="关闭"
                         >
@@ -169,8 +169,8 @@ export default function FloatingChat({
                                 key={message.id}
                                 message={message}
                                 onImageClick={handleImageClick}
-                                onRetry={() => onRetryMessage(message.id)}
-                                onDelete={() => onDeleteMessage(message.id)}
+                                onRetry={onRetryMessage}
+                                onDelete={onDeleteMessage}
                                 currentUser={room.localParticipant?.identity || '你'}
                             />
                         ))}
@@ -196,9 +196,6 @@ export default function FloatingChat({
                             onSendImage={handleSendImage}
                             placeholder="输入消息..."
                             maxLength={1000}
-                            // 移除不存在的属性
-                            // showEmojiPicker={true}
-                            // showImageUpload={true}
                         />
                     </div>
                 </div>

@@ -1,367 +1,221 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { DisplayMessage, DragState } from '../../types/chat';
-import { formatDisplayTime, handlePasteEvent, extractImageFromDrop, isDragEventWithFiles, scrollToBottom, shouldAutoScroll } from '../../utils/chatUtils';
-import { ImageChunkManager } from '../../lib/managers/ImageChunkManager';
-import { useRoomContext } from '@livekit/components-react';
+import { ChatMessage, DisplayMessage, MessageType } from '../../types/chat';
+import { MessageItem } from '../chat/MessageItem';
+import { MessageInput } from '../chat/MessageInput';
+import { LoadingSpinner } from '../ui/LoadingSpinner';
 
 interface ChatContainerProps {
     messages: DisplayMessage[];
     onSendMessage: (message: string) => Promise<void>;
     onSendImage: (file: File) => Promise<void>;
-    onImagePreview: (imageSrc: string) => void;
+    onImagePreview?: (src: string) => void;
     onNewMessage?: () => void;
-    maxImageSizeMB?: number;
+    onRetryMessage?: (messageId: string) => void;
+    onDeleteMessage?: (messageId: string) => void;
     className?: string;
+    maxHeight?: string;
+    showTypingIndicator?: boolean;
+    isLoading?: boolean;
+    error?: string | null;
 }
 
-export function ChatContainer({ 
-    messages, 
-    onSendMessage, 
-    onSendImage, 
+const ChatContainer: React.FC<ChatContainerProps> = ({
+    messages = [],
+    onSendMessage,
+    onSendImage,
     onImagePreview,
     onNewMessage,
-    maxImageSizeMB = 10,
-    className = ""
-}: ChatContainerProps) {
-    const [message, setMessage] = useState('');
-    const [dragState, setDragState] = useState<DragState>(DragState.NONE);
-    const [isScrolledToBottom, setIsScrolledToBottom] = useState(true);
-    
+    onRetryMessage,
+    onDeleteMessage,
+    className = '',
+    maxHeight = 'h-full',
+    showTypingIndicator = false,
+    isLoading = false,
+    error = null
+}) => {
+    const [isAtBottom, setIsAtBottom] = useState(true);
+    const [showScrollButton, setShowScrollButton] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
-    const textareaRef = useRef<HTMLTextAreaElement>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
     const messagesContainerRef = useRef<HTMLDivElement>(null);
-    const containerRef = useRef<HTMLDivElement>(null);
 
-    // 自动滚动到底部
-    useEffect(() => {
-        if (isScrolledToBottom) {
-            scrollToBottom(messagesContainerRef.current);
+    // 滚动到底部
+    const scrollToBottom = useCallback((force = false) => {
+        if (messagesEndRef.current && (isAtBottom || force)) {
+            messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
         }
-    }, [messages, isScrolledToBottom]);
+    }, [isAtBottom]);
+
+    // 检查是否在底部
+    const checkIfAtBottom = useCallback(() => {
+        if (messagesContainerRef.current) {
+            const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+            const atBottom = scrollTop + clientHeight >= scrollHeight - 10;
+            setIsAtBottom(atBottom);
+            setShowScrollButton(!atBottom && messages.length > 0);
+        }
+    }, [messages.length]);
 
     // 监听滚动事件
-    const handleScroll = useCallback(() => {
+    useEffect(() => {
         const container = messagesContainerRef.current;
         if (container) {
-            const isAtBottom = shouldAutoScroll(container, 50);
-            setIsScrolledToBottom(isAtBottom);
+            container.addEventListener('scroll', checkIfAtBottom);
+            return () => container.removeEventListener('scroll', checkIfAtBottom);
         }
+    }, [checkIfAtBottom]);
+
+    // 新消息时自动滚动
+    useEffect(() => {
+        if (messages.length > 0) {
+            const timer = setTimeout(() => {
+                scrollToBottom();
+                onNewMessage?.();
+            }, 100);
+            return () => clearTimeout(timer);
+        }
+    }, [messages.length, scrollToBottom, onNewMessage]);
+
+    // 初始化滚动到底部
+    useEffect(() => {
+        scrollToBottom(true);
     }, []);
 
-    // 处理消息发送
-    const handleSendMessage = useCallback(async () => {
-        if (!message.trim()) return;
-        
+    const handleSendMessage = useCallback(async (content: string, type: MessageType = 'text') => {
         try {
-            await onSendMessage(message.trim());
-            setMessage('');
-            
-            // 重置文本域高度
-            if (textareaRef.current) {
-                textareaRef.current.style.height = 'auto';
+            if (type === 'text') {
+                await onSendMessage(content);
             }
+            // 发送成功后滚动到底部
+            setTimeout(() => scrollToBottom(true), 100);
         } catch (error) {
             console.error('发送消息失败:', error);
         }
-    }, [message, onSendMessage]);
+    }, [onSendMessage, scrollToBottom]);
 
-    // 处理键盘事件
-    const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleSendMessage();
-        }
-    }, [handleSendMessage]);
-
-    // 处理图片文件
-    const handleImageFile = useCallback(async (file: File) => {
-        // 本地图片验证
-        const maxSizeBytes = maxImageSizeMB * 1024 * 1024;
-        if (file.size > maxSizeBytes) {
-            alert(`图片文件过大，请选择小于 ${maxImageSizeMB}MB 的图片`);
-            return;
-        }
-        
-        if (!file.type.startsWith('image/')) {
-            alert('请选择有效的图片文件');
-            return;
-        }
-
+    const handleSendImage = useCallback(async (file: File) => {
         try {
             await onSendImage(file);
+            // 发送成功后滚动到底部
+            setTimeout(() => scrollToBottom(true), 100);
         } catch (error) {
             console.error('发送图片失败:', error);
-            alert('发送图片失败，请重试');
         }
-    }, [onSendImage, maxImageSizeMB]);
+    }, [onSendImage, scrollToBottom]);
 
-    // 处理粘贴事件
-    const handlePaste = useCallback((e: React.ClipboardEvent) => {
-        const handled = handlePasteEvent(
-            e.nativeEvent,
-            handleImageFile,
-            (text) => {
-                setMessage(prev => prev + text);
-            }
-        );
-        
-        if (handled) {
-            e.preventDefault();
-        }
-    }, [handleImageFile]);
+    const handleImageClick = useCallback((src: string) => {
+        onImagePreview?.(src);
+    }, [onImagePreview]);
 
-    // 处理拖拽事件
-    const handleDragOver = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        
-        if (isDragEventWithFiles(e.nativeEvent) && dragState !== DragState.DRAGGING_IMAGE) {
-            setDragState(DragState.DRAGGING_FILE);
-        }
-    }, [dragState]);
+    const handleRetryMessage = useCallback((messageId: string) => {
+        onRetryMessage?.(messageId);
+    }, [onRetryMessage]);
 
-    const handleDragLeave = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        
-        // 只有当拖拽离开容器时才隐藏提示
-        if (!containerRef.current?.contains(e.relatedTarget as Node)) {
-            setDragState(DragState.NONE);
-        }
-    }, []);
-
-    const handleDrop = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        setDragState(DragState.NONE);
-        
-        if (dragState === DragState.DRAGGING_IMAGE) {
-            return; // 不允许图片拖回聊天框
-        }
-        
-        const imageFile = extractImageFromDrop(e.nativeEvent);
-        if (imageFile) {
-            handleImageFile(imageFile);
-        }
-    }, [dragState, handleImageFile]);
-
-    // 处理聊天图片拖拽
-    const handleImageDragStart = useCallback(() => {
-        setDragState(DragState.DRAGGING_IMAGE);
-    }, []);
-
-    const handleImageDragEnd = useCallback(() => {
-        setDragState(DragState.NONE);
-    }, []);
-
-    // 处理文本域自动调整高度
-    const handleTextareaChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        setMessage(e.target.value);
-        
-        // 自动调整高度
-        const textarea = e.target;
-        textarea.style.height = 'auto';
-        textarea.style.height = Math.min(textarea.scrollHeight, 80) + 'px';
-    }, []);
-
-    // 渲染消息项
-    const renderMessage = useCallback((msg: DisplayMessage) => (
-        <div key={msg.id} className="break-words">
-            {/* 消息头部 */}
-            <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
-                <span className="font-medium text-blue-400">{msg.user}</span>
-                <span>{formatDisplayTime(msg.timestamp)}</span>
-            </div>
-            
-            {/* 消息内容 */}
-            {msg.type === 'text' ? (
-                <div className="text-sm text-gray-200 bg-gray-800/50 rounded-lg p-3">
-                    {msg.text}
-                </div>
-            ) : (
-                <div className="bg-gray-800/50 rounded-lg p-2 max-w-xs relative">
-                    <img
-                        src={msg.image}
-                        alt="聊天图片"
-                        className="max-w-full h-auto rounded cursor-pointer hover:opacity-80 transition-opacity"
-                        onDoubleClick={() => onImagePreview(msg.image!)}
-                        onDragStart={handleImageDragStart}
-                        onDragEnd={handleImageDragEnd}
-                        style={{ maxHeight: '200px' }}
-                        title="双击全屏查看，可拖拽到聊天框外部"
-                        draggable={true}
-                    />
-                    
-                    {/* 发送进度显示 */}
-                    {msg.sending && (
-                        <div className="absolute inset-0 bg-black/50 rounded flex items-center justify-center">
-                            <div className="text-center text-white">
-                                <div className="w-20 h-2 bg-gray-600 rounded-full mb-2">
-                                    <div 
-                                        className="h-full bg-blue-500 rounded-full transition-all"
-                                        style={{ width: `${msg.progress || 0}%` }}
-                                    ></div>
-                                </div>
-                                <div className="text-xs">发送中 {Math.round(msg.progress || 0)}%</div>
-                            </div>
-                        </div>
-                    )}
-                    
-                    {/* 发送失败显示 */}
-                    {msg.failed && (
-                        <div className="absolute inset-0 bg-red-500/20 rounded flex items-center justify-center">
-                            <div className="text-center text-red-400">
-                                <svg className="w-6 h-6 mx-auto mb-1" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                                </svg>
-                                <div className="text-xs">发送失败</div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            )}
-        </div>
-    ), [onImagePreview, handleImageDragStart, handleImageDragEnd]);
+    const handleDeleteMessage = useCallback((messageId: string) => {
+        onDeleteMessage?.(messageId);
+    }, [onDeleteMessage]);
 
     return (
-        <div 
-            ref={containerRef}
-            className={`flex flex-col h-full ${className}`}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-        >
-            {/* 拖拽覆盖层 */}
-            {dragState === DragState.DRAGGING_FILE && (
-                <div className="absolute inset-0 bg-blue-500/20 border-2 border-dashed border-blue-500 rounded-lg flex items-center justify-center z-10">
-                    <div className="text-center text-blue-400">
-                        <svg className="w-12 h-12 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
-                            <circle cx="9" cy="9" r="2"/>
-                            <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
-                        </svg>
-                        <p className="text-lg font-medium">拖拽图片到这里发送</p>
-                        <p className="text-sm opacity-75">支持最大 {maxImageSizeMB}MB 的图片文件</p>
-                    </div>
-                </div>
-            )}
-
-            {/* 图片拖拽提示 */}
-            {dragState === DragState.DRAGGING_IMAGE && (
-                <div className="absolute inset-0 bg-red-500/20 border-2 border-dashed border-red-500 rounded-lg flex items-center justify-center z-10">
-                    <div className="text-center text-red-400">
-                        <svg className="w-12 h-12 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <circle cx="12" cy="12" r="10"/>
-                            <line x1="15" y1="9" x2="9" y2="15"/>
-                            <line x1="9" y1="9" x2="15" y2="15"/>
-                        </svg>
-                        <p className="text-lg font-medium">不能拖回聊天框</p>
-                        <p className="text-sm opacity-75">请拖拽到聊天框外部</p>
-                    </div>
-                </div>
-            )}
-
-            {/* 消息列表 */}
+        <div className={`flex flex-col ${maxHeight} ${className}`}>
+            {/* 消息列表区域 */}
             <div 
                 ref={messagesContainerRef}
-                className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800"
-                onScroll={handleScroll}
+                className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800"
             >
-                {messages.length === 0 ? (
-                    <div className="text-center text-gray-400 mt-8">
-                        <svg className="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1-2-2h14a2 2 0 0 1 2 2z"></path>
-                        </svg>
-                        <p className="text-sm">还没有消息，开始聊天吧！</p>
-                        <p className="text-xs mt-2 text-gray-500">
-                            支持发送文字和图片（最大{maxImageSizeMB}MB）
-                        </p>
-                    </div>
-                ) : (
-                    messages.map(renderMessage)
-                )}
-                <div ref={messagesEndRef} />
+                <div className="p-4 space-y-3">
+                    {/* 加载状态 */}
+                    {isLoading && messages.length === 0 && (
+                        <div className="flex justify-center py-8">
+                            <LoadingSpinner size="md" color="white" text="加载消息中..." />
+                        </div>
+                    )}
+
+                    {/* 错误状态 */}
+                    {error && (
+                        <div className="flex justify-center py-4">
+                            <div className="bg-red-900/50 border border-red-700 rounded-lg px-4 py-2">
+                                <p className="text-red-300 text-sm">{error}</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 空状态 */}
+                    {!isLoading && !error && messages.length === 0 && (
+                        <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+                            <svg 
+                                className="w-16 h-16 mb-4 opacity-50" 
+                                fill="none" 
+                                stroke="currentColor" 
+                                viewBox="0 0 24 24"
+                            >
+                                <path 
+                                    strokeLinecap="round" 
+                                    strokeLinejoin="round" 
+                                    strokeWidth={1.5} 
+                                    d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" 
+                                />
+                            </svg>
+                            <p className="text-lg font-medium mb-2">还没有消息</p>
+                            <p className="text-sm">发送第一条消息开始聊天吧！</p>
+                        </div>
+                    )}
+
+                    {/* 消息列表 */}
+                    {messages.map((message) => (
+                        <MessageItem
+                            key={message.id}
+                            message={message}
+                            isOwn={message.sender === 'current-user'} // You may need to adjust this logic based on your user identification
+                            onImageClick={handleImageClick}
+                            onRetry={handleRetryMessage}
+                            onDelete={handleDeleteMessage}
+                        />
+                    ))}
+
+                    {/* 正在输入指示器 */}
+                    {showTypingIndicator && (
+                        <div className="flex items-center space-x-2 text-gray-400 text-sm">
+                            <div className="flex space-x-1">
+                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-pulse"></div>
+                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
+                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
+                            </div>
+                            <span>有人正在输入...</span>
+                        </div>
+                    )}
+
+                    {/* 滚动锚点 */}
+                    <div ref={messagesEndRef} />
+                </div>
             </div>
 
-            {/* 未读消息提示 */}
-            {!isScrolledToBottom && (
-                <div className="px-4 py-2">
+            {/* 滚动到底部按钮 */}
+            {showScrollButton && (
+                <div className="absolute bottom-20 left-1/2 transform -translate-x-1/2 z-10">
                     <button
-                        onClick={() => {
-                            setIsScrolledToBottom(true);
-                            scrollToBottom(messagesContainerRef.current);
-                        }}
-                        className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg transition-colors"
+                        onClick={() => scrollToBottom(true)}
+                        className="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-full shadow-lg transition-colors"
+                        title="滚动到底部"
                     >
-                        滚动到最新消息
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                        </svg>
                     </button>
                 </div>
             )}
 
-            {/* 输入区域 */}
-            <div className="border-t border-gray-700 p-4 flex-shrink-0">
-                <div className="flex gap-2">
-                    <textarea
-                        ref={textareaRef}
-                        value={message}
-                        onChange={handleTextareaChange}
-                        onKeyPress={handleKeyPress}
-                        onPaste={handlePaste}
-                        placeholder="输入消息..."
-                        className="flex-1 resize-none bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                        rows={1}
-                        style={{
-                            minHeight: '38px',
-                            maxHeight: '80px'
-                        }}
-                    />
-                    
-                    {/* 图片上传按钮 */}
-                    <button
-                        onClick={() => fileInputRef.current?.click()}
-                        className="px-3 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors flex-shrink-0 self-end"
-                        title={`发送图片 (最大${maxImageSizeMB}MB)`}
-                    >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
-                            <circle cx="9" cy="9" r="2"/>
-                            <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
-                        </svg>
-                    </button>
-
-                    {/* 发送按钮 */}
-                    <button
-                        onClick={handleSendMessage}
-                        disabled={!message.trim()}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors flex-shrink-0 self-end"
-                    >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <line x1="22" y1="2" x2="11" y2="13"></line>
-                            <polygon points="22,2 15,22 11,13 2,9"></polygon>
-                        </svg>
-                    </button>
-                </div>
-                
-                {/* 隐藏的文件输入 */}
-                <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                            handleImageFile(file);
-                        }
-                        e.target.value = '';
-                    }}
-                    className="hidden"
+            {/* 消息输入区域 */}
+            <div className="border-t border-gray-700 p-4">
+                <MessageInput
+                    onSendMessage={handleSendMessage}
+                    onSendImage={handleSendImage}
+                    placeholder="输入消息..."
+                    disabled={isLoading}
                 />
-                
-                {/* 提示文字 */}
-                <div className="text-xs text-gray-500 mt-2">
-                    Enter 发送，支持粘贴/拖拽图片
-                </div>
             </div>
         </div>
     );
-}
+};
+
+export default ChatContainer;

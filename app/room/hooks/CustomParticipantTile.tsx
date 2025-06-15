@@ -1,37 +1,39 @@
-// 文件路径: app/room/components/CustomParticipantTile.tsx (最终修正版)
+// 文件路径: app/room/hooks/CustomParticipantTile.tsx
 'use client';
 
-// 只需导入 useParticipantContext 和 ParticipantTile
-import { ParticipantTile, useParticipantContext } from '@livekit/components-react';
-import { VolumeControl } from './VolumeControl';
+import {
+    ParticipantName,
+    ParticipantTile,
+    useParticipantAttribute,
+} from '@livekit/components-react';
+import React from 'react';
 
-export function CustomParticipantTile() {
-    // 1. 从上下文中获取完整的 participant 对象。这个对象本身就是响应式的。
-    const participant = useParticipantContext();
+/**
+ * 一个自定义的参与者瓦片组件。
+ * 它会在参与者名称下方显示该用户的自定义状态。
+ */
+export function CustomParticipantTile(props: React.ComponentProps<typeof ParticipantTile>) {
 
-    // 2. 直接从 participant 对象中安全地访问 attributes。
-    //    不再需要 useParticipantInfo hook。
-    const attributes = participant?.attributes || {};
-    const activity = attributes.activity || '';
-    const notes = attributes.notes || '';
-
-    // 在上下文还未提供 participant 时，返回 null
-    if (!participant) {
-        return null;
-    }
+    // ✅ Corrected usage: Pass 'status' directly as a string
+    const status = useParticipantAttribute('status');
 
     return (
-        <div className="relative group h-full w-full">
-            <ParticipantTile />
-
-            {(activity || notes) && (
-                <div className="absolute top-2 left-2 z-10 max-w-[80%] rounded-lg bg-black/60 p-2 text-xs text-white backdrop-blur-sm">
-                    {activity && <p><strong>状态:</strong> {activity}</p>}
-                    {notes && <p><strong>备注:</strong> {notes}</p>}
+        <ParticipantTile {...props}>
+            <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/50 to-transparent">
+                <div className="flex items-center gap-2">
+                    <ParticipantName />
                 </div>
-            )}
 
-            {!participant.isLocal && <VolumeControl participant={participant} />}
-        </div>
+                {/* If status exists, display it */}
+                {status && (
+                    <p
+                        className="text-xs text-white/80 truncate mt-1"
+                        title={status}
+                    >
+                        {status}
+                    </p>
+                )}
+            </div>
+        </ParticipantTile>
     );
 }

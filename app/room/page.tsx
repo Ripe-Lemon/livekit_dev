@@ -140,12 +140,60 @@ function RoomInfo() {
     );
 }
 
+// 图片压缩函数
+function compressImage(file: File, maxSizeKB: number = 1024): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
+        
+        img.onload = () => {
+            // 计算合适的尺寸，保持宽高比
+            let { width, height } = img;
+            const maxDimension = 1920; // 最大尺寸
+            
+            if (width > maxDimension || height > maxDimension) {
+                if (width > height) {
+                    height = (height * maxDimension) / width;
+                    width = maxDimension;
+                } else {
+                    width = (width * maxDimension) / height;
+                    height = maxDimension;
+                }
+            }
+            
+            canvas.width = width;
+            canvas.height = height;
+            
+            // 绘制图片
+            ctx?.drawImage(img, 0, 0, width, height);
+            
+            // 尝试不同的质量级别直到满足大小要求
+            let quality = 0.9;
+            let result = canvas.toDataURL('image/jpeg', quality);
+            
+            while (result.length > maxSizeKB * 1024 * 4/3 && quality > 0.1) { // base64大约比原文件大1/3
+                quality -= 0.1;
+                result = canvas.toDataURL('image/jpeg', quality);
+            }
+            
+            resolve(result);
+        };
+        
+        img.onerror = reject;
+        img.src = URL.createObjectURL(file);
+    });
+}
+
 // 图片放大预览组件
 function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
     const [scale, setScale] = useState(1);
     const [isDragging, setIsDragging] = useState(false);
     const [position, setPosition] = useState({ x: 0, y: 0 });
     const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+    const [showScaleInfo, setShowScaleInfo] = useState(false);
+    const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
+    const scaleTimeoutRef = useRef<NodeJS.Timeout>();
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -155,13 +203,48 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
         };
 
         document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown);
+            if (scaleTimeoutRef.current) {
+                clearTimeout(scaleTimeoutRef.current);
+            }
+        };
     }, [onClose]);
+
+    // 加载图片并获取原始尺寸
+    useEffect(() => {
+        const img = new Image();
+        img.onload = () => {
+            setImageSize({ width: img.width, height: img.height });
+            
+            // 计算初始缩放比例以适应屏幕
+            const windowWidth = window.innerWidth;
+            const windowHeight = window.innerHeight;
+            const scaleX = windowWidth / img.width;
+            const scaleY = windowHeight / img.height;
+            const initialScale = Math.min(scaleX, scaleY, 1); // 不超过原始大小
+            
+            setScale(initialScale);
+        };
+        img.src = src;
+    }, [src]);
+
+    const showScaleInfoTemporarily = () => {
+        setShowScaleInfo(true);
+        if (scaleTimeoutRef.current) {
+            clearTimeout(scaleTimeoutRef.current);
+        }
+        scaleTimeoutRef.current = setTimeout(() => {
+            setShowScaleInfo(false);
+        }, 1500);
+    };
 
     const handleWheel = (e: React.WheelEvent) => {
         e.preventDefault();
         const delta = e.deltaY > 0 ? 0.9 : 1.1;
-        setScale(prev => Math.max(0.1, Math.min(prev * delta, 5)));
+        const newScale = Math.max(0.1, Math.min(scale * delta, 5));
+        setScale(newScale);
+        showScaleInfoTemporarily();
     };
 
     const handleMouseDown = (e: React.MouseEvent) => {
@@ -187,10 +270,10 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
 
     return (
         <div 
-            className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center"
+            className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center overflow-hidden"
             onClick={onClose}
         >
-            <div className="relative max-w-full max-h-full overflow-hidden">
+            <div className="relative w-full h-full flex items-center justify-center">
                 {/* 关闭按钮 */}
                 <button
                     onClick={onClose}
@@ -212,28 +295,50 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
                     </svg>
                 </button>
 
-                {/* 缩放提示 */}
-                <div className="absolute top-4 left-4 z-10 bg-black/60 text-white px-3 py-2 rounded-lg text-sm">
-                    缩放: {Math.round(scale * 100)}%
+                {/* 缩放提示 - 只在调整时显示 */}
+                {showScaleInfo && (
+                    <div className="absolute top-4 left-4 z-10 bg-black/60 text-white px-3 py-2 rounded-lg text-sm transition-opacity">
+                        缩放: {Math.round(scale * 100)}%
+                    </div>
+                )}
+
+                {/* 操作提示 */}
+                <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-10 bg-black/60 text-white px-4 py-2 rounded-lg text-sm">
+                    滚轮缩放 • 拖拽移动 • ESC 或点击关闭
                 </div>
 
-                {/* 图片 */}
-                <img
-                    src={src}
-                    alt="预览图片"
-                    className={`max-w-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+                {/* 图片容器 - 修复边界问题 */}
+                <div 
+                    className="relative overflow-visible"
                     style={{
-                        transform: `scale(${scale}) translate(${position.x / scale}px, ${position.y / scale}px)`,
-                        transformOrigin: 'center center'
+                        width: '100vw',
+                        height: '100vh',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
                     }}
-                    onClick={(e) => e.stopPropagation()}
-                    onWheel={handleWheel}
-                    onMouseDown={handleMouseDown}
-                    onMouseMove={handleMouseMove}
-                    onMouseUp={handleMouseUp}
-                    onMouseLeave={handleMouseUp}
-                    draggable={false}
-                />
+                >
+                    <img
+                        src={src}
+                        alt="预览图片"
+                        className={`select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+                        style={{
+                            transform: `scale(${scale}) translate(${position.x / scale}px, ${position.y / scale}px)`,
+                            transformOrigin: 'center center',
+                            maxWidth: 'none',
+                            maxHeight: 'none',
+                            width: imageSize.width > 0 ? `${imageSize.width}px` : 'auto',
+                            height: imageSize.height > 0 ? `${imageSize.height}px` : 'auto'
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        onWheel={handleWheel}
+                        onMouseDown={handleMouseDown}
+                        onMouseMove={handleMouseMove}
+                        onMouseUp={handleMouseUp}
+                        onMouseLeave={handleMouseUp}
+                        draggable={false}
+                    />
+                </div>
             </div>
         </div>
     );
@@ -420,49 +525,45 @@ function CustomChat() {
             return;
         }
 
-        if (file.size > 5 * 1024 * 1024) { // 5MB 限制
-            alert('图片大小不能超过 5MB');
+        if (file.size > 20 * 1024 * 1024) { // 20MB 原始文件限制
+            alert('图片文件大小不能超过 20MB');
             return;
         }
 
         try {
-            // 转换为 base64
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-                const base64 = e.target?.result as string;
-                
-                const chatMessage = {
-                    type: 'image',
-                    image: base64,
-                    timestamp: Date.now()
-                };
-
-                const encoder = new TextEncoder();
-                const data = encoder.encode(JSON.stringify(chatMessage));
-                
-                try {
-                    await room.localParticipant.publishData(data, { reliable: true });
-                    
-                    // 添加自己的图片消息到本地显示
-                    setMessages(prev => {
-                        const newMessages = [...prev, {
-                            id: Date.now().toString(),
-                            user: '我',
-                            image: base64,
-                            timestamp: new Date(),
-                            type: 'image' as const
-                        }];
-                        return newMessages.slice(-100);
-                    });
-                } catch (e) {
-                    console.error('发送图片失败:', e);
-                    alert('发送图片失败');
-                }
+            // 压缩图片
+            const compressedBase64 = await compressImage(file, 1024); // 压缩到约1MB
+            
+            const chatMessage = {
+                type: 'image',
+                image: compressedBase64,
+                timestamp: Date.now()
             };
-            reader.readAsDataURL(file);
+
+            const encoder = new TextEncoder();
+            const data = encoder.encode(JSON.stringify(chatMessage));
+            
+            try {
+                await room.localParticipant.publishData(data, { reliable: true });
+                
+                // 添加自己的图片消息到本地显示
+                setMessages(prev => {
+                    const newMessages = [...prev, {
+                        id: Date.now().toString(),
+                        user: '我',
+                        image: compressedBase64,
+                        timestamp: new Date(),
+                        type: 'image' as const
+                    }];
+                    return newMessages.slice(-100);
+                });
+            } catch (e) {
+                console.error('发送图片失败:', e);
+                alert('发送图片失败，可能是图片太大');
+            }
         } catch (error) {
             console.error('处理图片失败:', error);
-            alert('处理图片失败');
+            alert('处理图片失败，请尝试其他图片');
         }
     }, [room]);
 
@@ -628,6 +729,7 @@ function CustomChat() {
                             <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
                         </svg>
                         <p className="text-lg font-medium">拖拽图片到这里发送</p>
+                        <p className="text-sm opacity-75">支持最大 20MB 的图片文件</p>
                     </div>
                 </div>
             )}
@@ -651,7 +753,7 @@ function CustomChat() {
                             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1-2-2h14a2 2 0 0 1 2 2z"></path>
                         </svg>
                         <p className="text-sm">还没有消息，开始聊天吧！</p>
-                        <p className="text-xs mt-2 text-gray-500">支持发送文字和图片</p>
+                        <p className="text-xs mt-2 text-gray-500">支持发送文字和图片（最大20MB）</p>
                     </div>
                 ) : (
                     messages.map((msg) => (
@@ -672,6 +774,7 @@ function CustomChat() {
                                         className="max-w-full h-auto rounded cursor-pointer hover:opacity-80 transition-opacity"
                                         onDoubleClick={() => setPreviewImage(msg.image!)}
                                         style={{ maxHeight: '200px' }}
+                                        title="双击查看大图"
                                     />
                                 </div>
                             )}
@@ -708,7 +811,7 @@ function CustomChat() {
                     <button
                         onClick={() => fileInputRef.current?.click()}
                         className="px-3 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors flex-shrink-0 self-end"
-                        title="发送图片"
+                        title="发送图片 (最大20MB)"
                     >
                         <svg
                             xmlns="http://www.w3.org/2000/svg"
@@ -766,7 +869,7 @@ function CustomChat() {
                 />
                 
                 <div className="text-xs text-gray-500 mt-2">
-                    Enter 发送，Shift + Enter 换行，支持粘贴/拖拽图片
+                    Enter 发送，Shift + Enter 换行，支持粘贴/拖拽图片（最大20MB）
                 </div>
             </div>
 

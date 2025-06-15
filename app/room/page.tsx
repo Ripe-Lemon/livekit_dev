@@ -1448,6 +1448,7 @@ function LiveKitRoomWithPreview({ setPreviewImage, previewImage }: { setPreviewI
                                     microphone: true,
                                     camera: true,
                                     screenShare: true,
+                                    leave: true,
                                 }}
                             />
                         </div>

@@ -10,15 +10,16 @@ import {
     RoomContext,
 } from '@livekit/components-react';
 // ==============================================================
-//                      ↓↓↓ 修改点 1: 引入必要的模块 ↓↓↓
+//               ↓↓↓ 修改点 1: 引入视频相关的模块 ↓↓↓
 // ==============================================================
 import {
     Room,
     Track,
-    // 引入 createLocalAudioTrack 用于创建自定义音轨
     createLocalAudioTrack,
-    // 引入 AudioPresets 以使用高保真音频预设
-    AudioPresets,
+    // 引入用于创建视频轨道的函数
+    createLocalVideoTrack,
+    // 引入视频质量预设
+    VideoPresets, AudioPresets,
 } from 'livekit-client';
 // ==============================================================
 import '@livekit/components-styles';
@@ -26,13 +27,14 @@ import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
-// 将核心逻辑封装在一个新组件中，以便在 Suspense 内部使用 useSearchParams
+// 将核心逻辑封装在一个新组件中
 function LiveKitRoom() {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [room] = useState(() => new Room({
         adaptiveStream: true,
-        dynacast: true,
+        dynacast: true, // 开启 Dynacast 以优化带宽
+
     }));
 
     const searchParams = useSearchParams();
@@ -67,38 +69,43 @@ function LiveKitRoom() {
                 const data = await resp.json();
 
                 if (data.token) {
-                    // 连接到房间
                     await room.connect(livekitUrl, data.token);
                     if (!mounted) return;
                     console.log(`成功连接到 LiveKit 房间: ${roomName}`);
 
-                    // ==============================================================
-                    //          ↓↓↓ 修改点 2: 添加 Hi-Fi 音频发布逻辑 ↓↓↓
-                    // ==============================================================
-                    console.log('正在以 Hi-Fi 模式发布音频...');
-
-                    // 1. 创建自定义的高保真音频轨道
-                    //    - channelCount: 2      -> 立体声
-                    //    - echoCancellation: false -> 禁用回声消除，保留原始声音
-                    //    - noiseSuppression: false -> 禁用噪声抑制，用于音乐等保真场景
+                    // --- 发布 Hi-Fi 音频轨道 ---
+                    console.log('正在以最大比特率模式发布音频...');
                     const audioTrack = await createLocalAudioTrack({
                         channelCount: 2,
                         echoCancellation: false,
                         noiseSuppression: false,
                     });
-
-                    // 2. 使用高保真预设来发布本地音频轨道
-                    //    - audioPreset: AudioPresets.musicHighQualityStereo -> LiveKit 推荐的立体声音乐预设
-                    //    - dtx: false         -> 禁用不连续传输，确保音频流持续
-                    //    - red: false         -> 禁用冗余音频数据，在高比特率下通常不需要
                     await room.localParticipant.publishTrack(audioTrack, {
                         audioPreset: AudioPresets.musicHighQualityStereo,
                         dtx: false,
                         red: false,
-                        source: Track.Source.Microphone // 明确音轨来源
+                        source: Track.Source.Microphone
+                    });
+                    console.log('最大比特率音频轨道发布成功。');
+
+                    // ==============================================================
+                    //               ↓↓↓ 修改点 2: 添加发布视频的功能 ↓↓↓
+                    // ==============================================================
+                    console.log('正在发布视频轨道...');
+
+                    // 1. 使用 1440p 分辨率预设创建本地视频轨道
+                    const videoTrack = await createLocalVideoTrack({
+                        resolution: VideoPresets.h1440,
                     });
 
-                    console.log('Hi-Fi 音频轨道发布成功。');
+                    // 2. 将视频轨道发布到房间
+                    //    默认情况下，SDK 会启用 Simulcast 以优化多用户场景
+                    await room.localParticipant.publishTrack(videoTrack, {
+                        source: Track.Source.ScreenShare, // 明确来源是屏幕共享
+
+                    });
+
+                    console.log('1440p 视频轨道发布成功。');
                     // ==============================================================
 
                 } else {
@@ -107,9 +114,9 @@ function LiveKitRoom() {
             } catch (e: any) {
                 console.error(e);
                 if (mounted) {
-                    // 如果错误是关于媒体权限的，给出更友好的提示
+                    // 提供更详细的权限错误信息
                     if (e.name === 'NotAllowedError' || e.message.includes('permission denied')) {
-                        setError(`连接失败: 未能获取麦克风权限。请在浏览器设置中允许访问麦克风。`);
+                        setError(`连接失败: 未能获取媒体权限。请在浏览器设置中允许访问麦克风和摄像头。`);
                     } else {
                         setError(`连接失败: ${e.message}`);
                     }
@@ -128,8 +135,6 @@ function LiveKitRoom() {
             room.disconnect();
         };
     }, [room, searchParams]);
-
-    // ... (组件的其余部分保持不变)
 
     if (isLoading) {
         return <div className="flex h-screen items-center justify-center text-xl">正在连接房间...</div>;
@@ -150,9 +155,10 @@ function LiveKitRoom() {
     return (
         <RoomContext.Provider value={room}>
             <div data-lk-theme="default" style={{ height: '100dvh' }}>
+                {/* MyVideoConference 组件现在可以正确显示您发布的视频了 */}
                 <MyVideoConference />
                 <RoomAudioRenderer />
-                {/* ControlBar 会自动检测到已发布的音轨并提供控制（如静音/取消静音） */}
+                {/* ControlBar 会自动检测到已发布的音视频轨道并提供控制 */}
                 <ControlBar />
             </div>
         </RoomContext.Provider>
@@ -160,6 +166,7 @@ function LiveKitRoom() {
 }
 
 function MyVideoConference() {
+    // 这个组件无需修改，它会自动订阅并显示所有可用的视频轨道
     const tracks = useTracks(
         [
             { source: Track.Source.Camera, withPlaceholder: true },

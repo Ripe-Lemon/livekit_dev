@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AccessToken } from 'livekit-server-sdk';
+// 为了部署在CF，使用runtime = 'edge'
+export const runtime = 'edge';
 
 // Do not cache endpoint result
 export const revalidate = 0;

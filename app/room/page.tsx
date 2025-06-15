@@ -11,6 +11,7 @@ import {
     RoomContext,
     useRoomContext,
     LayoutContextProvider,
+    DisconnectButton,
 } from '@livekit/components-react';
 import {
     Room,
@@ -21,7 +22,7 @@ import {
 } from 'livekit-client';
 import '@livekit/components-styles';
 import { useEffect, useState, Suspense, useCallback, useRef } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AudioManager } from '../lib/audio/AudioManager';
 
@@ -191,6 +192,140 @@ function AudioProcessingControls({
                 回声消除 {isEchoCancellationEnabled ? '开' : '关'}
             </button>
         </>
+    );
+}
+
+// 自定义离开房间按钮
+function CustomDisconnectButton() {
+    const room = useRoomContext();
+    const router = useRouter();
+
+    const handleDisconnect = useCallback(async () => {
+        try {
+            // 断开房间连接
+            await room.disconnect();
+            console.log('已断开房间连接');
+            
+            // 跳转回主界面
+            router.push('/');
+        } catch (error) {
+            console.error('断开连接时出错:', error);
+            // 即使出错也尝试跳转回主界面
+            router.push('/');
+        }
+    }, [room, router]);
+
+    return (
+        <button
+            onClick={handleDisconnect}
+            className="lk-button lk-button-danger"
+            title="离开房间"
+        >
+            <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            >
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16,17 21,12 16,7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+            <span className="lk-button-label">离开房间</span>
+        </button>
+    );
+}
+
+// 自定义控制栏组件
+function CustomControlBar({
+    isNoiseSuppressionEnabled,
+    onToggleNoiseSuppression,
+    isEchoCancellationEnabled,
+    onToggleEchoCancellation,
+    audioManager
+}: {
+    isNoiseSuppressionEnabled: boolean;
+    onToggleNoiseSuppression: () => void;
+    isEchoCancellationEnabled: boolean;
+    onToggleEchoCancellation: () => void;
+    audioManager: AudioManager;
+}) {
+    return (
+        <div className="flex items-center justify-center gap-4">
+            <ControlBar
+                variation="minimal"
+                controls={{
+                    microphone: true,
+                    camera: true,
+                    screenShare: true,
+                    // 移除默认的离开按钮，我们会自定义
+                    leave: false,
+                }}
+            />
+            
+            {/* 添加自定义按钮 */}
+            <div className="flex items-center gap-2">
+                {/* 音频处理控制 */}
+                <button
+                    onClick={onToggleNoiseSuppression}
+                    className={`lk-button ${isNoiseSuppressionEnabled ? 'lk-button-primary' : ''}`}
+                    title="切换降噪"
+                >
+                    降噪 {isNoiseSuppressionEnabled ? '开' : '关'}
+                </button>
+                
+                <button
+                    onClick={onToggleEchoCancellation}
+                    className={`lk-button ${isEchoCancellationEnabled ? 'lk-button-primary' : ''}`}
+                    title="切换回声消除"
+                >
+                    回声消除 {isEchoCancellationEnabled ? '开' : '关'}
+                </button>
+
+                {/* 音效控制按钮 */}
+                <button
+                    onClick={() => audioManager.setEnabled(!audioManager.isAudioEnabled())}
+                    className={`lk-button ${audioManager.isAudioEnabled() ? 'lk-button-primary' : ''}`}
+                    title={audioManager.isAudioEnabled() ? '关闭音效' : '开启音效'}
+                >
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                    >
+                        {audioManager.isAudioEnabled() ? (
+                            <>
+                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                            </>
+                        ) : (
+                            <>
+                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                                <line x1="23" y1="9" x2="17" y2="15"></line>
+                                <line x1="17" y1="9" x2="23" y2="15"></line>
+                            </>
+                        )}
+                    </svg>
+                    <span className="lk-button-label">
+                        {audioManager.isAudioEnabled() ? '音效开' : '音效关'}
+                    </span>
+                </button>
+
+                {/* 自定义离开房间按钮 */}
+                <CustomDisconnectButton />
+            </div>
+        </div>
     );
 }
 
@@ -1293,12 +1428,18 @@ function LiveKitRoomWithPreview({ setPreviewImage }: { setPreviewImage: (src: st
             audioManager.playSound('user-leave');
         };
 
+        const handleRoomDisconnected = () => {
+            console.log('已离开房间');
+        };
+
         room.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
         room.on(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
+        room.on(RoomEvent.Disconnected, handleRoomDisconnected);
 
         return () => {
             room.off(RoomEvent.ParticipantConnected, handleParticipantConnected);
             room.off(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
+            room.off(RoomEvent.Disconnected, handleRoomDisconnected);
         };
     }, [room, audioManager]);
 
@@ -1418,68 +1559,21 @@ function LiveKitRoomWithPreview({ setPreviewImage }: { setPreviewImage: (src: st
                         <RoomAudioRenderer />
                     </div>
 
-                    {/* 统一的底部控制栏 */}
+                    {/* 简化的底部控制栏 */}
                     <div className="flex flex-col gap-3 p-4 bg-gray-900/80 backdrop-blur-sm">
-                        <div className="flex items-center justify-between">
+                        {/* 房间信息行 */}
+                        <div className="flex items-center justify-center">
                             <RoomInfo />
-                            
-                            <div className="flex items-center gap-2">
-                                <AudioProcessingControls
-                                    isNoiseSuppressionEnabled={isNoiseSuppressionEnabled}
-                                    onToggleNoiseSuppression={handleToggleNoiseSuppression}
-                                    isEchoCancellationEnabled={isEchoCancellationEnabled}
-                                    onToggleEchoCancellation={handleToggleEchoCancellation}
-                                />
-                                
-                                {/* 添加音效控制按钮 */}
-                                <button
-                                    onClick={() => audioManager.setEnabled(!audioManager.isAudioEnabled())}
-                                    className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors ${
-                                        audioManager.isAudioEnabled()
-                                            ? 'bg-green-600 text-white hover:bg-green-700'
-                                            : 'bg-gray-600 text-gray-300 hover:bg-gray-700'
-                                    }`}
-                                    title={audioManager.isAudioEnabled() ? '关闭音效' : '开启音效'}
-                                >
-                                    <svg
-                                        xmlns="http://www.w3.org/2000/svg"
-                                        width="16"
-                                        height="16"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        strokeWidth="2"
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                    >
-                                        {audioManager.isAudioEnabled() ? (
-                                            <>
-                                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-                                                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-                                                <line x1="23" y1="9" x2="17" y2="15"></line>
-                                                <line x1="17" y1="9" x2="23" y2="15"></line>
-                                            </>
-                                        )}
-                                    </svg>
-                                </button>
-                            </div>
                         </div>
                         
-                        <div className="flex items-center justify-center gap-4">
-                            <ControlBar
-                                variation="minimal"
-                                controls={{
-                                    microphone: true,
-                                    camera: true,
-                                    screenShare: true,
-                                    leave: true,
-                                }}
-                            />
-                        </div>
+                        {/* 控制按钮行 - 使用自定义控制栏 */}
+                        <CustomControlBar
+                            isNoiseSuppressionEnabled={isNoiseSuppressionEnabled}
+                            onToggleNoiseSuppression={handleToggleNoiseSuppression}
+                            isEchoCancellationEnabled={isEchoCancellationEnabled}
+                            onToggleEchoCancellation={handleToggleEchoCancellation}
+                            audioManager={audioManager}
+                        />
                     </div>
                 </div>
                 <FloatingChatWithPreview setPreviewImage={setPreviewImageLocal} previewImage={previewImage} />
@@ -1515,27 +1609,7 @@ export default function Page() {
                 <LiveKitRoomWithPreview setPreviewImage={setPreviewImage} />
             </Suspense>
 
-            {/* 回到大厅的悬浮按钮 - 调整位置避免与聊天按钮重叠 */}
-            <Link
-                href="/"
-                className="fixed top-20 right-6 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-black/60 text-white shadow-lg backdrop-blur-sm transition-all hover:bg-black/80 hover:scale-105"
-                aria-label="返回大厅"
-            >
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="24"
-                    height="24"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                >
-                    <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                    <polyline points="9 22 9 12 15 12 15 22" />
-                </svg>
-            </Link>
+            {/* 移除了原来的返回大厅按钮 */}
 
             {/* 图片预览模态框 - 移到最外层 */}
             {previewImage && (

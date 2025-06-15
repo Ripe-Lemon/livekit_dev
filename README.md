@@ -42,4 +42,4 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 - 音量平衡
 
 ## 备忘录
-- useParticipantTracks 获取单个特定参与者的轨道
+- 音量平衡 https://docs.livekit.io/reference/components/react/hook/useismuted/

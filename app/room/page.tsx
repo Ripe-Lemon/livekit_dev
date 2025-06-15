@@ -9,7 +9,18 @@ import {
     useTracks,
     RoomContext,
 } from '@livekit/components-react';
-import { Room, Track } from 'livekit-client';
+// ==============================================================
+//                      ↓↓↓ 修改点 1: 引入必要的模块 ↓↓↓
+// ==============================================================
+import {
+    Room,
+    Track,
+    // 引入 createLocalAudioTrack 用于创建自定义音轨
+    createLocalAudioTrack,
+    // 引入 AudioPresets 以使用高保真音频预设
+    AudioPresets,
+} from 'livekit-client';
+// ==============================================================
 import '@livekit/components-styles';
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -40,7 +51,6 @@ function LiveKitRoom() {
 
         const connectToRoom = async () => {
             try {
-                // 确保 NEXT_PUBLIC_LIVEKIT_URL 环境变量已定义
                 const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL;
                 if (!livekitUrl) {
                     console.error('NEXT_PUBLIC_LIVEKIT_URL is not defined in .env.local');
@@ -49,35 +59,60 @@ function LiveKitRoom() {
                     return;
                 }
 
-                // ==============================================================
-                //                      ↓↓↓ 修改点在这里 ↓↓↓
-                // ==============================================================
-                //
-                // **修正原因**: 您的 Go 后端期望的参数是 `room` 和 `identity`。
-                //             之前的代码错误地发送了 `username`。
-                //
-                // **修正方案**: 将查询参数 `username` 改为 `identity`，并同时传递 `name`
-                //             参数以设置用户的显示名称，使其与后端完全匹配。
-                //
                 const apiUrl = `https://livekit-api.2k2.cc/api/room?room=${roomName}&identity=${participantName}&name=${participantName}`;
                 const resp = await fetch(apiUrl);
-                // ==============================================================
 
                 if (!mounted) return;
 
                 const data = await resp.json();
 
                 if (data.token) {
+                    // 连接到房间
                     await room.connect(livekitUrl, data.token);
+                    if (!mounted) return;
                     console.log(`成功连接到 LiveKit 房间: ${roomName}`);
+
+                    // ==============================================================
+                    //          ↓↓↓ 修改点 2: 添加 Hi-Fi 音频发布逻辑 ↓↓↓
+                    // ==============================================================
+                    console.log('正在以 Hi-Fi 模式发布音频...');
+
+                    // 1. 创建自定义的高保真音频轨道
+                    //    - channelCount: 2      -> 立体声
+                    //    - echoCancellation: false -> 禁用回声消除，保留原始声音
+                    //    - noiseSuppression: false -> 禁用噪声抑制，用于音乐等保真场景
+                    const audioTrack = await createLocalAudioTrack({
+                        channelCount: 2,
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                    });
+
+                    // 2. 使用高保真预设来发布本地音频轨道
+                    //    - audioPreset: AudioPresets.musicHighQualityStereo -> LiveKit 推荐的立体声音乐预设
+                    //    - dtx: false         -> 禁用不连续传输，确保音频流持续
+                    //    - red: false         -> 禁用冗余音频数据，在高比特率下通常不需要
+                    await room.localParticipant.publishTrack(audioTrack, {
+                        audioPreset: AudioPresets.musicHighQualityStereo,
+                        dtx: false,
+                        red: false,
+                        source: Track.Source.Microphone // 明确音轨来源
+                    });
+
+                    console.log('Hi-Fi 音频轨道发布成功。');
+                    // ==============================================================
+
                 } else {
-                    // 如果后端返回错误信息，则显示它
                     throw new Error(data.error || '无法从服务器获取 Token');
                 }
             } catch (e: any) {
                 console.error(e);
                 if (mounted) {
-                    setError(`连接失败: ${e.message}`);
+                    // 如果错误是关于媒体权限的，给出更友好的提示
+                    if (e.name === 'NotAllowedError' || e.message.includes('permission denied')) {
+                        setError(`连接失败: 未能获取麦克风权限。请在浏览器设置中允许访问麦克风。`);
+                    } else {
+                        setError(`连接失败: ${e.message}`);
+                    }
                 }
             } finally {
                 if (mounted) {
@@ -88,12 +123,13 @@ function LiveKitRoom() {
 
         connectToRoom();
 
-        // 组件卸载时的清理函数
         return () => {
             mounted = false;
             room.disconnect();
         };
     }, [room, searchParams]);
+
+    // ... (组件的其余部分保持不变)
 
     if (isLoading) {
         return <div className="flex h-screen items-center justify-center text-xl">正在连接房间...</div>;
@@ -111,12 +147,12 @@ function LiveKitRoom() {
         );
     }
 
-    // 如果连接成功，渲染视频会议界面
     return (
         <RoomContext.Provider value={room}>
             <div data-lk-theme="default" style={{ height: '100dvh' }}>
                 <MyVideoConference />
                 <RoomAudioRenderer />
+                {/* ControlBar 会自动检测到已发布的音轨并提供控制（如静音/取消静音） */}
                 <ControlBar />
             </div>
         </RoomContext.Provider>
@@ -138,8 +174,6 @@ function MyVideoConference() {
     );
 }
 
-// 导出的页面组件使用 Suspense 包裹 LiveKitRoom
-// Suspense 用于处理 useSearchParams 在初始渲染时的异步行为
 export default function Page() {
     return (
         <Suspense fallback={<div className="flex h-screen items-center justify-center text-xl">加载中...</div>}>

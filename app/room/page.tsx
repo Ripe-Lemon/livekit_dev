@@ -22,9 +22,138 @@ import { useEffect, useState, Suspense, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
-// =======================================================================
-//     ↓↓↓ 修改点: 将音频控制组件重构为 ControlBar 的一部分 ↓↓↓
-// =======================================================================
+// 分片发送相关的常量和类型
+const CHUNK_SIZE = 60000; // 60KB per chunk (留一些空间给元数据)
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB 最大图片大小
+
+interface ImageChunk {
+    id: string;
+    type: 'image_chunk';
+    chunkIndex: number;
+    totalChunks: number;
+    data: string;
+    originalName?: string;
+    mimeType?: string;
+}
+
+interface ImageComplete {
+    id: string;
+    type: 'image_complete';
+    totalChunks: number;
+}
+
+// 图片分片管理器
+class ImageChunkManager {
+    private receivingImages: Map<string, { chunks: Map<number, string>; totalChunks: number; mimeType?: string }> = new Map();
+    private onImageComplete: (id: string, imageData: string, user: string) => void;
+
+    constructor(onImageComplete: (id: string, imageData: string, user: string) => void) {
+        this.onImageComplete = onImageComplete;
+    }
+
+    handleChunk(chunk: ImageChunk, user: string): void {
+        if (!this.receivingImages.has(chunk.id)) {
+            this.receivingImages.set(chunk.id, {
+                chunks: new Map(),
+                totalChunks: chunk.totalChunks,
+                mimeType: chunk.mimeType
+            });
+        }
+
+        const imageData = this.receivingImages.get(chunk.id)!;
+        imageData.chunks.set(chunk.chunkIndex, chunk.data);
+
+        // 检查是否所有分片都已接收
+        if (imageData.chunks.size === imageData.totalChunks) {
+            this.reconstructImage(chunk.id, user);
+        }
+    }
+
+    private reconstructImage(id: string, user: string): void {
+        const imageData = this.receivingImages.get(id);
+        if (!imageData) return;
+
+        // 按顺序重组图片数据
+        let completeData = '';
+        for (let i = 0; i < imageData.totalChunks; i++) {
+            const chunkData = imageData.chunks.get(i);
+            if (chunkData) {
+                completeData += chunkData;
+            }
+        }
+
+        // 清理
+        this.receivingImages.delete(id);
+
+        // 通知图片接收完成
+        this.onImageComplete(id, completeData, user);
+    }
+
+    cleanup(): void {
+        this.receivingImages.clear();
+    }
+}
+
+// 图片发送工具函数
+async function sendImageInChunks(
+    room: any,
+    imageData: string,
+    onProgress?: (progress: number) => void
+): Promise<void> {
+    const imageId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+    const totalSize = imageData.length;
+    const totalChunks = Math.ceil(totalSize / CHUNK_SIZE);
+
+    try {
+        // 发送分片
+        for (let i = 0; i < totalChunks; i++) {
+            const start = i * CHUNK_SIZE;
+            const end = Math.min(start + CHUNK_SIZE, totalSize);
+            const chunkData = imageData.slice(start, end);
+
+            const chunk: ImageChunk = {
+                id: imageId,
+                type: 'image_chunk',
+                chunkIndex: i,
+                totalChunks: totalChunks,
+                data: chunkData,
+                mimeType: 'image/jpeg'
+            };
+
+            const encoder = new TextEncoder();
+            const data = encoder.encode(JSON.stringify(chunk));
+            
+            await room.localParticipant.publishData(data, { reliable: true });
+
+            // 更新进度
+            if (onProgress) {
+                onProgress(((i + 1) / totalChunks) * 100);
+            }
+
+            // 添加小延迟避免网络拥塞
+            if (i < totalChunks - 1) {
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+        }
+
+        // 发送完成信号
+        const completeMessage: ImageComplete = {
+            id: imageId,
+            type: 'image_complete',
+            totalChunks: totalChunks
+        };
+
+        const encoder = new TextEncoder();
+        const completeData = encoder.encode(JSON.stringify(completeMessage));
+        await room.localParticipant.publishData(completeData, { reliable: true });
+
+    } catch (error) {
+        console.error('发送图片分片失败:', error);
+        throw error;
+    }
+}
+
+// 自定义音频处理控件的属性类型
 interface AudioProcessingControlsProps {
     isNoiseSuppressionEnabled: boolean;
     onToggleNoiseSuppression: () => void;
@@ -501,6 +630,8 @@ function CustomChat() {
         image?: string;
         timestamp: Date;
         type: 'text' | 'image';
+        sending?: boolean;
+        progress?: number;
     }>>([]);
     const [isDragging, setIsDragging] = useState(false);
     const [previewImage, setPreviewImage] = useState<string | null>(null);
@@ -508,6 +639,36 @@ function CustomChat() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const room = useRoomContext();
+    
+    // 图片分片管理器
+    const chunkManagerRef = useRef<ImageChunkManager | null>(null);
+
+    // 初始化分片管理器
+    useEffect(() => {
+        const handleImageComplete = (id: string, imageData: string, user: string) => {
+            setMessages(prev => {
+                const newMessages = [...prev, {
+                    id: id,
+                    user: user,
+                    image: imageData,
+                    timestamp: new Date(),
+                    type: 'image' as const
+                }];
+                
+                // 触发新消息事件
+                const event = new CustomEvent('newChatMessage');
+                window.dispatchEvent(event);
+                
+                return newMessages.slice(-100);
+            });
+        };
+
+        chunkManagerRef.current = new ImageChunkManager(handleImageComplete);
+
+        return () => {
+            chunkManagerRef.current?.cleanup();
+        };
+    }, []);
 
     // 滚动到最新消息
     const scrollToBottom = () => {
@@ -518,56 +679,65 @@ function CustomChat() {
         scrollToBottom();
     }, [messages]);
 
-    // 处理图片文件
+    // 处理图片文件 - 修改为支持分片发送
     const handleImageFile = useCallback(async (file: File) => {
         if (!file.type.startsWith('image/')) {
             alert('请选择图片文件');
             return;
         }
 
-        if (file.size > 20 * 1024 * 1024) { // 20MB 原始文件限制
-            alert('图片文件大小不能超过 20MB');
+        if (file.size > MAX_IMAGE_SIZE) {
+            alert(`图片文件大小不能超过 ${MAX_IMAGE_SIZE / 1024 / 1024}MB`);
             return;
         }
 
-        try {
-            // 压缩图片
-            const compressedBase64 = await compressImage(file, 1024); // 压缩到约1MB
-            
-            const chatMessage = {
-                type: 'image',
-                image: compressedBase64,
-                timestamp: Date.now()
-            };
+        // 创建临时消息显示发送进度
+        const tempId = Date.now().toString();
 
-            const encoder = new TextEncoder();
-            const data = encoder.encode(JSON.stringify(chatMessage));
+        try {
+            // 压缩图片，但保持更高的质量
+            const compressedBase64 = await compressImage(file, 2048); // 压缩到约2MB
             
-            try {
-                await room.localParticipant.publishData(data, { reliable: true });
-                
-                // 添加自己的图片消息到本地显示
-                setMessages(prev => {
-                    const newMessages = [...prev, {
-                        id: Date.now().toString(),
-                        user: '我',
-                        image: compressedBase64,
-                        timestamp: new Date(),
-                        type: 'image' as const
-                    }];
-                    return newMessages.slice(-100);
-                });
-            } catch (e) {
-                console.error('发送图片失败:', e);
-                alert('发送图片失败，可能是图片太大');
-            }
+            setMessages(prev => [...prev, {
+                id: tempId,
+                user: '我',
+                image: compressedBase64,
+                timestamp: new Date(),
+                type: 'image' as const,
+                sending: true,
+                progress: 0
+            }]);
+
+            // 分片发送图片
+            await sendImageInChunks(
+                room,
+                compressedBase64,
+                (progress) => {
+                    setMessages(prev => prev.map(msg => 
+                        msg.id === tempId 
+                            ? { ...msg, progress }
+                            : msg
+                    ));
+                }
+            );
+
+            // 发送完成，更新消息状态
+            setMessages(prev => prev.map(msg => 
+                msg.id === tempId 
+                    ? { ...msg, sending: false, progress: 100 }
+                    : msg
+            ));
+
         } catch (error) {
             console.error('处理图片失败:', error);
-            alert('处理图片失败，请尝试其他图片');
+            alert('发送图片失败，请尝试其他图片');
+            
+            // 移除失败的消息
+            setMessages(prev => prev.filter(msg => msg.id !== tempId));
         }
     }, [room]);
 
-    // 监听聊天消息 - 支持图片消息
+    // 监听聊天消息 - 支持分片图片消息
     useEffect(() => {
         const handleDataReceived = (payload: Uint8Array, participant: any) => {
             const decoder = new TextDecoder();
@@ -575,11 +745,13 @@ function CustomChat() {
             
             try {
                 const chatMessage = JSON.parse(message);
+                const userName = participant?.name || participant?.identity || '未知用户';
+                
                 if (chatMessage.type === 'chat') {
                     setMessages(prev => {
                         const newMessages = [...prev, {
                             id: Date.now().toString(),
-                            user: participant?.name || participant?.identity || '未知用户',
+                            user: userName,
                             text: chatMessage.message,
                             timestamp: new Date(),
                             type: 'text' as const
@@ -591,11 +763,15 @@ function CustomChat() {
                         
                         return newMessages.slice(-100);
                     });
+                } else if (chatMessage.type === 'image_chunk') {
+                    // 处理图片分片
+                    chunkManagerRef.current?.handleChunk(chatMessage, userName);
                 } else if (chatMessage.type === 'image') {
+                    // 兼容旧的单片图片消息
                     setMessages(prev => {
                         const newMessages = [...prev, {
                             id: Date.now().toString(),
-                            user: participant?.name || participant?.identity || '未知用户',
+                            user: userName,
                             image: chatMessage.image,
                             timestamp: new Date(),
                             type: 'image' as const
@@ -729,7 +905,7 @@ function CustomChat() {
                             <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
                         </svg>
                         <p className="text-lg font-medium">拖拽图片到这里发送</p>
-                        <p className="text-sm opacity-75">支持最大 20MB 的图片文件</p>
+                        <p className="text-sm opacity-75">支持最大 {MAX_IMAGE_SIZE / 1024 / 1024}MB 的图片文件</p>
                     </div>
                 </div>
             )}
@@ -753,7 +929,7 @@ function CustomChat() {
                             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1-2-2h14a2 2 0 0 1 2 2z"></path>
                         </svg>
                         <p className="text-sm">还没有消息，开始聊天吧！</p>
-                        <p className="text-xs mt-2 text-gray-500">支持发送文字和图片（最大20MB）</p>
+                        <p className="text-xs mt-2 text-gray-500">支持发送文字和图片（最大{MAX_IMAGE_SIZE / 1024 / 1024}MB）</p>
                     </div>
                 ) : (
                     messages.map((msg) => (
@@ -767,7 +943,7 @@ function CustomChat() {
                                     {msg.text}
                                 </div>
                             ) : (
-                                <div className="bg-gray-800/50 rounded-lg p-2 max-w-xs">
+                                <div className="bg-gray-800/50 rounded-lg p-2 max-w-xs relative">
                                     <img
                                         src={msg.image}
                                         alt="聊天图片"
@@ -776,6 +952,20 @@ function CustomChat() {
                                         style={{ maxHeight: '200px' }}
                                         title="双击查看大图"
                                     />
+                                    {/* 发送进度条 */}
+                                    {msg.sending && (
+                                        <div className="absolute inset-0 bg-black/50 rounded flex items-center justify-center">
+                                            <div className="text-center text-white">
+                                                <div className="w-20 h-2 bg-gray-600 rounded-full mb-2">
+                                                    <div 
+                                                        className="h-full bg-blue-500 rounded-full transition-all"
+                                                        style={{ width: `${msg.progress || 0}%` }}
+                                                    ></div>
+                                                </div>
+                                                <div className="text-xs">发送中 {Math.round(msg.progress || 0)}%</div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -811,7 +1001,7 @@ function CustomChat() {
                     <button
                         onClick={() => fileInputRef.current?.click()}
                         className="px-3 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors flex-shrink-0 self-end"
-                        title="发送图片 (最大20MB)"
+                        title={`发送图片 (最大${MAX_IMAGE_SIZE / 1024 / 1024}MB)`}
                     >
                         <svg
                             xmlns="http://www.w3.org/2000/svg"
@@ -869,7 +1059,7 @@ function CustomChat() {
                 />
                 
                 <div className="text-xs text-gray-500 mt-2">
-                    Enter 发送，Shift + Enter 换行，支持粘贴/拖拽图片（最大20MB）
+                    Enter 发送，Shift + Enter 换行，支持粘贴/拖拽图片（最大{MAX_IMAGE_SIZE / 1024 / 1024}MB）
                 </div>
             </div>
 
@@ -883,7 +1073,6 @@ function CustomChat() {
         </div>
     );
 }
-
 
 // 核心房间逻辑
 function LiveKitRoom() {

@@ -321,8 +321,11 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
     const [position, setPosition] = useState({ x: 0, y: 0 });
     const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
     const [showScaleInfo, setShowScaleInfo] = useState(false);
+    const [showOperationTips, setShowOperationTips] = useState(true);
     const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
     const scaleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const tipsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const imageRef = useRef<HTMLImageElement>(null);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -332,10 +335,19 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
         };
 
         document.addEventListener('keydown', handleKeyDown);
+        
+        // 显示操作提示，3秒后自动隐藏
+        tipsTimeoutRef.current = setTimeout(() => {
+            setShowOperationTips(false);
+        }, 3000);
+
         return () => {
             document.removeEventListener('keydown', handleKeyDown);
             if (scaleTimeoutRef.current) {
                 clearTimeout(scaleTimeoutRef.current);
+            }
+            if (tipsTimeoutRef.current) {
+                clearTimeout(tipsTimeoutRef.current);
             }
         };
     }, [onClose]);
@@ -349,8 +361,8 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
             // 计算初始缩放比例以适应屏幕
             const windowWidth = window.innerWidth;
             const windowHeight = window.innerHeight;
-            const scaleX = windowWidth / img.width;
-            const scaleY = windowHeight / img.height;
+            const scaleX = (windowWidth * 0.9) / img.width; // 留10%边距
+            const scaleY = (windowHeight * 0.9) / img.height; // 留10%边距
             const initialScale = Math.min(scaleX, scaleY, 1); // 不超过原始大小
             
             setScale(initialScale);
@@ -368,20 +380,48 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
         }, 1500);
     };
 
+    // 以鼠标位置为中心的缩放
     const handleWheel = (e: React.WheelEvent) => {
         e.preventDefault();
+        
+        if (!imageRef.current) return;
+
+        const rect = imageRef.current.getBoundingClientRect();
+        const imageCenter = {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2
+        };
+
+        // 计算鼠标相对于图片中心的偏移
+        const mouseOffset = {
+            x: e.clientX - imageCenter.x,
+            y: e.clientY - imageCenter.y
+        };
+
         const delta = e.deltaY > 0 ? 0.9 : 1.1;
         const newScale = Math.max(0.1, Math.min(scale * delta, 5));
+        
+        // 计算缩放后需要调整的位置，使鼠标位置保持不变
+        const scaleDiff = newScale / scale;
+        const newPosition = {
+            x: position.x - mouseOffset.x * (scaleDiff - 1) / newScale,
+            y: position.y - mouseOffset.y * (scaleDiff - 1) / newScale
+        };
+
         setScale(newScale);
+        setPosition(newPosition);
         showScaleInfoTemporarily();
     };
 
     const handleMouseDown = (e: React.MouseEvent) => {
-        setIsDragging(true);
-        setDragStart({
-            x: e.clientX - position.x,
-            y: e.clientY - position.y
-        });
+        if (e.button === 0) { // 只响应左键
+            setIsDragging(true);
+            setDragStart({
+                x: e.clientX - position.x,
+                y: e.clientY - position.y
+            });
+            e.preventDefault();
+        }
     };
 
     const handleMouseMove = (e: React.MouseEvent) => {
@@ -397,79 +437,145 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
         setIsDragging(false);
     };
 
+    // 点击操作提示重新显示
+    const handleTipsClick = () => {
+        setShowOperationTips(true);
+        if (tipsTimeoutRef.current) {
+            clearTimeout(tipsTimeoutRef.current);
+        }
+        tipsTimeoutRef.current = setTimeout(() => {
+            setShowOperationTips(false);
+        }, 3000);
+    };
+
     return (
-        <div 
-            className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center overflow-hidden"
-            onClick={onClose}
-        >
-            <div className="relative w-full h-full flex items-center justify-center">
-                {/* 关闭按钮 */}
-                <button
-                    onClick={onClose}
-                    className="absolute top-4 right-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors"
-                >
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="24"
-                        height="24"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                    >
-                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                    </svg>
-                </button>
-
-                {/* 缩放提示 - 只在调整时显示 */}
-                {showScaleInfo && (
-                    <div className="absolute top-4 left-4 z-10 bg-black/60 text-white px-3 py-2 rounded-lg text-sm transition-opacity">
-                        缩放: {Math.round(scale * 100)}%
-                    </div>
-                )}
-
-                {/* 操作提示 */}
-                <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-10 bg-black/60 text-white px-4 py-2 rounded-lg text-sm">
-                    滚轮缩放 • 拖拽移动 • ESC 或点击关闭
-                </div>
-
-                {/* 图片容器 - 修复边界问题 */}
+        // 使用 Portal 确保真正的全屏显示
+        <>
+            {typeof window !== 'undefined' && (
                 <div 
-                    className="relative overflow-visible"
-                    style={{
+                    className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center overflow-hidden"
+                    style={{ 
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
                         width: '100vw',
                         height: '100vh',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
+                        zIndex: 9999
                     }}
+                    onClick={onClose}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onMouseLeave={handleMouseUp}
                 >
-                    <img
-                        src={src}
-                        alt="预览图片"
-                        className={`select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
-                        style={{
-                            transform: `scale(${scale}) translate(${position.x / scale}px, ${position.y / scale}px)`,
-                            transformOrigin: 'center center',
-                            maxWidth: 'none',
-                            maxHeight: 'none',
-                            width: imageSize.width > 0 ? `${imageSize.width}px` : 'auto',
-                            height: imageSize.height > 0 ? `${imageSize.height}px` : 'auto'
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        onWheel={handleWheel}
-                        onMouseDown={handleMouseDown}
-                        onMouseMove={handleMouseMove}
-                        onMouseUp={handleMouseUp}
-                        onMouseLeave={handleMouseUp}
-                        draggable={false}
-                    />
+                    <div className="relative w-full h-full flex items-center justify-center">
+                        {/* 关闭按钮 */}
+                        <button
+                            onClick={onClose}
+                            className="absolute top-6 right-6 z-10 flex h-12 w-12 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors backdrop-blur-sm"
+                        >
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="24"
+                                height="24"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                            >
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+
+                        {/* 缩放提示 - 只在调整时显示 */}
+                        {showScaleInfo && (
+                            <div className="absolute top-6 left-6 z-10 bg-black/60 text-white px-4 py-2 rounded-lg text-sm transition-opacity backdrop-blur-sm">
+                                缩放: {Math.round(scale * 100)}%
+                            </div>
+                        )}
+
+                        {/* 操作提示 - 3秒后自动消失，点击可重新显示 */}
+                        <div 
+                            className={`absolute bottom-6 left-1/2 transform -translate-x-1/2 z-10 bg-black/60 text-white px-4 py-2 rounded-lg text-sm backdrop-blur-sm cursor-pointer transition-opacity duration-500 ${
+                                showOperationTips ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                            }`}
+                            onClick={handleTipsClick}
+                        >
+                            滚轮缩放 • 拖拽移动 • ESC 或点击背景关闭 • 点击此处重新显示提示
+                        </div>
+
+                        {/* 重新显示提示的按钮（当提示隐藏时） */}
+                        {!showOperationTips && (
+                            <button
+                                onClick={handleTipsClick}
+                                className="absolute bottom-6 right-6 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60 transition-colors backdrop-blur-sm"
+                                title="显示操作提示"
+                            >
+                                <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    width="20"
+                                    height="20"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                >
+                                    <circle cx="12" cy="12" r="10"/>
+                                    <path d="M12 16v-4"/>
+                                    <path d="M12 8h.01"/>
+                                </svg>
+                            </button>
+                        )}
+
+                        {/* 图片容器 */}
+                        <div 
+                            className="relative flex items-center justify-center"
+                            style={{
+                                width: '100vw',
+                                height: '100vh',
+                                overflow: 'visible'
+                            }}
+                        >
+                            <img
+                                ref={imageRef}
+                                src={src}
+                                alt="预览图片"
+                                className={`select-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+                                style={{
+                                    transform: `scale(${scale}) translate(${position.x / scale}px, ${position.y / scale}px)`,
+                                    transformOrigin: 'center center',
+                                    maxWidth: 'none',
+                                    maxHeight: 'none',
+                                    width: imageSize.width > 0 ? `${imageSize.width}px` : 'auto',
+                                    height: imageSize.height > 0 ? `${imageSize.height}px` : 'auto',
+                                    position: 'relative',
+                                    zIndex: 1
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                onWheel={handleWheel}
+                                onMouseDown={handleMouseDown}
+                                draggable={false}
+                                onLoad={() => {
+                                    // 图片加载完成后确保正确的初始位置
+                                    setPosition({ x: 0, y: 0 });
+                                }}
+                            />
+                        </div>
+
+                        {/* 图片信息显示 */}
+                        <div className="absolute top-6 left-1/2 transform -translate-x-1/2 z-10 bg-black/60 text-white px-4 py-2 rounded-lg text-sm backdrop-blur-sm">
+                            {imageSize.width > 0 && imageSize.height > 0 && (
+                                <span>{imageSize.width} × {imageSize.height} 像素</span>
+                            )}
+                        </div>
+                    </div>
                 </div>
-            </div>
-        </div>
+            )}
+        </>
     );
 }
 
@@ -950,7 +1056,7 @@ function CustomChat() {
                                         className="max-w-full h-auto rounded cursor-pointer hover:opacity-80 transition-opacity"
                                         onDoubleClick={() => setPreviewImage(msg.image!)}
                                         style={{ maxHeight: '200px' }}
-                                        title="双击查看大图"
+                                        title="双击全屏查看"
                                     />
                                     {/* 发送进度条 */}
                                     {msg.sending && (

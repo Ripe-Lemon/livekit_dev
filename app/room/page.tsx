@@ -88,26 +88,6 @@ function LiveKitRoom() {
                     });
                     console.log('最大比特率音频轨道发布成功。');
 
-                    // ==============================================================
-                    //               ↓↓↓ 修改点 2: 添加发布视频的功能 ↓↓↓
-                    // ==============================================================
-                    console.log('正在发布视频轨道...');
-
-                    // 1. 使用 1440p 分辨率预设创建本地视频轨道
-                    const videoTrack = await createLocalVideoTrack({
-                        resolution: VideoPresets.h1440,
-                    });
-
-                    // 2. 将视频轨道发布到房间
-                    //    默认情况下，SDK 会启用 Simulcast 以优化多用户场景
-                    await room.localParticipant.publishTrack(videoTrack, {
-                        source: Track.Source.ScreenShare, // 明确来源是屏幕共享
-
-                    });
-
-                    console.log('1440p 视频轨道发布成功。');
-                    // ==============================================================
-
                 } else {
                     throw new Error(data.error || '无法从服务器获取 Token');
                 }

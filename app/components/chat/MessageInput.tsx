@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Button } from '../ui/Button';
 
 interface MessageInputProps {
@@ -22,7 +22,9 @@ export function MessageInput({
 }: MessageInputProps) {
     const [message, setMessage] = useState('');
     const [isUploading, setIsUploading] = useState(false);
+    const [dragOver, setDragOver] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
 
     const handleSendMessage = useCallback(async () => {
         if (!message.trim() || disabled) return;
@@ -44,6 +46,19 @@ export function MessageInput({
 
     const handleImageUpload = useCallback(async (file: File) => {
         if (!file || disabled) return;
+
+        // 验证文件类型
+        if (!file.type.startsWith('image/')) {
+            console.error('只能上传图片文件');
+            return;
+        }
+
+        // 验证文件大小 (5MB)
+        const maxSize = 5 * 1024 * 1024;
+        if (file.size > maxSize) {
+            console.error('图片文件大小不能超过 5MB');
+            return;
+        }
 
         setIsUploading(true);
         try {
@@ -69,6 +84,69 @@ export function MessageInput({
     const triggerFileSelect = useCallback(() => {
         fileInputRef.current?.click();
     }, []);
+
+    // 处理粘贴事件
+    const handlePaste = useCallback((e: React.ClipboardEvent) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            
+            // 检查是否为图片文件
+            if (item.type.startsWith('image/')) {
+                e.preventDefault(); // 阻止默认粘贴行为
+                
+                const file = item.getAsFile();
+                if (file) {
+                    console.log('检测到粘贴的图片:', file.name, file.type, file.size);
+                    handleImageUpload(file);
+                }
+                break; // 只处理第一个图片
+            }
+        }
+    }, [handleImageUpload]);
+
+    // 处理拖拽事件
+    const handleDragOver = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragOver(true);
+    }, []);
+
+    const handleDragLeave = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragOver(false);
+    }, []);
+
+    const handleDrop = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragOver(false);
+
+        const files = e.dataTransfer?.files;
+        if (!files || files.length === 0) return;
+
+        const file = files[0];
+        if (file.type.startsWith('image/')) {
+            console.log('检测到拖拽的图片:', file.name, file.type, file.size);
+            handleImageUpload(file);
+        }
+    }, [handleImageUpload]);
+
+    // 自动调整输入框高度
+    const adjustTextareaHeight = useCallback(() => {
+        const textarea = textareaRef.current;
+        if (textarea) {
+            textarea.style.height = '40px';
+            textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+        }
+    }, []);
+
+    useEffect(() => {
+        adjustTextareaHeight();
+    }, [message, adjustTextareaHeight]);
 
     return (
         <div className={`flex items-end space-x-2 ${className}`}>
@@ -103,33 +181,44 @@ export function MessageInput({
                 )}
             </Button>
 
-            {/* 消息输入框 */}
-            <div className="flex-1">
+            {/* 消息输入框容器 */}
+            <div 
+                className={`flex-1 relative ${dragOver ? 'ring-2 ring-blue-500 ring-opacity-50' : ''}`}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+            >
                 <textarea
+                    ref={textareaRef}
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                     onKeyPress={handleKeyPress}
-                    placeholder={placeholder}
+                    onPaste={handlePaste}
+                    placeholder={dragOver ? '松开鼠标粘贴图片' : placeholder}
                     maxLength={maxLength}
                     disabled={disabled}
                     rows={1}
-                    className="
+                    className={`
                         w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg 
                         text-white placeholder-gray-400 resize-none
                         focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
                         disabled:opacity-50 disabled:cursor-not-allowed
                         min-h-[40px] max-h-[120px] overflow-y-auto
-                    "
-                    style={{
-                        height: '40px',
-                        lineHeight: '1.5'
-                    }}
-                    onInput={(e) => {
-                        const target = e.target as HTMLTextAreaElement;
-                        target.style.height = '40px';
-                        target.style.height = Math.min(target.scrollHeight, 120) + 'px';
-                    }}
+                        ${dragOver ? 'border-blue-500 bg-blue-900/20' : ''}
+                    `}
                 />
+                
+                {/* 拖拽提示遮罩 */}
+                {dragOver && (
+                    <div className="absolute inset-0 bg-blue-500/10 border-2 border-dashed border-blue-500 rounded-lg flex items-center justify-center pointer-events-none">
+                        <div className="text-blue-400 text-sm font-medium flex items-center">
+                            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                            </svg>
+                            松开鼠标粘贴图片
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* 发送按钮 */}
@@ -138,13 +227,20 @@ export function MessageInput({
                 size="sm"
                 onClick={handleSendMessage}
                 disabled={!message.trim() || disabled}
-                title="发送消息"
+                title="发送消息 (Enter)"
                 className="flex-shrink-0 h-10 px-4 flex items-center justify-center"
             >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                 </svg>
             </Button>
+
+            {/* 上传状态提示 */}
+            {isUploading && (
+                <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-xs px-2 py-1 rounded">
+                    正在上传图片...
+                </div>
+            )}
         </div>
     );
 }

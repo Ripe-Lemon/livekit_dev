@@ -72,7 +72,7 @@ export default function Lobby() {
 
                 {/* 公共的用户信息输入区 */}
                 <div className="mb-8">
-                    <label htmlFor="participant-name" className="mb-2 block text-lg font-medium text-gray-700">
+                    <label htmlFor="participant-name" className="mb-2 block text-lg font-medium text-gray-300">
                         您的名字
                     </label>
                     <input
@@ -95,7 +95,7 @@ export default function Lobby() {
                             value={newRoomName}
                             onChange={(e) => setNewRoomName(e.target.value)}
                             placeholder="输入新房间名称"
-                            className="flex-grow rounded-md border border-gray-300 p-3 text-lg focus:border-blue-500 focus:ring-blue-500"
+                            className="flex-grow rounded-md border text-gray-300 p-3 text-lg focus:border-blue-500 focus:ring-blue-500"
                         />
                         <button
                             type="submit"
@@ -109,7 +109,7 @@ export default function Lobby() {
 
                 {/* 现有房间列表 */}
                 <div>
-                    <h2 className="mb-4 text-2xl font-semibold border-gray-300">选择一个房间加入</h2>
+                    <h2 className="mb-4 text-2xl font-semibold text-gray-300">选择一个房间加入</h2>
                     {isLoading ? (
                         <p>正在加载房间列表...</p>
                     ) : error ? (
@@ -122,8 +122,8 @@ export default function Lobby() {
                                     className="flex items-center justify-between rounded-md bg-gray-700 p-4"
                                 >
                                     <div>
-                                        <p className="text-xl font-medium border-gray-300">{room.name}</p>
-                                        <p className="text-sm border-gray-300">
+                                        <p className="text-xl font-medium text-gray-300">{room.name}</p>
+                                        <p className="text-sm text-gray-300">
                                             {room.numParticipants} 人在线
                                         </p>
                                     </div>

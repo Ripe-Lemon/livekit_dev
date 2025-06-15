@@ -9,19 +9,14 @@ import {
     useTracks,
     RoomContext,
 } from '@livekit/components-react';
-// ==============================================================
-//               ↓↓↓ 修改点 1: 引入视频相关的模块 ↓↓↓
-// ==============================================================
 import {
     Room,
     Track,
     createLocalAudioTrack,
-    // 引入用于创建视频轨道的函数
     createLocalVideoTrack,
-    // 引入视频质量预设
-    VideoPresets, AudioPresets,
+    VideoPresets,
+    AudioPresets,
 } from 'livekit-client';
-// ==============================================================
 import '@livekit/components-styles';
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -33,8 +28,7 @@ function LiveKitRoom() {
     const [error, setError] = useState<string | null>(null);
     const [room] = useState(() => new Room({
         adaptiveStream: true,
-        dynacast: true, // 开启 Dynacast 以优化带宽.
-
+        dynacast: true,
     }));
 
     const searchParams = useSearchParams();
@@ -73,7 +67,6 @@ function LiveKitRoom() {
                     if (!mounted) return;
                     console.log(`成功连接到 LiveKit 房间: ${roomName}`);
 
-                    // --- 发布 Hi-Fi 音频轨道 ---
                     console.log('正在以最大比特率模式发布音频...');
                     const audioTrack = await createLocalAudioTrack({
                         channelCount: 2,
@@ -94,7 +87,6 @@ function LiveKitRoom() {
             } catch (e: any) {
                 console.error(e);
                 if (mounted) {
-                    // 提供更详细的权限错误信息
                     if (e.name === 'NotAllowedError' || e.message.includes('permission denied')) {
                         setError(`连接失败: 未能获取媒体权限。请在浏览器设置中允许访问麦克风和摄像头。`);
                     } else {
@@ -135,10 +127,8 @@ function LiveKitRoom() {
     return (
         <RoomContext.Provider value={room}>
             <div data-lk-theme="default" style={{ height: '100dvh' }}>
-                {/* MyVideoConference 组件现在可以正确显示您发布的视频了 */}
                 <MyVideoConference />
                 <RoomAudioRenderer />
-                {/* ControlBar 会自动检测到已发布的音视频轨道并提供控制 */}
                 <ControlBar />
             </div>
         </RoomContext.Provider>
@@ -146,7 +136,6 @@ function LiveKitRoom() {
 }
 
 function MyVideoConference() {
-    // 这个组件无需修改，它会自动订阅并显示所有可用的视频轨道
     const tracks = useTracks(
         [
             { source: Track.Source.Camera, withPlaceholder: true },
@@ -161,10 +150,57 @@ function MyVideoConference() {
     );
 }
 
+// ==============================================================
+//               ↓↓↓ 修改点: 在 Page 组件中添加悬浮按钮 ↓↓↓
+// ==============================================================
 export default function Page() {
     return (
-        <Suspense fallback={<div className="flex h-screen items-center justify-center text-xl">加载中...</div>}>
-            <LiveKitRoom />
-        </Suspense>
+        // 使用一个父级 div 来容纳页面内容和悬浮按钮
+        <div>
+            <Suspense fallback={<div className="flex h-screen items-center justify-center text-xl">加载中...</div>}>
+                <LiveKitRoom />
+            </Suspense>
+
+            {/* 回到大厅的悬浮按钮 */}
+            <Link
+                href="/"
+                className="
+                    fixed          /* 固定定位，相对于视口 */
+                    top-6          /* 距离顶部 1.5rem */
+                    right-6        /* 距离右侧 1.5rem */
+                    z-50           /* 确保在最上层 */
+                    flex
+                    h-14           /* 高度 */
+                    w-14           /* 宽度 */
+                    items-center
+                    justify-center
+                    rounded-full   /* 圆形 */
+                    bg-black/60    /* 半透明黑色背景 */
+                    text-white     /* 图标颜色 */
+                    shadow-lg      /* 添加阴影 */
+                    backdrop-blur-sm /* 背景模糊效果 */
+                    transition-all /* 平滑过渡效果 */
+                    hover:bg-black/80 /* 鼠标悬浮时变暗 */
+                    hover:scale-105 /* 鼠标悬浮时轻微放大 */
+                "
+                aria-label="返回大厅"
+            >
+                {/* 内联 SVG Home 图标 */}
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="28"
+                    height="28"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                >
+                    <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                    <polyline points="9 22 9 12 15 12 15 22" />
+                </svg>
+            </Link>
+        </div>
     );
 }

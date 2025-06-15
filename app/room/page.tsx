@@ -111,6 +111,67 @@ function RoomInfo() {
 // 添加悬浮聊天组件
 function FloatingChat() {
     const [isOpen, setIsOpen] = useState(false);
+    const [unreadCount, setUnreadCount] = useState(0);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+
+    // 创建音频元素用于播放提示音
+    useEffect(() => {
+        // 创建一个简单的提示音
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        
+        const createNotificationSound = () => {
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+            oscillator.frequency.setValueAtTime(600, audioContext.currentTime + 0.1);
+            
+            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.5);
+        };
+
+        audioRef.current = { play: createNotificationSound } as any;
+    }, []);
+
+    // 监听新消息事件
+    useEffect(() => {
+        const handleNewMessage = () => {
+            // 播放提示音
+            if (audioRef.current) {
+                try {
+                    audioRef.current.play();
+                } catch (e) {
+                    console.log('无法播放提示音:', e);
+                }
+            }
+
+            // 如果悬浮窗关闭，增加未读数量
+            if (!isOpen) {
+                setUnreadCount(prev => prev + 1);
+            }
+        };
+
+        // 监听自定义事件
+        window.addEventListener('newChatMessage', handleNewMessage);
+        
+        return () => {
+            window.removeEventListener('newChatMessage', handleNewMessage);
+        };
+    }, [isOpen]);
+
+    // 打开悬浮窗时清除未读数量
+    const handleToggleChat = () => {
+        if (!isOpen) {
+            setUnreadCount(0);
+        }
+        setIsOpen(!isOpen);
+    };
 
     return (
         <>
@@ -154,33 +215,42 @@ function FloatingChat() {
                 </div>
             </div>
 
-            {/* 聊天按钮 */}
-            <button
-                onClick={() => setIsOpen(!isOpen)}
-                className={`
-                    fixed top-6 right-6 z-50 flex h-12 w-12 items-center justify-center 
-                    rounded-full shadow-lg backdrop-blur-sm transition-all
-                    ${isOpen 
-                        ? 'bg-blue-600 text-white hover:bg-blue-700' 
-                        : 'bg-black/60 text-white hover:bg-black/80 hover:scale-105'
-                    }
-                `}
-                aria-label={isOpen ? "关闭聊天" : "打开聊天"}
-            >
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
+            {/* 聊天按钮 - 添加未读消息气泡 */}
+            <div className="fixed top-6 right-6 z-50">
+                <button
+                    onClick={handleToggleChat}
+                    className={`
+                        flex h-12 w-12 items-center justify-center 
+                        rounded-full shadow-lg backdrop-blur-sm transition-all
+                        ${isOpen 
+                            ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                            : 'bg-black/60 text-white hover:bg-black/80 hover:scale-105'
+                        }
+                    `}
+                    aria-label={isOpen ? "关闭聊天" : "打开聊天"}
                 >
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                </svg>
-            </button>
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                    >
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1-2-2h14a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                </button>
+
+                {/* 未读消息气泡 */}
+                {unreadCount > 0 && !isOpen && (
+                    <div className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white animate-pulse">
+                        {unreadCount > 99 ? '99+' : unreadCount}
+                    </div>
+                )}
+            </div>
         </>
     );
 }
@@ -201,7 +271,7 @@ function CustomChat() {
         scrollToBottom();
     }, [messages]);
 
-    // 监听聊天消息 - 修复 useEffect 清理函数
+    // 监听聊天消息 - 修复 useEffect 清理函数并添加新消息事件
     useEffect(() => {
         const handleDataReceived = (payload: Uint8Array, participant: any) => {
             const decoder = new TextDecoder();
@@ -217,6 +287,11 @@ function CustomChat() {
                             text: chatMessage.message,
                             timestamp: new Date()
                         }];
+                        
+                        // 触发新消息事件
+                        const event = new CustomEvent('newChatMessage');
+                        window.dispatchEvent(event);
+                        
                         // 限制最大消息数量，防止内存占用过多
                         return newMessages.slice(-100);
                     });
@@ -360,6 +435,7 @@ function CustomChat() {
         </div>
     );
 }
+
 
 // 核心房间逻辑
 function LiveKitRoom() {

@@ -1,57 +1,147 @@
-// 文件路径: app/page.tsx
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation'; // 1. 导入 useRouter 用于程序化导航
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import type { Room } from 'livekit-server-sdk';
 
-export default function Home() {
-    // 2. 使用 state 来存储房间名和用户名的输入值
-    const [roomName, setRoomName] = useState('');
+export default function Lobby() {
+    const [rooms, setRooms] = useState<Room[]>([]);
+    const [newRoomName, setNewRoomName] = useState('');
     const [participantName, setParticipantName] = useState('');
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const router = useRouter();
 
-    // 3. 定义处理进入房间的函数
-    const handleJoinRoom = () => {
-        // 简单验证，确保用户输入了内容
-        if (!roomName || !participantName) {
-            alert('请输入房间名和用户名！');
+    // 组件加载时获取房间列表
+    useEffect(() => {
+        fetchRooms();
+    }, []);
+
+    // 获取房间列表的函数
+    const fetchRooms = async () => {
+        try {
+            setIsLoading(true);
+            const res = await fetch('https://livekit-api.gui.ink/api/rooms');
+            if (!res.ok) throw new Error('无法从服务器获取房间列表');
+            const data = await res.json();
+            setRooms(data.rooms);
+        } catch (e: any) {
+            setError(e.message);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // 处理加入房间的逻辑
+    const handleJoinRoom = (roomName: string) => {
+        if (!participantName) {
+            alert('请输入您的名字！');
             return;
         }
-        // 4. 使用查询参数构建目标 URL，并进行编码以防特殊字符
-        const href = `/room?roomName=${encodeURIComponent(roomName)}&participantName=${encodeURIComponent(participantName)}`;
-        router.push(href); // 导航到房间页
+        // 跳转到对应的房间页面
+        router.push(`https://livekit-api.gui.ink/room?roomName=${roomName}&participantName=${participantName}`);
+    };
+
+    // 处理创建房间的逻辑
+    const handleCreateRoom = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newRoomName) {
+            alert('请输入新房间的名称！');
+            return;
+        }
+
+        try {
+            // 发送 POST 请求到我们的 API 来创建房间
+            const res = await fetch('https://livekit-api.gui.ink/api/rooms', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: newRoomName }),
+            });
+            if (!res.ok) throw new Error('创建房间失败');
+            // 创建成功后，直接加入该房间
+            handleJoinRoom(newRoomName);
+        } catch (e: any) {
+            setError(e.message);
+        }
     };
 
     return (
-        <main className="flex min-h-screen flex-col items-center justify-center p-4">
-            <div className="flex w-full max-w-sm flex-col gap-4">
-                <h1 className="text-center text-2xl font-bold">加入视频房间</h1>
-                {/* 5. 房间名输入框 */}
-                <input
-                    type="text"
-                    placeholder="请输入房间名"
-                    value={roomName}
-                    onChange={(e) => setRoomName(e.target.value)}
-                    className="rounded-md border bg-transparent px-4 py-2"
-                />
-                {/* 6. 用户名输入框 */}
-                <input
-                    type="text"
-                    placeholder="请输入你的名字"
-                    value={participantName}
-                    onChange={(e) => setParticipantName(e.target.value)}
-                    className="rounded-md border bg-transparent px-4 py-2"
-                />
-                {/* 7. 使用 button 和 onClick 事件来触发导航 */}
-                <button
-                    onClick={handleJoinRoom}
-                    className="rounded-full bg-foreground px-8 py-4 font-medium text-background transition-colors hover:bg-[#383838] disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-[#ccc]"
-                    // 如果输入框为空，则禁用按钮
-                    disabled={!roomName || !participantName}
-                >
-                    进入房间
-                </button>
+        <div className="flex min-h-screen flex-col items-center justify-center bg-gray-100 p-4">
+            <div className="w-full max-w-2xl rounded-lg bg-white p-8 shadow-md">
+                <h1 className="mb-6 text-center text-3xl font-bold text-gray-800">LiveKit 房间大厅</h1>
+
+                {/* 公共的用户信息输入区 */}
+                <div className="mb-8">
+                    <label htmlFor="participant-name" className="mb-2 block text-lg font-medium text-gray-700">
+                        您的名字
+                    </label>
+                    <input
+                        id="participant-name"
+                        type="text"
+                        value={participantName}
+                        onChange={(e) => setParticipantName(e.target.value)}
+                        placeholder="例如：张三"
+                        className="w-full rounded-md border border-gray-300 p-3 text-lg focus:border-blue-500 focus:ring-blue-500"
+                        required
+                    />
+                </div>
+
+                {/* 创建新房间区域 */}
+                <div className="mb-8">
+                    <h2 className="mb-4 text-2xl font-semibold text-gray-700">创建新房间</h2>
+                    <form onSubmit={handleCreateRoom} className="flex gap-4">
+                        <input
+                            type="text"
+                            value={newRoomName}
+                            onChange={(e) => setNewRoomName(e.target.value)}
+                            placeholder="输入新房间名称"
+                            className="flex-grow rounded-md border border-gray-300 p-3 text-lg focus:border-blue-500 focus:ring-blue-500"
+                        />
+                        <button
+                            type="submit"
+                            disabled={!newRoomName || !participantName}
+                            className="rounded-md bg-blue-600 px-6 py-3 text-lg font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+                        >
+                            创建并加入
+                        </button>
+                    </form>
+                </div>
+
+                {/* 现有房间列表 */}
+                <div>
+                    <h2 className="mb-4 text-2xl font-semibold text-gray-700">选择一个房间加入</h2>
+                    {isLoading ? (
+                        <p>正在加载房间列表...</p>
+                    ) : error ? (
+                        <p className="text-red-500">{error}</p>
+                    ) : rooms.length > 0 ? (
+                        <ul className="space-y-3">
+                            {rooms.map((room) => (
+                                <li
+                                    key={room.sid}
+                                    className="flex items-center justify-between rounded-md bg-gray-50 p-4"
+                                >
+                                    <div>
+                                        <p className="text-xl font-medium text-gray-900">{room.name}</p>
+                                        <p className="text-sm text-gray-500">
+                                            {room.numParticipants} 人在线
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={() => handleJoinRoom(room.name)}
+                                        disabled={!participantName}
+                                        className="rounded-md bg-green-600 px-5 py-2 text-base font-semibold text-white shadow-sm hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+                                    >
+                                        加入
+                                    </button>
+                                </li>
+                            ))}
+                        </ul>
+                    ) : (
+                        <p className="text-center text-gray-500">当前没有活跃的房间，快创建一个吧！</p>
+                    )}
+                </div>
             </div>
-        </main>
+        </div>
     );
 }

@@ -574,7 +574,7 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
 }
 
 // 添加悬浮聊天组件
-function FloatingChat() {
+function FloatingChatWithPreview({ setPreviewImage, previewImage }: { setPreviewImage: (src: string | null) => void; previewImage: string | null }) {
     const [isOpen, setIsOpen] = useState(false);
     const [unreadCount, setUnreadCount] = useState(0);
     const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -673,9 +673,9 @@ function FloatingChat() {
                         </button>
                     </div>
                     
-                    {/* 聊天内容区域 - 使用自定义聊天组件 */}
+                    {/* 聊天内容区域 - 使用自定义聊天组件，传递 setPreviewImage */}
                     <div className="flex-1 flex flex-col min-h-0">
-                        <CustomChat />
+                        <CustomChatWithPreview setPreviewImage={setPreviewImage} previewImage={previewImage} />
                     </div>
                 </div>
             </div>
@@ -721,7 +721,7 @@ function FloatingChat() {
 }
 
 // 自定义聊天组件
-function CustomChat() {
+function CustomChatWithPreview({ setPreviewImage, previewImage }: { setPreviewImage: (src: string | null) => void; previewImage: string | null }) {
     const [message, setMessage] = useState('');
     const [messages, setMessages] = useState<Array<{
         id: string;
@@ -734,7 +734,6 @@ function CustomChat() {
         progress?: number;
     }>>([]);
     const [isDragging, setIsDragging] = useState(false);
-    const [previewImage, setPreviewImage] = useState<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1176,7 +1175,7 @@ function CustomChat() {
 }
 
 // 核心房间逻辑
-function LiveKitRoom() {
+function LiveKitRoomWithPreview({ setPreviewImage, previewImage }: { setPreviewImage: (src: string | null) => void; previewImage: string | null }) {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -1340,8 +1339,8 @@ function LiveKitRoom() {
                     </div>
                 </div>
 
-                {/* 悬浮聊天组件 */}
-                <FloatingChat />
+                {/* 悬浮聊天组件 - 传递 setPreviewImage */}
+                <FloatingChatWithPreview setPreviewImage={setPreviewImage} previewImage={previewImage} />
             </LayoutContextProvider>
         </RoomContext.Provider>
     );
@@ -1365,10 +1364,12 @@ function MyVideoConference() {
 
 // 页面入口组件
 export default function Page() {
+    const [previewImage, setPreviewImage] = useState<string | null>(null);
+
     return (
         <div>
             <Suspense fallback={<div className="flex h-screen items-center justify-center bg-gray-900 text-xl text-white">加载中...</div>}>
-                <LiveKitRoom />
+                <LiveKitRoomWithPreview setPreviewImage={setPreviewImage} previewImage={previewImage} />
             </Suspense>
 
             {/* 回到大厅的悬浮按钮 - 调整位置避免与聊天按钮重叠 */}
@@ -1392,6 +1393,14 @@ export default function Page() {
                     <polyline points="9 22 9 12 15 12 15 22" />
                 </svg>
             </Link>
+
+            {/* 图片预览模态框 - 移到最外层 */}
+            {previewImage && (
+                <ImagePreview
+                    src={previewImage}
+                    onClose={() => setPreviewImage(null)}
+                />
+            )}
         </div>
     );
 }

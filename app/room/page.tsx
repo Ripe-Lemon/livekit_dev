@@ -9,7 +9,7 @@ import {
     useTracks,
     RoomContext,
     useRoomContext,
-    Chat, LayoutContextProvider, CarouselLayout, // 导入 Chat 组件
+    Chat, LayoutContextProvider, // 导入 Chat 组件
 } from '@livekit/components-react';
 import {
     Room,
@@ -367,9 +367,9 @@ function MyVideoConference() {
     );
     return (
         // 中文注释: 高度现在由 flex-1 自动管理，无需手动计算
-        <CarouselLayout tracks={tracks} className="flex-1">
+        <GridLayout tracks={tracks} className="flex-1">
             <ParticipantTile />
-        </CarouselLayout>
+        </GridLayout>
     );
 }
 

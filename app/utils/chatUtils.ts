@@ -10,24 +10,25 @@ import { splitImageIntoChunks } from './imageUtils';
 // 创建文本消息数据
 export function createTextMessage(message: string): ChatMessage {
     return {
+        id: generateMessageId(),
         type: 'chat',
         message: message.trim(),
         timestamp: Date.now()
     };
 }
-
 // 创建图片消息数据
 export function createImageMessage(imageData: string): ChatMessage {
     return {
+        id: generateMessageId(),
         type: 'image',
         image: imageData,
         timestamp: Date.now()
     };
 }
-
 // 创建图片分片消息数据
 export function createImageChunkMessage(chunk: ImageChunk): ChatMessage {
     return {
+        id: generateMessageId(),
         type: 'image_chunk',
         chunk,
         timestamp: Date.now()

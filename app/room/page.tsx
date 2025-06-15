@@ -12,10 +12,10 @@ import {
 import { Room, Track } from 'livekit-client';
 import '@livekit/components-styles';
 import { useEffect, useState, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation'; // 1. 导入 useSearchParams 钩子
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
-// 2. 将核心逻辑封装在一个新组件中，以便在 Suspense 内部使用 useSearchParams
+// 将核心逻辑封装在一个新组件中，以便在 Suspense 内部使用 useSearchParams
 function LiveKitRoom() {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -24,17 +24,14 @@ function LiveKitRoom() {
         dynacast: true,
     }));
 
-    // 3. 使用 useSearchParams 获取 URL 查询参数
     const searchParams = useSearchParams();
 
     useEffect(() => {
         let mounted = true;
 
-        // 4. 从 URL 中获取房间名和用户名
         const roomName = searchParams.get('roomName');
         const participantName = searchParams.get('participantName');
 
-        // 5. 如果 URL 中缺少参数，则显示错误信息
         if (!roomName || !participantName) {
             setError('缺少房间名或用户名参数。');
             setIsLoading(false);
@@ -43,25 +40,39 @@ function LiveKitRoom() {
 
         const connectToRoom = async () => {
             try {
+                // 确保 NEXT_PUBLIC_LIVEKIT_URL 环境变量已定义
                 const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL;
                 if (!livekitUrl) {
                     console.error('NEXT_PUBLIC_LIVEKIT_URL is not defined in .env.local');
-                    setError('服务器配置错误。');
+                    setError('服务器配置错误: 未找到 LiveKit URL。');
                     setIsLoading(false);
                     return;
                 }
 
-                // 6. 使用从 URL 获取的参数来请求 token
-                const resp = await fetch(`https://livekit-api.2k2.cc/api/room?room=${roomName}&username=${participantName}`);
-                const data = await resp.json();
+                // ==============================================================
+                //                      ↓↓↓ 修改点在这里 ↓↓↓
+                // ==============================================================
+                //
+                // **修正原因**: 您的 Go 后端期望的参数是 `room` 和 `identity`。
+                //             之前的代码错误地发送了 `username`。
+                //
+                // **修正方案**: 将查询参数 `username` 改为 `identity`，并同时传递 `name`
+                //             参数以设置用户的显示名称，使其与后端完全匹配。
+                //
+                const apiUrl = `https://livekit-api.2k2.cc/api/room?room=${roomName}&identity=${participantName}&name=${participantName}`;
+                const resp = await fetch(apiUrl);
+                // ==============================================================
 
                 if (!mounted) return;
 
+                const data = await resp.json();
+
                 if (data.token) {
                     await room.connect(livekitUrl, data.token);
-                    console.log(`Successfully connected to LiveKit room: ${roomName}`);
+                    console.log(`成功连接到 LiveKit 房间: ${roomName}`);
                 } else {
-                    throw new Error(data.error || '无法获取 Token');
+                    // 如果后端返回错误信息，则显示它
+                    throw new Error(data.error || '无法从服务器获取 Token');
                 }
             } catch (e: any) {
                 console.error(e);
@@ -77,23 +88,24 @@ function LiveKitRoom() {
 
         connectToRoom();
 
+        // 组件卸载时的清理函数
         return () => {
             mounted = false;
             room.disconnect();
         };
-        // 7. 将 searchParams 添加到依赖项数组中
     }, [room, searchParams]);
 
     if (isLoading) {
-        return <div className="flex h-screen items-center justify-center">正在连接房间...</div>;
+        return <div className="flex h-screen items-center justify-center text-xl">正在连接房间...</div>;
     }
 
     if (error) {
         return (
             <div className="flex h-screen flex-col items-center justify-center gap-4">
-                <div className="text-red-500">{error}</div>
-                <Link href="/" className="rounded-md bg-blue-500 px-4 py-2 text-white">
-                    返回主页
+                <p className="text-xl font-bold text-red-500">连接错误</p>
+                <div className="text-lg text-gray-700">{error}</div>
+                <Link href="/" className="mt-4 rounded-md bg-blue-600 px-6 py-2 text-lg text-white shadow-sm hover:bg-blue-700">
+                    返回大厅
                 </Link>
             </div>
         );
@@ -126,11 +138,11 @@ function MyVideoConference() {
     );
 }
 
-// 8. 导出的页面组件使用 Suspense 包裹 LiveKitRoom
-//    Suspense 用于处理 useSearchParams 在初始渲染时的异步行为
+// 导出的页面组件使用 Suspense 包裹 LiveKitRoom
+// Suspense 用于处理 useSearchParams 在初始渲染时的异步行为
 export default function Page() {
     return (
-        <Suspense fallback={<div className="flex h-screen items-center justify-center">加载中...</div>}>
+        <Suspense fallback={<div className="flex h-screen items-center justify-center text-xl">加载中...</div>}>
             <LiveKitRoom />
         </Suspense>
     );

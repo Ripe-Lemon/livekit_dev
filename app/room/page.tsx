@@ -18,7 +18,7 @@ import {
     AudioPresets,
 } from 'livekit-client';
 import '@livekit/components-styles';
-import { useEffect, useState, Suspense, useCallback } from 'react';
+import { useEffect, useState, Suspense, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
@@ -117,14 +117,14 @@ function FloatingChat() {
             {/* 悬浮聊天面板 */}
             <div
                 className={`
-                    fixed top-6 right-20 z-40 h-96 w-80 
+                    fixed top-6 right-20 z-40 h-[500px] w-80 
                     transform transition-all duration-300 ease-in-out
                     ${isOpen ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0 pointer-events-none'}
                 `}
             >
-                <div className="h-full rounded-lg bg-gray-900/95 backdrop-blur-sm shadow-2xl border border-gray-700">
+                <div className="h-full rounded-lg bg-gray-900/95 backdrop-blur-sm shadow-2xl border border-gray-700 flex flex-col">
                     {/* 聊天头部 */}
-                    <div className="flex items-center justify-between p-4 border-b border-gray-700">
+                    <div className="flex items-center justify-between p-4 border-b border-gray-700 flex-shrink-0">
                         <h3 className="text-lg font-medium text-white">聊天</h3>
                         <button
                             onClick={() => setIsOpen(false)}
@@ -147,9 +147,9 @@ function FloatingChat() {
                         </button>
                     </div>
                     
-                    {/* 聊天内容 */}
-                    <div className="h-full">
-                        <Chat className="h-full" />
+                    {/* 聊天内容区域 - 使用自定义聊天组件 */}
+                    <div className="flex-1 flex flex-col min-h-0">
+                        <CustomChat />
                     </div>
                 </div>
             </div>
@@ -158,7 +158,7 @@ function FloatingChat() {
             <button
                 onClick={() => setIsOpen(!isOpen)}
                 className={`
-                    fixed top-6 right-96 z-50 flex h-12 w-12 items-center justify-center 
+                    fixed top-6 right-6 z-50 flex h-12 w-12 items-center justify-center 
                     rounded-full shadow-lg backdrop-blur-sm transition-all
                     ${isOpen 
                         ? 'bg-blue-600 text-white hover:bg-blue-700' 
@@ -182,6 +182,178 @@ function FloatingChat() {
                 </svg>
             </button>
         </>
+    );
+}
+
+// 自定义聊天组件
+function CustomChat() {
+    const [message, setMessage] = useState('');
+    const [messages, setMessages] = useState<Array<{id: string, user: string, text: string, timestamp: Date}>>([]);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+    const room = useRoomContext();
+
+    // 滚动到最新消息
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
+
+    useEffect(() => {
+        scrollToBottom();
+    }, [messages]);
+
+    // 监听聊天消息
+    useEffect(() => {
+        const handleDataReceived = (payload: Uint8Array, participant: any) => {
+            const decoder = new TextDecoder();
+            const message = decoder.decode(payload);
+            
+            try {
+                const chatMessage = JSON.parse(message);
+                if (chatMessage.type === 'chat') {
+                    setMessages(prev => {
+                        const newMessages = [...prev, {
+                            id: Date.now().toString(),
+                            user: participant?.name || participant?.identity || '未知用户',
+                            text: chatMessage.message,
+                            timestamp: new Date()
+                        }];
+                        // 限制最大消息数量，防止内存占用过多
+                        return newMessages.slice(-100);
+                    });
+                }
+            } catch (e) {
+                console.error('解析聊天消息失败:', e);
+            }
+        };
+
+        room.on('dataReceived', handleDataReceived);
+        return () => room.off('dataReceived', handleDataReceived);
+    }, [room]);
+
+    // 发送消息
+    const sendMessage = useCallback(async () => {
+        if (!message.trim()) return;
+
+        const chatMessage = {
+            type: 'chat',
+            message: message.trim(),
+            timestamp: Date.now()
+        };
+
+        const encoder = new TextEncoder();
+        const data = encoder.encode(JSON.stringify(chatMessage));
+        
+        try {
+            await room.localParticipant.publishData(data, { reliable: true });
+            
+            // 添加自己的消息到本地显示
+            setMessages(prev => {
+                const newMessages = [...prev, {
+                    id: Date.now().toString(),
+                    user: '我',
+                    text: message.trim(),
+                    timestamp: new Date()
+                }];
+                return newMessages.slice(-100);
+            });
+            
+            setMessage('');
+        } catch (e) {
+            console.error('发送消息失败:', e);
+        }
+    }, [message, room]);
+
+    const handleKeyPress = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    };
+
+    return (
+        <div className="flex flex-col h-full">
+            {/* 消息列表区域 */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
+                {messages.length === 0 ? (
+                    <div className="text-center text-gray-400 mt-8">
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="48"
+                            height="48"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="mx-auto mb-4 opacity-50"
+                        >
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                        <p className="text-sm">还没有消息，开始聊天吧！</p>
+                    </div>
+                ) : (
+                    messages.map((msg) => (
+                        <div key={msg.id} className="break-words">
+                            <div className="text-xs text-gray-400 mb-1">
+                                <span className="font-medium text-blue-400">{msg.user}</span>
+                                <span className="ml-2">{msg.timestamp.toLocaleTimeString()}</span>
+                            </div>
+                            <div className="text-sm text-gray-200 bg-gray-800/50 rounded-lg p-3">
+                                {msg.text}
+                            </div>
+                        </div>
+                    ))
+                )}
+                <div ref={messagesEndRef} />
+            </div>
+
+            {/* 发送消息区域 */}
+            <div className="border-t border-gray-700 p-4 flex-shrink-0">
+                <div className="flex gap-2">
+                    <textarea
+                        value={message}
+                        onChange={(e) => setMessage(e.target.value)}
+                        onKeyPress={handleKeyPress}
+                        placeholder="输入消息..."
+                        className="flex-1 resize-none bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 max-h-20"
+                        rows={1}
+                        style={{
+                            minHeight: '38px',
+                            maxHeight: '80px'
+                        }}
+                        onInput={(e) => {
+                            const target = e.target as HTMLTextAreaElement;
+                            target.style.height = 'auto';
+                            target.style.height = Math.min(target.scrollHeight, 80) + 'px';
+                        }}
+                    />
+                    <button
+                        onClick={sendMessage}
+                        disabled={!message.trim()}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors flex-shrink-0 self-end"
+                    >
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                        >
+                            <line x1="22" y1="2" x2="11" y2="13"></line>
+                            <polygon points="22,2 15,22 11,13 2,9"></polygon>
+                        </svg>
+                    </button>
+                </div>
+                <div className="text-xs text-gray-500 mt-2">
+                    按 Enter 发送，Shift + Enter 换行
+                </div>
+            </div>
+        </div>
     );
 }
 
@@ -381,16 +553,16 @@ export default function Page() {
                 <LiveKitRoom />
             </Suspense>
 
-            {/* 回到大厅的悬浮按钮 */}
+            {/* 回到大厅的悬浮按钮 - 调整位置避免与聊天按钮重叠 */}
             <Link
                 href="/"
-                className="fixed top-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-black/60 text-white shadow-lg backdrop-blur-sm transition-all hover:bg-black/80 hover:scale-105"
+                className="fixed top-20 right-6 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-black/60 text-white shadow-lg backdrop-blur-sm transition-all hover:bg-black/80 hover:scale-105"
                 aria-label="返回大厅"
             >
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
-                    width="28"
-                    height="28"
+                    width="24"
+                    height="24"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
@@ -405,3 +577,4 @@ export default function Page() {
         </div>
     );
 }
+

@@ -258,29 +258,7 @@ function RoomPageContent() {
     // 创建或加入房间
     const createOrJoinRoom = useCallback(async (): Promise<string> => {
         try {
-            // 首先尝试创建房间
-            const createResponse = await fetch('https://livekit-api.gui.ink/api/rooms', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    name: roomName
-                }),
-            });
-
-            // 如果房间已存在，创建请求可能会失败，但这是正常的
-            if (!createResponse.ok && createResponse.status !== 409) {
-                const errorData = await createResponse.json().catch(() => ({}));
-                console.warn('创建房间失败:', errorData.error);
-                // 继续尝试生成 token，房间可能已经存在
-            } else if (createResponse.ok) {
-                console.log('房间创建成功或已存在');
-            }
-
-            // 生成访问 token
-            // 根据 API 文档，我们需要调用 token API
-            const tokenResponse = await fetch('https://livekit-api.gui.ink/api/token', {
+            const response = await fetch('/api/room', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

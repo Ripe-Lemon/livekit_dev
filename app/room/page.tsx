@@ -258,7 +258,7 @@ function RoomPageContent() {
     // 创建或加入房间
     const createOrJoinRoom = useCallback(async (): Promise<string> => {
         try {
-            const response = await fetch('/api/room', {
+            const response = await fetch('https://livekit-api.2k2.cc/api/rooms', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -321,7 +321,7 @@ function RoomPageContent() {
     // 获取房间参与者
     const getRoomParticipants = useCallback(async (roomName: string) => {
         try {
-            const response = await fetch(`https://livekit-api.2k2.cc/api/room/participants?room=${encodeURIComponent(roomName)}`, {
+            const response = await fetch('https://livekit-api.2k2.cc/api/room/participants?room=${encodeURIComponent(roomName)}', {
                 method: 'GET'
             });
 

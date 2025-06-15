@@ -33,7 +33,7 @@ function LiveKitRoom() {
     const [error, setError] = useState<string | null>(null);
     const [room] = useState(() => new Room({
         adaptiveStream: true,
-        dynacast: true, // 开启 Dynacast 以优化带宽
+        dynacast: true, // 开启 Dynacast 以优化带宽.
 
     }));
 

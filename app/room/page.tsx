@@ -295,7 +295,7 @@ function RoomPageContent() {
                 connectionAttempts: prev.connectionAttempts + 1
             }));
 
-            const response = await fetch('/api/get-participant-token', {
+            const response = await fetch('https://livekit-api.2k2.cc/api/get-participant-token', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

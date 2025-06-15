@@ -81,7 +81,7 @@ export default function Lobby() {
                         value={participantName}
                         onChange={(e) => setParticipantName(e.target.value)}
                         placeholder="例如：张三"
-                        className="w-full rounded-md border border-gray-300 p-3 text-lg focus:border-blue-500 focus:ring-blue-500"
+                        className="w-full rounded-md border text-gray-300 p-3 text-lg focus:border-blue-500 focus:ring-blue-500"
                         required
                     />
                 </div>

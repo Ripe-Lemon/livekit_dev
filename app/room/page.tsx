@@ -50,6 +50,7 @@ interface RoomState {
 }
 
 interface UIState {
+    showChat: boolean;
     showParticipants: boolean;
     showSettings: boolean;
     isFullscreen: boolean;
@@ -133,20 +134,27 @@ function RoomInnerContent({
         closePreview 
     } = useImagePreview();
 
-    // 默认关闭摄像头和屏幕共享
+    // 修复图片预览回调类型
+    const handleImagePreview = useCallback((src: string | null) => {
+        if (src) {
+            openPreview(src);
+        }
+    }, [openPreview]);
+
+    // 默认设备状态设置
     useEffect(() => {
         if (!room || !room.localParticipant) return;
 
         const setupDefaultDeviceStates = async () => {
             try {
+                // 默认开启麦克风
+                await room.localParticipant.setMicrophoneEnabled(true);
                 // 默认关闭摄像头
                 await room.localParticipant.setCameraEnabled(false);
                 // 默认关闭屏幕共享
                 await room.localParticipant.setScreenShareEnabled(false);
-                // 默认开启麦克风
-                await room.localParticipant.setMicrophoneEnabled(true);
                 
-                console.log('设备默认状态已设置: 摄像头关闭, 屏幕共享关闭, 麦克风开启');
+                console.log('设备默认状态已设置: 麦克风开启, 摄像头关闭, 屏幕共享关闭');
             } catch (error) {
                 console.error('设置默认设备状态失败:', error);
             }
@@ -203,19 +211,20 @@ function RoomInnerContent({
 
     return (
         <div className="relative w-full h-full flex">
-            {/* 主视频区域 - 使用自定义组件隐藏默认控件 */}
+            {/* 主视频区域 */}
             <div className="relative bg-black w-full h-full">
                 <CustomVideoGrid />
                 
-                {/* 自定义控制栏 */}
+                {/* 自定义控制栏 - 包含聊天按钮 */}
                 <CustomControlBar
-                    onToggleChat={() => {}} // 不需要聊天栏切换
+                    onToggleChat={() => toggleUIPanel('showChat')}
                     onToggleParticipants={() => toggleUIPanel('showParticipants')}
                     onToggleSettings={() => toggleUIPanel('showSettings')}
                     onToggleFullscreen={toggleFullscreen}
                     onLeaveRoom={leaveRoom}
                     isFullscreen={uiState.isFullscreen}
                     chatUnreadCount={chatState.unreadCount}
+                    showChat={uiState.showChat}
                 />
             </div>
 
@@ -335,12 +344,21 @@ function RoomInnerContent({
                 </div>
             )}
 
-            {/* 悬浮聊天窗口 - 只保留这一个聊天组件 */}
-            <FloatingChat 
-                setPreviewImage={(src) => src && openPreview(src)}
-                position="bottom-right"
-                size="medium"
-            />
+            {/* 悬浮聊天窗口 - 只在显示时渲染 */}
+            {uiState.showChat && (
+                <FloatingChat 
+                    setPreviewImage={handleImagePreview}
+                    position="bottom-right"
+                    size="medium"
+                    onClose={() => toggleUIPanel('showChat')}
+                    chatState={chatState}
+                    onSendMessage={sendTextMessage}
+                    onSendImage={sendImageMessage}
+                    onClearMessages={clearMessages}
+                    onRetryMessage={retryMessage}
+                    onDeleteMessage={deleteMessage}
+                />
+            )}
 
             {/* 图片预览 */}
             {previewState.isOpen && (
@@ -362,7 +380,7 @@ function RoomPageContent() {
     const username = searchParams.get('username');
     const password = searchParams.get('password');
 
-    // 状态管理
+    // 状态管理 - 修复UIState初始化
     const [roomState, setRoomState] = useState<RoomState>({
         isConnecting: false,
         isConnected: false,
@@ -373,6 +391,7 @@ function RoomPageContent() {
     });
 
     const [uiState, setUIState] = useState<UIState>({
+        showChat: false,
         showParticipants: false,
         showSettings: false,
         isFullscreen: false,
@@ -785,7 +804,7 @@ function RoomPageContent() {
                         onDisconnected={handleRoomDisconnected}
                         onError={handleRoomError}
                         connect={true}
-                        audio={false} // 默认关闭麦克风，在房间内手动开启
+                        audio={true} // 默认开启麦克风
                         video={false} // 默认关闭摄像头
                         screen={false} // 默认关闭屏幕共享
                         data-lk-theme="default"
@@ -796,6 +815,7 @@ function RoomPageContent() {
                                     console.log('重连策略:', context);
                                     return Math.min(1000 * Math.pow(2, context.retryCount), 10000);
                                 }
+                                // 移除 maxRetryCount，因为它不在 ReconnectPolicy 类型中
                             }
                         }}
                         style={{

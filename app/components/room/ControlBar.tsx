@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useRoomContext } from '@livekit/components-react';
 import { Button } from '../ui/Button';
 
@@ -12,6 +12,7 @@ interface ControlBarProps {
     onLeaveRoom: () => void;
     isFullscreen: boolean;
     chatUnreadCount?: number;
+    showChat?: boolean;
     className?: string;
 }
 
@@ -23,6 +24,7 @@ export function ControlBar({
     onLeaveRoom,
     isFullscreen,
     chatUnreadCount = 0,
+    showChat = false,
     className = ''
 }: ControlBarProps) {
     const [isControlsVisible, setIsControlsVisible] = useState(true);
@@ -41,7 +43,7 @@ export function ControlBar({
     const [isScreenShareEnabled, setIsScreenShareEnabled] = useState(false);
 
     // 更新设备状态
-    React.useEffect(() => {
+    useEffect(() => {
         if (!room?.localParticipant) return;
 
         const updateStates = () => {
@@ -50,19 +52,25 @@ export function ControlBar({
             setIsScreenShareEnabled(room.localParticipant.isScreenShareEnabled);
         };
 
+        // 立即更新一次
         updateStates();
 
+        // 监听设备状态变化
         const participant = room.localParticipant;
         participant.on('trackMuted', updateStates);
         participant.on('trackUnmuted', updateStates);
         participant.on('trackPublished', updateStates);
         participant.on('trackUnpublished', updateStates);
 
+        // 定期检查状态（备用方案）
+        const interval = setInterval(updateStates, 1000);
+
         return () => {
             participant.off('trackMuted', updateStates);
             participant.off('trackUnmuted', updateStates);
             participant.off('trackPublished', updateStates);
             participant.off('trackUnpublished', updateStates);
+            clearInterval(interval);
         };
     }, [room]);
 
@@ -71,7 +79,10 @@ export function ControlBar({
         if (!room?.localParticipant) return;
         
         try {
-            await room.localParticipant.setMicrophoneEnabled(!isMicEnabled);
+            const newState = !isMicEnabled;
+            await room.localParticipant.setMicrophoneEnabled(newState);
+            setIsMicEnabled(newState); // 立即更新状态
+            console.log('麦克风状态切换为:', newState);
         } catch (error) {
             console.error('切换麦克风失败:', error);
         }
@@ -82,7 +93,10 @@ export function ControlBar({
         if (!room?.localParticipant) return;
         
         try {
-            await room.localParticipant.setCameraEnabled(!isCameraEnabled);
+            const newState = !isCameraEnabled;
+            await room.localParticipant.setCameraEnabled(newState);
+            setIsCameraEnabled(newState); // 立即更新状态
+            console.log('摄像头状态切换为:', newState);
         } catch (error) {
             console.error('切换摄像头失败:', error);
         }
@@ -93,14 +107,17 @@ export function ControlBar({
         if (!room?.localParticipant) return;
         
         try {
-            await room.localParticipant.setScreenShareEnabled(!isScreenShareEnabled);
+            const newState = !isScreenShareEnabled;
+            await room.localParticipant.setScreenShareEnabled(newState);
+            setIsScreenShareEnabled(newState); // 立即更新状态
+            console.log('屏幕共享状态切换为:', newState);
         } catch (error) {
             console.error('切换屏幕共享失败:', error);
         }
     }, [room, isScreenShareEnabled]);
 
     // 自动隐藏控制栏
-    React.useEffect(() => {
+    useEffect(() => {
         let timeout: NodeJS.Timeout;
         
         const showControls = () => {
@@ -193,6 +210,25 @@ export function ControlBar({
 
                     {/* 分隔线 */}
                     <div className="w-px h-6 bg-gray-600" />
+
+                    {/* 聊天按钮 */}
+                    <Button
+                        variant={showChat ? "primary" : "ghost"}
+                        size="sm"
+                        onClick={onToggleChat}
+                        title="聊天"
+                        className="relative"
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                        </svg>
+                        {/* 未读消息气泡 */}
+                        {chatUnreadCount > 0 && !showChat && (
+                            <div className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white">
+                                {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
+                            </div>
+                        )}
+                    </Button>
 
                     {/* 参与者按钮 */}
                     <Button

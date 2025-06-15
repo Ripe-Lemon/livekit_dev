@@ -4,23 +4,26 @@
 import {
     ControlBar,
     GridLayout,
+    LiveKitRoom,
     ParticipantTile,
     RoomAudioRenderer,
     useTracks,
     RoomContext,
     useRoomContext,
-    Chat, LayoutContextProvider, // 导入 Chat 组件
+    LayoutContextProvider,
 } from '@livekit/components-react';
 import {
     Room,
     Track,
     createLocalAudioTrack,
     AudioPresets,
+    RoomEvent,
 } from 'livekit-client';
 import '@livekit/components-styles';
 import { useEffect, useState, Suspense, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { AudioManager } from '../lib/audio/AudioManager';
 
 // 分片发送相关的常量和类型
 const CHUNK_SIZE = 60000; // 60KB per chunk (留一些空间给元数据)
@@ -628,44 +631,13 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
 function FloatingChatWithPreview({ setPreviewImage, previewImage }: { setPreviewImage: (src: string | null) => void; previewImage: string | null }) {
     const [isOpen, setIsOpen] = useState(false);
     const [unreadCount, setUnreadCount] = useState(0);
-    const audioRef = useRef<HTMLAudioElement | null>(null);
-
-    // 创建音频元素用于播放提示音
-    useEffect(() => {
-        // 创建一个简单的提示音
-        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-        
-        const createNotificationSound = () => {
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-            
-            oscillator.connect(gainNode);
-            gainNode.connect(audioContext.destination);
-            
-            oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
-            oscillator.frequency.setValueAtTime(600, audioContext.currentTime + 0.1);
-            
-            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-            
-            oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + 0.5);
-        };
-
-        audioRef.current = { play: createNotificationSound } as any;
-    }, []);
+    const [audioManager] = useState(() => AudioManager.getInstance());
 
     // 监听新消息事件
     useEffect(() => {
         const handleNewMessage = () => {
-            // 播放提示音
-            if (audioRef.current) {
-                try {
-                    audioRef.current.play();
-                } catch (e) {
-                    console.log('无法播放提示音:', e);
-                }
-            }
+            // 播放消息通知音效
+            audioManager.playSound('message-notification');
 
             // 如果悬浮窗关闭，增加未读数量
             if (!isOpen) {
@@ -673,15 +645,13 @@ function FloatingChatWithPreview({ setPreviewImage, previewImage }: { setPreview
             }
         };
 
-        // 监听自定义事件
         window.addEventListener('newChatMessage', handleNewMessage);
         
         return () => {
             window.removeEventListener('newChatMessage', handleNewMessage);
         };
-    }, [isOpen]);
+    }, [isOpen, audioManager]);
 
-    // 打开悬浮窗时清除未读数量
     const handleToggleChat = () => {
         if (!isOpen) {
             setUnreadCount(0);
@@ -724,14 +694,14 @@ function FloatingChatWithPreview({ setPreviewImage, previewImage }: { setPreview
                         </button>
                     </div>
                     
-                    {/* 聊天内容区域 - 使用自定义聊天组件，传递 setPreviewImage */}
+                    {/* 聊天内容区域 */}
                     <div className="flex-1 flex flex-col min-h-0">
                         <CustomChatWithPreview setPreviewImage={setPreviewImage} previewImage={previewImage} />
                     </div>
                 </div>
             </div>
 
-            {/* 聊天按钮 - 添加未读消息气泡 */}
+            {/* 聊天按钮 */}
             <div className="fixed top-6 right-6 z-50">
                 <button
                     onClick={handleToggleChat}
@@ -1290,9 +1260,11 @@ function CustomChatWithPreview({ setPreviewImage, previewImage }: { setPreviewIm
 }
 
 // 核心房间逻辑
-function LiveKitRoomWithPreview({ setPreviewImage, previewImage }: { setPreviewImage: (src: string | null) => void; previewImage: string | null }) {
+function LiveKitRoomWithPreview({ setPreviewImage }: { setPreviewImage: (src: string | null) => void }) {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [previewImage, setPreviewImageLocal] = useState<string | null>(null);
+    const [audioManager] = useState(() => AudioManager.getInstance());
 
     const [room] = useState(() => new Room({
         adaptiveStream: true,
@@ -1303,6 +1275,32 @@ function LiveKitRoomWithPreview({ setPreviewImage, previewImage }: { setPreviewI
     const [isEchoCancellationEnabled, setIsEchoCancellationEnabled] = useState(false);
 
     const searchParams = useSearchParams();
+
+    // 初始化音效管理器
+    useEffect(() => {
+        audioManager.initialize();
+    }, [audioManager]);
+
+    // 监听房间事件
+    useEffect(() => {
+        const handleParticipantConnected = (participant: any) => {
+            console.log('用户加入:', participant.name || participant.identity);
+            audioManager.playSound('user-join');
+        };
+
+        const handleParticipantDisconnected = (participant: any) => {
+            console.log('用户离开:', participant.name || participant.identity);
+            audioManager.playSound('user-leave');
+        };
+
+        room.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
+        room.on(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
+
+        return () => {
+            room.off(RoomEvent.ParticipantConnected, handleParticipantConnected);
+            room.off(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
+        };
+    }, [room, audioManager]);
 
     const publishAudioTrack = useCallback(async (noiseSuppression: boolean, echoCancellation: boolean) => {
         const existingTrackPublication = room.localParticipant.getTrackPublication(Track.Source.Microphone);
@@ -1381,8 +1379,7 @@ function LiveKitRoomWithPreview({ setPreviewImage, previewImage }: { setPreviewI
             mounted = false;
             room.disconnect();
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [room, searchParams]);
+    }, [room, searchParams, publishAudioTrack, isNoiseSuppressionEnabled, isEchoCancellationEnabled]);
 
     const handleToggleNoiseSuppression = async () => {
         const newValue = !isNoiseSuppressionEnabled;
@@ -1416,20 +1413,16 @@ function LiveKitRoomWithPreview({ setPreviewImage, previewImage }: { setPreviewI
         <RoomContext.Provider value={room}>
             <LayoutContextProvider>
                 <div data-lk-theme="default" className="flex h-screen flex-col bg-gray-900">
-                    {/* 移除左侧聊天面板，现在整个区域都是视频 */}
                     <div className="flex-1 flex flex-col">
                         <MyVideoConference />
                         <RoomAudioRenderer />
                     </div>
 
-                    {/* 统一的底部控制栏 - 移除聊天按钮 */}
+                    {/* 统一的底部控制栏 */}
                     <div className="flex flex-col gap-3 p-4 bg-gray-900/80 backdrop-blur-sm">
-                        {/* 第一行：房间信息和音频处理控制 */}
                         <div className="flex items-center justify-between">
-                            {/* 左侧：房间信息 */}
                             <RoomInfo />
                             
-                            {/* 右侧：音频处理控制 */}
                             <div className="flex items-center gap-2">
                                 <AudioProcessingControls
                                     isNoiseSuppressionEnabled={isNoiseSuppressionEnabled}
@@ -1437,10 +1430,45 @@ function LiveKitRoomWithPreview({ setPreviewImage, previewImage }: { setPreviewI
                                     isEchoCancellationEnabled={isEchoCancellationEnabled}
                                     onToggleEchoCancellation={handleToggleEchoCancellation}
                                 />
+                                
+                                {/* 添加音效控制按钮 */}
+                                <button
+                                    onClick={() => audioManager.setEnabled(!audioManager.isAudioEnabled())}
+                                    className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors ${
+                                        audioManager.isAudioEnabled()
+                                            ? 'bg-green-600 text-white hover:bg-green-700'
+                                            : 'bg-gray-600 text-gray-300 hover:bg-gray-700'
+                                    }`}
+                                    title={audioManager.isAudioEnabled() ? '关闭音效' : '开启音效'}
+                                >
+                                    <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        width="16"
+                                        height="16"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                    >
+                                        {audioManager.isAudioEnabled() ? (
+                                            <>
+                                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                                                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                                                <line x1="23" y1="9" x2="17" y2="15"></line>
+                                                <line x1="17" y1="9" x2="23" y2="15"></line>
+                                            </>
+                                        )}
+                                    </svg>
+                                </button>
                             </div>
                         </div>
                         
-                        {/* 第二行：主要控制按钮居中 - 移除聊天按钮 */}
                         <div className="flex items-center justify-center gap-4">
                             <ControlBar
                                 variation="minimal"
@@ -1454,8 +1482,7 @@ function LiveKitRoomWithPreview({ setPreviewImage, previewImage }: { setPreviewI
                         </div>
                     </div>
                 </div>
-
-                {/* 悬浮聊天组件 - 传递 setPreviewImage */}
+                <FloatingChatWithPreview setPreviewImage={setPreviewImageLocal} previewImage={previewImage} />
                 <FloatingChatWithPreview setPreviewImage={setPreviewImage} previewImage={previewImage} />
             </LayoutContextProvider>
         </RoomContext.Provider>
@@ -1485,7 +1512,7 @@ export default function Page() {
     return (
         <div>
             <Suspense fallback={<div className="flex h-screen items-center justify-center bg-gray-900 text-xl text-white">加载中...</div>}>
-                <LiveKitRoomWithPreview setPreviewImage={setPreviewImage} previewImage={previewImage} />
+                <LiveKitRoomWithPreview setPreviewImage={setPreviewImage} />
             </Suspense>
 
             {/* 回到大厅的悬浮按钮 - 调整位置避免与聊天按钮重叠 */}

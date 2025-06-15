@@ -4,7 +4,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { AudioManager } from '../../lib/audio/AudioManager';
-import { ChatContainer } from './ChatContainer';
+import ChatContainer from './ChatContainer';
 
 interface FloatingChatProps {
     setPreviewImage: (src: string | null) => void;
@@ -201,9 +201,9 @@ export default function FloatingChat({
                     <div className="flex-1 flex flex-col min-h-0">
                         <ChatContainer 
                             messages={[]}
-                            onSendMessage={async (message) => {}}
-                            onSendImage={async (file) => {}}
-                            onImagePreview={(src) => setPreviewImage(src)}
+                            onSendMessage={async (message: string) => {}}
+                            onSendImage={async (file: File) => {}}
+                            onImagePreview={(src: string) => setPreviewImage(src)}
                             onNewMessage={handleNewMessage}
                         />
                     </div>

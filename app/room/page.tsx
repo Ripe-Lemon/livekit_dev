@@ -1,567 +1,636 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { LiveKitRoom, VideoConference, formatChatMessageLinks } from '@livekit/components-react';
+import { Room, DisconnectReason } from 'livekit-client';
+
+// Components
 import { LoadingSpinner, PageLoadingSpinner } from '../components/ui/LoadingSpinner';
-import { ErrorDisplay, InlineError } from '../components/ui/ErrorDisplay';
+import { ErrorDisplay } from '../components/ui/ErrorDisplay';
+import { ChatPanel } from '../components/room/ChatPanel';
+import { ParticipantList } from '../components/room/ParticipantList';
+import { ControlBar } from '../components/room/ControlBar';
+import { SettingsPanel } from '../components/room/SettingsPanel';
+import { ImagePreview } from '../components/ui/ImagePreview';
+import { ConnectionStatus } from '../components/room/ConnectionStatus';
+import { NotificationCenter } from '../components/ui/NotificationCenter';
 
-interface RoomFormData {
-    roomName: string;
-    participantName: string;
-    isPrivate: boolean;
-    password?: string;
+// Hooks
+import { useRoom } from '../hooks/useRoom';
+import { useChat } from '../hooks/useChat';
+import { useAudioManager } from '../hooks/useAudioManager';
+import { useImagePreview } from '../hooks/useImagePreview';
+
+// Types
+import { RoomConnectionParams } from '../types/room';
+import { SoundEvent } from '../types/audio';
+
+// Utils
+import { generateAccessToken } from '../utils/tokenUtils';
+
+// Styles
+import '@livekit/components-styles';
+
+interface RoomPageProps {}
+
+interface RoomState {
+    isConnecting: boolean;
+    isConnected: boolean;
+    error: string | null;
+    token: string | null;
+    serverUrl: string | null;
 }
 
-interface RecentRoom {
-    name: string;
-    lastJoined: Date;
-    participants: number;
-    isPrivate: boolean;
+interface UIState {
+    showChat: boolean;
+    showParticipants: boolean;
+    showSettings: boolean;
+    isFullscreen: boolean;
+    sidebarCollapsed: boolean;
 }
 
-interface RoomInfo {
-    name: string;
-    participants: number;
-    isActive: boolean;
-    createdAt: Date;
-    maxParticipants: number;
-}
-
-export default function HomePage() {
-    // 状态管理
-    const [formData, setFormData] = useState<RoomFormData>({
-        roomName: '',
-        participantName: '',
-        isPrivate: false,
-        password: ''
-    });
-    
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [recentRooms, setRecentRooms] = useState<RecentRoom[]>([]);
-    const [publicRooms, setPublicRooms] = useState<RoomInfo[]>([]);
-    const [isLoadingRooms, setIsLoadingRooms] = useState(false);
-    const [showAdvanced, setShowAdvanced] = useState(false);
-
+function RoomPageContent() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    
+    // URL 参数
+    const roomName = searchParams.get('room');
+    const username = searchParams.get('username');
+    const password = searchParams.get('password');
 
-    // 从本地存储恢复最近的房间和用户名
-    useEffect(() => {
-        try {
-            const savedParticipantName = localStorage.getItem('participantName');
-            if (savedParticipantName) {
-                setFormData(prev => ({ 
-                    ...prev, 
-                    participantName: savedParticipantName 
-                }));
-            }
+    // 状态管理
+    const [roomState, setRoomState] = useState<RoomState>({
+        isConnecting: false,
+        isConnected: false,
+        error: null,
+        token: null,
+        serverUrl: null
+    });
 
-            const savedRecentRooms = localStorage.getItem('recentRooms');
-            if (savedRecentRooms) {
-                const rooms = JSON.parse(savedRecentRooms).map((room: any) => ({
-                    ...room,
-                    lastJoined: new Date(room.lastJoined)
-                }));
-                setRecentRooms(rooms);
-            }
-        } catch (error) {
-            console.warn('恢复本地数据失败:', error);
+    const [uiState, setUIState] = useState<UIState>({
+        showChat: true,
+        showParticipants: false,
+        showSettings: false,
+        isFullscreen: false,
+        sidebarCollapsed: false
+    });
+
+    const [notifications, setNotifications] = useState<Array<{
+        id: string;
+        type: 'info' | 'success' | 'warning' | 'error';
+        title: string;
+        message: string;
+        timestamp: Date;
+    }>>([]);
+
+    // Refs
+    const roomRef = useRef<Room | null>(null);
+    const isMountedRef = useRef(true);
+    const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    // Hooks
+    const { playSound } = useAudioManager({ autoInitialize: true });
+    const { 
+        previewState, 
+        openPreview, 
+        closePreview,
+        zoom,
+        position,
+        zoomIn,
+        zoomOut,
+        resetZoom,
+        setPosition
+    } = useImagePreview();
+    
+    const {
+        chatState,
+        sendTextMessage,
+        sendImageMessage,
+        toggleChat,
+        clearUnreadCount,
+        clearMessages,
+        retryMessage,
+        deleteMessage
+    } = useChat({
+        maxMessages: 200,
+        enableSounds: true,
+        autoScrollToBottom: true
+    });
+
+    // 验证必需参数
+    const validateParams = useCallback(() => {
+        if (!roomName || !username) {
+            return '缺少必需的房间参数';
         }
-    }, []);
-
-    // 加载公开房间列表
-    const loadPublicRooms = useCallback(async () => {
-        setIsLoadingRooms(true);
-        try {
-            const response = await fetch('/api/rooms');
-            if (response.ok) {
-                const rooms = await response.json();
-                setPublicRooms(rooms.map((room: any) => ({
-                    ...room,
-                    createdAt: new Date(room.createdAt)
-                })));
-            }
-        } catch (error) {
-            console.error('加载房间列表失败:', error);
-        } finally {
-            setIsLoadingRooms(false);
-        }
-    }, []);
-
-    // 初始加载公开房间
-    useEffect(() => {
-        loadPublicRooms();
-    }, [loadPublicRooms]);
-
-    // 保存最近房间到本地存储
-    const saveRecentRoom = useCallback((roomName: string, isPrivate: boolean) => {
-        try {
-            const newRoom: RecentRoom = {
-                name: roomName,
-                lastJoined: new Date(),
-                participants: 1,
-                isPrivate
-            };
-
-            const updatedRooms = [
-                newRoom,
-                ...recentRooms.filter(room => room.name !== roomName)
-            ].slice(0, 10); // 只保留最近10个房间
-
-            setRecentRooms(updatedRooms);
-            localStorage.setItem('recentRooms', JSON.stringify(updatedRooms));
-        } catch (error) {
-            console.warn('保存最近房间失败:', error);
-        }
-    }, [recentRooms]);
-
-    // 表单验证
-    const validateForm = useCallback((): string | null => {
-        if (!formData.roomName.trim()) {
-            return '请输入房间名称';
-        }
-
-        if (formData.roomName.length < 3) {
-            return '房间名称至少需要3个字符';
-        }
-
-        if (formData.roomName.length > 50) {
-            return '房间名称不能超过50个字符';
-        }
-
-        if (!/^[a-zA-Z0-9\u4e00-\u9fa5_-]+$/.test(formData.roomName)) {
-            return '房间名称只能包含字母、数字、中文、下划线和连字符';
-        }
-
-        if (!formData.participantName.trim()) {
-            return '请输入用户名';
-        }
-
-        if (formData.participantName.length < 2) {
-            return '用户名至少需要2个字符';
-        }
-
-        if (formData.participantName.length > 30) {
-            return '用户名不能超过30个字符';
-        }
-
-        if (formData.isPrivate && !formData.password) {
-            return '私有房间需要设置密码';
-        }
-
-        if (formData.password && formData.password.length < 4) {
-            return '密码至少需要4个字符';
-        }
-
-        return null;
-    }, [formData]);
-
-    // 处理表单提交
-    const handleSubmit = useCallback(async (e: React.FormEvent) => {
-        e.preventDefault();
         
-        const validationError = validateForm();
-        if (validationError) {
-            setError(validationError);
-            return;
+        if (roomName.length < 3 || roomName.length > 50) {
+            return '房间名称长度必须在3-50个字符之间';
         }
+        
+        if (username.length < 2 || username.length > 30) {
+            return '用户名长度必须在2-30个字符之间';
+        }
+        
+        return null;
+    }, [roomName, username]);
 
-        setIsLoading(true);
-        setError(null);
-
+    // 获取访问令牌
+    const getAccessToken = useCallback(async (): Promise<string> => {
         try {
-            // 保存用户名到本地存储
-            localStorage.setItem('participantName', formData.participantName);
-            
-            // 保存到最近房间
-            saveRecentRoom(formData.roomName, formData.isPrivate);
-
-            // 构建查询参数
-            const params = new URLSearchParams({
-                room: formData.roomName.trim(),
-                username: formData.participantName.trim()
+            const response = await fetch('/api/token', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    room: roomName,
+                    username: username,
+                    password: password || undefined
+                }),
             });
 
-            if (formData.isPrivate && formData.password) {
-                params.append('password', formData.password);
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
             }
 
-            // 跳转到房间页面
-            router.push(`/room?${params.toString()}`);
-
+            const data = await response.json();
+            return data.token;
         } catch (error) {
-            console.error('加入房间失败:', error);
-            setError(error instanceof Error ? error.message : '加入房间失败，请重试');
-        } finally {
-            setIsLoading(false);
+            console.error('获取访问令牌失败:', error);
+            throw error instanceof Error ? error : new Error('获取访问令牌失败');
         }
-    }, [formData, validateForm, saveRecentRoom, router]);
+    }, [roomName, username, password]);
 
-    // 快速加入最近房间
-    const handleQuickJoin = useCallback((roomName: string) => {
-        if (!formData.participantName.trim()) {
-            setError('请先输入用户名');
+    // 初始化房间连接
+    const initializeRoom = useCallback(async () => {
+        const validationError = validateParams();
+        if (validationError) {
+            setRoomState(prev => ({ ...prev, error: validationError }));
             return;
         }
 
-        setFormData(prev => ({ ...prev, roomName }));
-        
-        // 自动提交表单
-        setTimeout(() => {
-            const form = document.getElementById('roomForm') as HTMLFormElement;
-            if (form) {
-                form.requestSubmit();
-            }
-        }, 100);
-    }, [formData.participantName]);
+        setRoomState(prev => ({ 
+            ...prev, 
+            isConnecting: true, 
+            error: null 
+        }));
 
-    // 生成随机房间名
-    const generateRandomRoomName = useCallback(() => {
-        const adjectives = ['快乐', '神秘', '超级', '魔法', '彩虹', '星空', '海洋', '山峰'];
-        const nouns = ['会议室', '聚会厅', '讨论区', '工作室', '咖啡厅', '书房', '花园', '城堡'];
+        try {
+            // 获取访问令牌
+            const token = await getAccessToken();
+            
+            // 获取服务器URL
+            const serverUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL;
+            if (!serverUrl) {
+                throw new Error('LiveKit 服务器URL未配置');
+            }
+
+            if (isMountedRef.current) {
+                setRoomState(prev => ({
+                    ...prev,
+                    token,
+                    serverUrl,
+                    isConnecting: false,
+                    isConnected: true
+                }));
+
+                // 播放连接成功音效
+                playSound('call-start');
+
+                // 添加成功通知
+                addNotification({
+                    type: 'success',
+                    title: '连接成功',
+                    message: `已成功加入房间 "${roomName}"`
+                });
+            }
+        } catch (error) {
+            console.error('初始化房间失败:', error);
+            
+            if (isMountedRef.current) {
+                const errorMessage = error instanceof Error ? error.message : '连接失败';
+                setRoomState(prev => ({
+                    ...prev,
+                    isConnecting: false,
+                    error: errorMessage
+                }));
+
+                // 播放错误音效
+                playSound('error');
+
+                // 添加错误通知
+                addNotification({
+                    type: 'error',
+                    title: '连接失败',
+                    message: errorMessage
+                });
+            }
+        }
+    }, [validateParams, getAccessToken, roomName, playSound]);
+
+    // 添加通知
+    const addNotification = useCallback((notification: Omit<typeof notifications[0], 'id' | 'timestamp'>) => {
+        const newNotification = {
+            ...notification,
+            id: `notification_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            timestamp: new Date()
+        };
         
-        const randomAdjective = adjectives[Math.floor(Math.random() * adjectives.length)];
-        const randomNoun = nouns[Math.floor(Math.random() * nouns.length)];
-        const randomNum = Math.floor(Math.random() * 1000);
-        
-        return `${randomAdjective}${randomNoun}${randomNum}`;
+        setNotifications(prev => [...prev, newNotification]);
+
+        // 自动移除通知
+        setTimeout(() => {
+            setNotifications(prev => prev.filter(n => n.id !== newNotification.id));
+        }, 5000);
     }, []);
 
-    // 处理表单输入变化
-    const handleInputChange = useCallback((
-        field: keyof RoomFormData,
-        value: string | boolean
-    ) => {
-        setFormData(prev => ({ ...prev, [field]: value }));
-        if (error) setError(null); // 清除错误信息
-    }, [error]);
+    // 房间事件处理
+    const handleRoomConnected = useCallback(() => {
+        console.log('房间连接成功');
+        
+        playSound('call-start');
+        addNotification({
+            type: 'success',
+            title: '房间连接成功',
+            message: `欢迎加入 "${roomName}"`
+        });
+    }, [playSound, addNotification, roomName]);
 
+    const handleRoomDisconnected = useCallback((reason?: DisconnectReason) => {
+        console.log('房间断开连接:', reason);
+        roomRef.current = null;
+        
+        if (reason !== DisconnectReason.CLIENT_INITIATED) {
+            playSound('connection-lost');
+            addNotification({
+                type: 'warning',
+                title: '连接断开',
+                message: '正在尝试重新连接...'
+            });
+            
+            // 尝试重连
+            reconnectTimeoutRef.current = setTimeout(() => {
+                if (isMountedRef.current) {
+                    initializeRoom();
+                }
+            }, 3000);
+        } else {
+            playSound('call-end');
+        }
+    }, [playSound, addNotification, initializeRoom]);
+
+    const handleRoomError = useCallback((error: Error) => {
+        console.error('房间错误:', error);
+        
+        playSound('error');
+        addNotification({
+            type: 'error',
+            title: '房间错误',
+            message: error.message
+        });
+    }, [playSound, addNotification]);
+
+    const handleParticipantConnected = useCallback((participant: any) => {
+        console.log('参与者加入:', participant.identity);
+        
+        playSound('user-join');
+        addNotification({
+            type: 'info',
+            title: '用户加入',
+            message: `${participant.identity} 加入了房间`
+        });
+    }, [playSound, addNotification]);
+
+    const handleParticipantDisconnected = useCallback((participant: any) => {
+        console.log('参与者离开:', participant.identity);
+        
+        playSound('user-leave');
+        addNotification({
+            type: 'info',
+            title: '用户离开',
+            message: `${participant.identity} 离开了房间`
+        });
+    }, [playSound, addNotification]);
+
+    // UI 控制函数
+    const toggleUIPanel = useCallback((panel: keyof UIState) => {
+        setUIState(prev => ({ ...prev, [panel]: !prev[panel] }));
+    }, []);
+
+    const toggleFullscreen = useCallback(async () => {
+        try {
+            if (!document.fullscreenElement) {
+                await document.documentElement.requestFullscreen();
+                setUIState(prev => ({ ...prev, isFullscreen: true }));
+            } else {
+                await document.exitFullscreen();
+                setUIState(prev => ({ ...prev, isFullscreen: false }));
+            }
+        } catch (error) {
+            console.error('全屏切换失败:', error);
+        }
+    }, []);
+
+    const leaveRoom = useCallback(async () => {
+        try {
+            if (roomRef.current) {
+                await roomRef.current.disconnect();
+            }
+            
+            // 清理定时器
+            if (reconnectTimeoutRef.current) {
+                clearTimeout(reconnectTimeoutRef.current);
+            }
+            
+            // 返回首页
+            router.push('/');
+        } catch (error) {
+            console.error('离开房间失败:', error);
+            // 强制返回首页
+            router.push('/');
+        }
+    }, [router]);
+
+    // 键盘快捷键
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // 全屏切换
+            if (e.key === 'F11') {
+                e.preventDefault();
+                toggleFullscreen();
+            }
+            
+            // 聊天切换
+            if (e.key === 'c' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                toggleUIPanel('showChat');
+            }
+            
+            // 参与者列表切换
+            if (e.key === 'p' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                toggleUIPanel('showParticipants');
+            }
+            
+            // 设置面板切换
+            if (e.key === 's' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                toggleUIPanel('showSettings');
+            }
+            
+            // 离开房间
+            if (e.key === 'Escape' && e.ctrlKey) {
+                e.preventDefault();
+                leaveRoom();
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [toggleFullscreen, toggleUIPanel, leaveRoom]);
+
+    // 全屏状态监听
+    useEffect(() => {
+        const handleFullscreenChange = () => {
+            setUIState(prev => ({ 
+                ...prev, 
+                isFullscreen: !!document.fullscreenElement 
+            }));
+        };
+
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    }, []);
+
+    // 页面离开时清理
+    useEffect(() => {
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            if (roomState.isConnected) {
+                e.preventDefault();
+                e.returnValue = '确定要离开房间吗？';
+            }
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [roomState.isConnected]);
+
+    // 初始化
+    useEffect(() => {
+        initializeRoom();
+        
+        return () => {
+            isMountedRef.current = false;
+            if (reconnectTimeoutRef.current) {
+                clearTimeout(reconnectTimeoutRef.current);
+            }
+        };
+    }, [initializeRoom]);
+
+    // 渲染错误状态
+    if (roomState.error) {
+        return (
+            <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
+                <div className="max-w-md w-full">
+                    <ErrorDisplay
+                        title="房间连接失败"
+                        message={roomState.error}
+                        showRetry
+                        onRetry={initializeRoom}
+                    />
+                </div>
+            </div>
+        );
+    }
+
+    // 渲染加载状态
+    if (roomState.isConnecting || !roomState.token || !roomState.serverUrl) {
+        return (
+            <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+                <PageLoadingSpinner 
+                    text={`正在连接房间... (房间: ${roomName} | 用户: ${username})`}
+                />
+            </div>
+        );
+    }
+
+    // 主要房间界面
     return (
-        <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900">
-            {/* 头部 */}
-            <header className="bg-black/20 backdrop-blur-sm border-b border-gray-700">
-                <div className="container mx-auto px-4 py-4">
+        <div className={`min-h-screen bg-gray-900 flex flex-col ${uiState.isFullscreen ? 'fixed inset-0 z-50' : ''}`}>
+            {/* 房间标题栏 */}
+            {!uiState.isFullscreen && (
+                <header className="bg-gray-800 border-b border-gray-700 px-4 py-3">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-4">
-                            <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
-                                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            <button
+                                onClick={() => router.push('/')}
+                                className="text-gray-400 hover:text-white transition-colors"
+                                title="返回首页"
+                            >
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                                 </svg>
-                            </div>
+                            </button>
                             <div>
-                                <h1 className="text-2xl font-bold text-white">LiveKit 视频会议</h1>
-                                <p className="text-gray-300 text-sm">高质量的实时音视频通信</p>
+                                <h1 className="text-xl font-semibold text-white">{roomName}</h1>
+                                <p className="text-sm text-gray-400">用户: {username}</p>
                             </div>
                         </div>
                         
-                        <div className="flex items-center space-x-4">
-                            <Link 
-                                href="/about" 
-                                className="text-gray-300 hover:text-white transition-colors"
+                        <div className="flex items-center space-x-2">
+                            <ConnectionStatus />
+                            
+                            <button
+                                onClick={() => toggleUIPanel('showParticipants')}
+                                className={`p-2 rounded-lg transition-colors ${
+                                    uiState.showParticipants 
+                                        ? 'bg-blue-600 text-white' 
+                                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                }`}
+                                title="参与者列表"
                             >
-                                关于
-                            </Link>
-                            <Link 
-                                href="/help" 
-                                className="text-gray-300 hover:text-white transition-colors"
-                            >
-                                帮助
-                            </Link>
-                        </div>
-                    </div>
-                </div>
-            </header>
-
-            {/* 主要内容 */}
-            <main className="container mx-auto px-4 py-8">
-                <div className="max-w-6xl mx-auto">
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                        
-                        {/* 左侧：加入房间表单 */}
-                        <div className="lg:col-span-2">
-                            <div className="bg-black/30 backdrop-blur-sm rounded-xl border border-gray-700 p-6">
-                                <h2 className="text-2xl font-bold text-white mb-6">加入或创建房间</h2>
-                                
-                                {error && (
-                                    <InlineError 
-                                        message={error} 
-                                        onDismiss={() => setError(null)} 
-                                    />
-                                )}
-
-                                <form id="roomForm" onSubmit={handleSubmit} className="space-y-6">
-                                    {/* 房间名称 */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-300 mb-2">
-                                            房间名称
-                                        </label>
-                                        <div className="flex space-x-2">
-                                            <input
-                                                type="text"
-                                                value={formData.roomName}
-                                                onChange={(e) => handleInputChange('roomName', e.target.value)}
-                                                placeholder="输入房间名称或创建新房间"
-                                                className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                                                disabled={isLoading}
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={() => handleInputChange('roomName', generateRandomRoomName())}
-                                                className="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg hover:bg-gray-600 transition-colors"
-                                                title="生成随机房间名"
-                                                disabled={isLoading}
-                                            >
-                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                                </svg>
-                                            </button>
-                                        </div>
-                                        <p className="text-xs text-gray-400 mt-1">
-                                            房间名称只能包含字母、数字、中文、下划线和连字符，3-50个字符
-                                        </p>
-                                    </div>
-
-                                    {/* 用户名 */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-300 mb-2">
-                                            用户名
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={formData.participantName}
-                                            onChange={(e) => handleInputChange('participantName', e.target.value)}
-                                            placeholder="输入您的用户名"
-                                            className="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                                            disabled={isLoading}
-                                        />
-                                        <p className="text-xs text-gray-400 mt-1">
-                                            用户名将在房间中显示，2-30个字符
-                                        </p>
-                                    </div>
-
-                                    {/* 高级选项切换 */}
-                                    <div>
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowAdvanced(!showAdvanced)}
-                                            className="flex items-center text-blue-400 hover:text-blue-300 transition-colors"
-                                        >
-                                            <svg 
-                                                className={`w-4 h-4 mr-2 transition-transform ${showAdvanced ? 'rotate-90' : ''}`} 
-                                                fill="none" 
-                                                stroke="currentColor" 
-                                                viewBox="0 0 24 24"
-                                            >
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                            </svg>
-                                            高级选项
-                                        </button>
-                                    </div>
-
-                                    {/* 高级选项 */}
-                                    {showAdvanced && (
-                                        <div className="space-y-4 bg-gray-800/50 rounded-lg p-4">
-                                            {/* 私有房间 */}
-                                            <div className="flex items-center space-x-3">
-                                                <input
-                                                    type="checkbox"
-                                                    id="isPrivate"
-                                                    checked={formData.isPrivate}
-                                                    onChange={(e) => handleInputChange('isPrivate', e.target.checked)}
-                                                    className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
-                                                    disabled={isLoading}
-                                                />
-                                                <label htmlFor="isPrivate" className="text-sm text-gray-300">
-                                                    创建私有房间（需要密码）
-                                                </label>
-                                            </div>
-
-                                            {/* 密码输入 */}
-                                            {formData.isPrivate && (
-                                                <div>
-                                                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                                                        房间密码
-                                                    </label>
-                                                    <input
-                                                        type="password"
-                                                        value={formData.password || ''}
-                                                        onChange={(e) => handleInputChange('password', e.target.value)}
-                                                        placeholder="设置房间密码"
-                                                        className="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                                                        disabled={isLoading}
-                                                    />
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    {/* 提交按钮 */}
-                                    <button
-                                        type="submit"
-                                        disabled={isLoading}
-                                        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white font-medium py-3 px-4 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900"
-                                    >
-                                        {isLoading ? (
-                                            <div className="flex items-center justify-center">
-                                                <LoadingSpinner size="sm" color="white" />
-                                                <span className="ml-2">正在加入...</span>
-                                            </div>
-                                        ) : (
-                                            '加入房间'
-                                        )}
-                                    </button>
-                                </form>
-                            </div>
-                        </div>
-
-                        {/* 右侧：房间列表 */}
-                        <div className="space-y-6">
-                            {/* 最近房间 */}
-                            {recentRooms.length > 0 && (
-                                <div className="bg-black/30 backdrop-blur-sm rounded-xl border border-gray-700 p-6">
-                                    <h3 className="text-lg font-semibold text-white mb-4">最近房间</h3>
-                                    <div className="space-y-2">
-                                        {recentRooms.slice(0, 5).map((room, index) => (
-                                            <button
-                                                key={index}
-                                                onClick={() => handleQuickJoin(room.name)}
-                                                disabled={isLoading || !formData.participantName.trim()}
-                                                className="w-full text-left p-3 bg-gray-800/50 hover:bg-gray-700/50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                            >
-                                                <div className="flex items-center justify-between">
-                                                    <div>
-                                                        <p className="text-white font-medium">{room.name}</p>
-                                                        <p className="text-xs text-gray-400">
-                                                            {room.lastJoined.toLocaleDateString('zh-CN')}
-                                                            {room.isPrivate && (
-                                                                <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-yellow-900 text-yellow-300">
-                                                                    私有
-                                                                </span>
-                                                            )}
-                                                        </p>
-                                                    </div>
-                                                    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                                    </svg>
-                                                </div>
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* 公开房间 */}
-                            <div className="bg-black/30 backdrop-blur-sm rounded-xl border border-gray-700 p-6">
-                                <div className="flex items-center justify-between mb-4">
-                                    <h3 className="text-lg font-semibold text-white">公开房间</h3>
-                                    <button
-                                        onClick={loadPublicRooms}
-                                        disabled={isLoadingRooms}
-                                        className="text-blue-400 hover:text-blue-300 transition-colors disabled:opacity-50"
-                                        title="刷新"
-                                    >
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                        </svg>
-                                    </button>
-                                </div>
-
-                                {isLoadingRooms ? (
-                                    <div className="flex justify-center py-8">
-                                        <LoadingSpinner size="md" color="white" text="加载中..." />
-                                    </div>
-                                ) : publicRooms.length > 0 ? (
-                                    <div className="space-y-2">
-                                        {publicRooms.slice(0, 10).map((room, index) => (
-                                            <button
-                                                key={index}
-                                                onClick={() => handleQuickJoin(room.name)}
-                                                disabled={isLoading || !formData.participantName.trim()}
-                                                className="w-full text-left p-3 bg-gray-800/50 hover:bg-gray-700/50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                            >
-                                                <div className="flex items-center justify-between">
-                                                    <div>
-                                                        <p className="text-white font-medium">{room.name}</p>
-                                                        <div className="flex items-center space-x-4 text-xs text-gray-400">
-                                                            <span>{room.participants} 人在线</span>
-                                                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded ${
-                                                                room.isActive 
-                                                                    ? 'bg-green-900 text-green-300' 
-                                                                    : 'bg-red-900 text-red-300'
-                                                            }`}>
-                                                                {room.isActive ? '活跃' : '空闲'}
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                                    </svg>
-                                                </div>
-                                            </button>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <div className="text-center py-8 text-gray-400">
-                                        <svg className="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                                        </svg>
-                                        <p>暂无活跃的公开房间</p>
-                                        <p className="text-sm mt-1">创建一个新房间开始聊天吧！</p>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* 功能介绍 */}
-                    <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div className="bg-black/20 backdrop-blur-sm rounded-xl border border-gray-700 p-6 text-center">
-                            <div className="w-12 h-12 bg-blue-500 rounded-lg flex items-center justify-center mx-auto mb-4">
-                                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
                                 </svg>
-                            </div>
-                            <h3 className="text-lg font-semibold text-white mb-2">高清视频通话</h3>
-                            <p className="text-gray-300 text-sm">支持高达1080p的视频质量，自适应网络带宽</p>
-                        </div>
-
-                        <div className="bg-black/20 backdrop-blur-sm rounded-xl border border-gray-700 p-6 text-center">
-                            <div className="w-12 h-12 bg-green-500 rounded-lg flex items-center justify-center mx-auto mb-4">
-                                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            </button>
+                            
+                            <button
+                                onClick={() => toggleUIPanel('showChat')}
+                                className={`p-2 rounded-lg transition-colors relative ${
+                                    uiState.showChat 
+                                        ? 'bg-blue-600 text-white' 
+                                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                }`}
+                                title="聊天"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                                 </svg>
-                            </div>
-                            <h3 className="text-lg font-semibold text-white mb-2">实时聊天</h3>
-                            <p className="text-gray-300 text-sm">支持文字和图片消息，实时同步无延迟</p>
-                        </div>
-
-                        <div className="bg-black/20 backdrop-blur-sm rounded-xl border border-gray-700 p-6 text-center">
-                            <div className="w-12 h-12 bg-purple-500 rounded-lg flex items-center justify-center mx-auto mb-4">
-                                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                {chatState.unreadCount > 0 && (
+                                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                                        {chatState.unreadCount > 9 ? '9+' : chatState.unreadCount}
+                                    </span>
+                                )}
+                            </button>
+                            
+                            <button
+                                onClick={() => toggleUIPanel('showSettings')}
+                                className={`p-2 rounded-lg transition-colors ${
+                                    uiState.showSettings 
+                                        ? 'bg-blue-600 text-white' 
+                                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                }`}
+                                title="设置"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                 </svg>
-                            </div>
-                            <h3 className="text-lg font-semibold text-white mb-2">屏幕共享</h3>
-                            <p className="text-gray-300 text-sm">轻松分享屏幕内容，支持窗口和应用选择</p>
+                            </button>
                         </div>
                     </div>
-                </div>
-            </main>
+                </header>
+            )}
 
-            {/* 页脚 */}
-            <footer className="bg-black/20 backdrop-blur-sm border-t border-gray-700 mt-16">
-                <div className="container mx-auto px-4 py-8">
-                    <div className="text-center text-gray-400">
-                        <p>&copy; 2024 LiveKit 视频会议. 基于 LiveKit 构建</p>
-                        <div className="flex justify-center space-x-6 mt-4">
-                            <Link href="/privacy" className="hover:text-white transition-colors">隐私政策</Link>
-                            <Link href="/terms" className="hover:text-white transition-colors">服务条款</Link>
-                            <Link href="/support" className="hover:text-white transition-colors">技术支持</Link>
-                        </div>
+            {/* 主要内容区域 */}
+            <div className="flex-1 flex overflow-hidden">
+                {/* 左侧面板 */}
+                {(uiState.showParticipants || uiState.showSettings) && (
+                    <div className="w-80 bg-gray-800 border-r border-gray-700 flex flex-col">
+                        {uiState.showParticipants && (
+                            <ParticipantList
+                                onClose={() => toggleUIPanel('showParticipants')}
+                            />
+                        )}
+                        
+                        {uiState.showSettings && (
+                            <SettingsPanel
+                                onClose={() => toggleUIPanel('showSettings')}
+                            />
+                        )}
                     </div>
+                )}
+
+                {/* 中央视频区域 */}
+                <div className="flex-1 flex flex-col bg-black">
+                    <LiveKitRoom
+                        token={roomState.token}
+                        serverUrl={roomState.serverUrl}
+                        onConnected={handleRoomConnected}
+                        onDisconnected={handleRoomDisconnected}
+                        onError={handleRoomError}
+                        connect={true}
+                        audio={true}
+                        video={true}
+                        screen={true}
+                        data-lk-theme="default"
+                    >
+                        <VideoConference 
+                            chatMessageFormatter={formatChatMessageLinks}
+                        />
+                        
+                        {/* 自定义控制栏 */}
+                        <ControlBar
+                            onToggleChat={() => toggleUIPanel('showChat')}
+                            onToggleParticipants={() => toggleUIPanel('showParticipants')}
+                            onToggleSettings={() => toggleUIPanel('showSettings')}
+                            onToggleFullscreen={toggleFullscreen}
+                            onLeaveRoom={leaveRoom}
+                            isFullscreen={uiState.isFullscreen}
+                            chatUnreadCount={chatState.unreadCount}
+                        />
+                    </LiveKitRoom>
                 </div>
-            </footer>
+
+                {/* 右侧聊天面板 */}
+                {uiState.showChat && (
+                    <div className="w-80 bg-gray-800 border-l border-gray-700">
+                        <ChatPanel
+                            chatState={chatState}
+                            onSendMessage={sendTextMessage}
+                            onSendImage={sendImageMessage}
+                            onToggleChat={() => toggleUIPanel('showChat')}
+                            onClearMessages={clearMessages}
+                            onRetryMessage={retryMessage}
+                            onDeleteMessage={deleteMessage}
+                            onImageClick={openPreview}
+                            onClose={() => {
+                                toggleUIPanel('showChat');
+                                clearUnreadCount();
+                            }}
+                        />
+                    </div>
+                )}
+            </div>
+
+            {/* 图片预览 */}
+            {previewState.isOpen && (
+                <ImagePreview
+                    src={previewState.src}
+                    onClose={closePreview}
+                />
+            )}
+
+            {/* 通知中心 */}
+            <NotificationCenter
+                notifications={notifications}
+                onDismiss={(id) => setNotifications(prev => prev.filter(n => n.id !== id))}
+            />
         </div>
+    );
+}
+
+// 主组件 - 使用 Suspense 包装
+export default function RoomPage(props: RoomPageProps) {
+    return (
+        <Suspense fallback={
+            <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+                <PageLoadingSpinner text="正在加载房间..." />
+            </div>
+        }>
+            <RoomPageContent />
+        </Suspense>
     );
 }

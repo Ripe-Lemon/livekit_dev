@@ -257,29 +257,37 @@ function LiveKitRoom() {
                         </div>
                     </div>
 
-                    {/* 统一的底部控制栏 */}
-                    <div className="flex items-center justify-center gap-4 p-4 bg-gray-900/80 backdrop-blur-sm">
-                        {/* 将房间信息放在控制栏的左侧 */}
-                        <RoomInfo />
+                    {/* 统一的底部控制栏 - 修改为双行布局 */}
+                    <div className="flex flex-col gap-3 p-4 bg-gray-900/80 backdrop-blur-sm">
+                        {/* 第一行：房间信息和音频处理控制 */}
+                        <div className="flex items-center justify-between">
+                            {/* 左侧：房间信息 */}
+                            <RoomInfo />
+                            
+                            {/* 右侧：音频处理控制 */}
+                            <div className="flex items-center gap-2">
+                                <AudioProcessingControls
+                                    isNoiseSuppressionEnabled={isNoiseSuppressionEnabled}
+                                    onToggleNoiseSuppression={handleToggleNoiseSuppression}
+                                    isEchoCancellationEnabled={isEchoCancellationEnabled}
+                                    onToggleEchoCancellation={handleToggleEchoCancellation}
+                                />
+                            </div>
+                        </div>
                         
-                        <div className="h-6 w-px bg-gray-600"></div>
-                        
-                        {/* ControlBar 现在也可以正确地切换聊天面板 */}
-                        <ControlBar
-                            variation="minimal"
-                            controls={{
-                                microphone: true,
-                                camera: true,
-                                screenShare: true,
-                            }}
-                        />
-                        <div className="h-6 w-px bg-gray-600"></div>
-                        <AudioProcessingControls
-                            isNoiseSuppressionEnabled={isNoiseSuppressionEnabled}
-                            onToggleNoiseSuppression={handleToggleNoiseSuppression}
-                            isEchoCancellationEnabled={isEchoCancellationEnabled}
-                            onToggleEchoCancellation={handleToggleEchoCancellation}
-                        />
+                        {/* 第二行：主要控制按钮居中 */}
+                        <div className="flex items-center justify-center gap-4">
+                            <ControlBar
+                                variation="minimal"
+                                controls={{
+                                    microphone: true,
+                                    camera: true,
+                                    screenShare: true,
+                                }}
+                            />
+                            <div className="h-6 w-px bg-gray-600"></div>
+                            <Chat />
+                        </div>
                     </div>
                 </div>
             </LayoutContextProvider>

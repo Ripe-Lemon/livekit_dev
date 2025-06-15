@@ -235,7 +235,7 @@ function RoomPageContent() {
     // 获取访问令牌
     const getAccessToken = useCallback(async (): Promise<string> => {
         try {
-            const response = await fetch('/api/room', {
+            const response = await fetch('https://livekit-api.gui.ink/api/room', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

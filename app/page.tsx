@@ -119,7 +119,7 @@ export default function Lobby() {
                             {rooms.map((room) => (
                                 <li
                                     key={room.sid}
-                                    className="flex items-center justify-between rounded-md bg-gray-50 p-4"
+                                    className="flex items-center justify-between rounded-md bg-gray-700 p-4"
                                 >
                                     <div>
                                         <p className="text-xl font-medium text-gray-900">{room.name}</p>

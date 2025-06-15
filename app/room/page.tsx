@@ -235,7 +235,7 @@ function RoomPageContent() {
     // 检查房间是否存在
     const checkRoomExists = useCallback(async (roomName: string): Promise<boolean> => {
         try {
-            const response = await fetch('https://livekit-api.gui.ink/api/rooms', {
+            const response = await fetch('https://livekit-api.2k2.cc/api/rooms', {
                 method: 'GET'
             });
 
@@ -274,12 +274,12 @@ function RoomPageContent() {
                 }),
             });
 
-            if (!tokenResponse.ok) {
-                const errorData = await tokenResponse.json().catch(() => ({}));
-                throw new Error(errorData.error || `生成访问令牌失败: HTTP ${tokenResponse.status}`);
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `生成访问令牌失败: HTTP ${response.status}`);
             }
 
-            const tokenData = await tokenResponse.json();
+            const tokenData = await response.json();
             return tokenData.token;
 
         } catch (error) {
@@ -301,7 +301,7 @@ function RoomPageContent() {
     // 获取房间信息
     const getRoomInfo = useCallback(async (roomName: string) => {
         try {
-            const response = await fetch(`https://livekit-api.gui.ink/api/room?room=${encodeURIComponent(roomName)}`, {
+            const response = await fetch(`https://livekit-api.2k2.cc/api/room?room=${encodeURIComponent(roomName)}`, {
                 method: 'GET'
             });
 
@@ -321,7 +321,7 @@ function RoomPageContent() {
     // 获取房间参与者
     const getRoomParticipants = useCallback(async (roomName: string) => {
         try {
-            const response = await fetch(`https://livekit-api.gui.ink/api/room/participants?room=${encodeURIComponent(roomName)}`, {
+            const response = await fetch(`https://livekit-api.2k2.cc/api/room/participants?room=${encodeURIComponent(roomName)}`, {
                 method: 'GET'
             });
 
@@ -382,11 +382,13 @@ function RoomPageContent() {
 
                 // 可选：获取房间信息和参与者列表
                 try {
-                    const roomInfo = await getRoomInfo(roomName);
-                    const participants = await getRoomParticipants(roomName);
-                    
-                    console.log('房间信息:', roomInfo);
-                    console.log('当前参与者:', participants);
+                    if (roomName) {
+                        const roomInfo = await getRoomInfo(roomName);
+                        const participants = await getRoomParticipants(roomName);
+                        
+                        console.log('房间信息:', roomInfo);
+                        console.log('当前参与者:', participants);
+                    }
                 } catch (infoError) {
                     console.warn('获取房间详细信息失败:', infoError);
                 }

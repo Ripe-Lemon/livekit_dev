@@ -21,7 +21,7 @@ export default function Lobby() {
     const fetchRooms = async () => {
         try {
             setIsLoading(true);
-            const res = await fetch('https://livekit-api.gui.ink/api/rooms');
+            const res = await fetch('https://livekit-api.2k2.cc/api/rooms');
             if (!res.ok) throw new Error('无法从服务器获取房间列表');
             const data = await res.json();
             setRooms(data.rooms);
@@ -39,7 +39,7 @@ export default function Lobby() {
             return;
         }
         // 跳转到对应的房间页面
-        router.push(`https://livekit-api.gui.ink/room?roomName=${roomName}&participantName=${participantName}`);
+        router.push(`https://livekit-api.2k2.cc/room?roomName=${roomName}&participantName=${participantName}`);
     };
 
     // 处理创建房间的逻辑
@@ -52,7 +52,7 @@ export default function Lobby() {
 
         try {
             // 发送 POST 请求到我们的 API 来创建房间
-            const res = await fetch('https://livekit-api.gui.ink/api/rooms', {
+            const res = await fetch('https://livekit-api.2k2.cc/api/rooms', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name: newRoomName }),

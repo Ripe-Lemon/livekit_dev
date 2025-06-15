@@ -52,7 +52,7 @@ function LiveKitRoom() {
                 }
 
                 // 6. 使用从 URL 获取的参数来请求 token
-                const resp = await fetch(`https://livekit-api.gui.ink/api/token?room=${roomName}&username=${participantName}`);
+                const resp = await fetch(`https://livekit-api.2k2.cc/api/token?room=${roomName}&username=${participantName}`);
                 const data = await resp.json();
 
                 if (!mounted) return;

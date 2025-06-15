@@ -3,13 +3,13 @@
 /* 默认使用暗色系变量 */
 :root {
   --background: #0a0a0a;  /* 背景色 (深色) */
-  --foreground: #ededed;  /* 前景色 (亮色) */
+  --foreground: #000000;  /* 前景色 (亮色) */
 }
 
 /* 当用户的系统设置为浅色主题时，应用以下变量 */
 @media (prefers-color-scheme: light) {
   :root {
-    --background: #ffffff;  /* 背景色 (亮色) */
+    --background: #000000;  /* 背景色 (亮色) */
     --foreground: #171717;  /* 前景色 (深色) */
   }
 }

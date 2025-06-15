@@ -258,6 +258,11 @@ function RoomPageContent() {
     // 创建或加入房间
     const createOrJoinRoom = useCallback(async (): Promise<string> => {
         try {
+            // 检查参数是否存在
+            if (!roomName || !username) {
+                throw new Error('房间名称和用户名不能为空');
+            }
+            
             // 直接在 URL 中拼接 room 和 identity 参数
             // 使用 encodeURIComponent 来确保特殊字符（如房间名中含有的空格）被正确编码
             const url = `https://livekit-api.2k2.cc/api/room?room=${encodeURIComponent(roomName)}&identity=${encodeURIComponent(username)}`;

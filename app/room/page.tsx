@@ -274,9 +274,6 @@ function LiveKitRoom() {
                             }}
                         />
                         <div className="h-6 w-px bg-gray-600"></div>
-
-                            <Chat />
-
                         <AudioProcessingControls
                             isNoiseSuppressionEnabled={isNoiseSuppressionEnabled}
                             onToggleNoiseSuppression={handleToggleNoiseSuppression}

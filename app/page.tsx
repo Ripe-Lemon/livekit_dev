@@ -39,7 +39,7 @@ export default function Lobby() {
             return;
         }
         // 跳转到对应的房间页面
-        router.push(`https://livekit-api.2k2.cc/room?roomName=${roomName}&participantName=${participantName}`);
+        router.push(`/room?roomName=${roomName}&participantName=${participantName}`);
     };
 
     // 处理创建房间的逻辑

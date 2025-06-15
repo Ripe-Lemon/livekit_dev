@@ -218,8 +218,19 @@ function CustomDisconnectButton() {
     return (
         <button
             onClick={handleDisconnect}
-            className="lk-button lk-button-danger"
+            className="lk-button"
+            style={{ 
+                backgroundColor: '#dc2626', 
+                color: 'white',
+                border: '1px solid #dc2626'
+            }}
             title="离开房间"
+            onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#b91c1c';
+            }}
+            onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#dc2626';
+            }}
         >
             <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -255,6 +266,15 @@ function CustomControlBar({
     onToggleEchoCancellation: () => void;
     audioManager: AudioManager;
 }) {
+    // 添加音效状态管理
+    const [isAudioEnabled, setIsAudioEnabled] = useState(audioManager.isAudioEnabled());
+
+    const handleToggleAudio = () => {
+        const newState = !isAudioEnabled;
+        audioManager.setEnabled(newState);
+        setIsAudioEnabled(newState);
+    };
+
     return (
         <div className="flex items-center justify-center gap-4">
             <ControlBar
@@ -287,11 +307,11 @@ function CustomControlBar({
                     回声消除 {isEchoCancellationEnabled ? '开' : '关'}
                 </button>
 
-                {/* 音效控制按钮 */}
+                {/* 音效控制按钮 - 修改图标为音符 */}
                 <button
-                    onClick={() => audioManager.setEnabled(!audioManager.isAudioEnabled())}
-                    className={`lk-button ${audioManager.isAudioEnabled() ? 'lk-button-primary' : ''}`}
-                    title={audioManager.isAudioEnabled() ? '关闭音效' : '开启音效'}
+                    onClick={handleToggleAudio}
+                    className={`lk-button ${isAudioEnabled ? 'lk-button-primary' : ''}`}
+                    title={isAudioEnabled ? '关闭音效' : '开启音效'}
                 >
                     <svg
                         xmlns="http://www.w3.org/2000/svg"
@@ -304,21 +324,25 @@ function CustomControlBar({
                         strokeLinecap="round"
                         strokeLinejoin="round"
                     >
-                        {audioManager.isAudioEnabled() ? (
+                        {isAudioEnabled ? (
+                            // 音符图标（开启状态）
                             <>
-                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-                                <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                                <path d="M9 18V5l12-2v13"/>
+                                <circle cx="6" cy="18" r="3"/>
+                                <circle cx="18" cy="16" r="3"/>
                             </>
                         ) : (
+                            // 划线的音符图标（关闭状态）
                             <>
-                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-                                <line x1="23" y1="9" x2="17" y2="15"></line>
-                                <line x1="17" y1="9" x2="23" y2="15"></line>
+                                <path d="M9 18V5l12-2v13"/>
+                                <circle cx="6" cy="18" r="3"/>
+                                <circle cx="18" cy="16" r="3"/>
+                                <line x1="3" y1="3" x2="21" y2="21"/>
                             </>
                         )}
                     </svg>
                     <span className="lk-button-label">
-                        {audioManager.isAudioEnabled() ? '音效开' : '音效关'}
+                        {isAudioEnabled ? '音效开' : '音效关'}
                     </span>
                 </button>
 
@@ -651,9 +675,9 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
                             </svg>
                         </button>
 
-                        {/* 缩放提示 - 只在调整时显示 */}
+                        {/* 缩放提示 - 只在调整时显示，调整位置避免重叠 */}
                         {showScaleInfo && (
-                            <div className="absolute top-6 left-6 z-10 bg-black/60 text-white px-4 py-2 rounded-lg text-sm transition-opacity backdrop-blur-sm">
+                            <div className="absolute top-20 left-6 z-10 bg-black/60 text-white px-4 py-2 rounded-lg text-sm transition-opacity backdrop-blur-sm">
                                 缩放: {Math.round(scale * 100)}%
                             </div>
                         )}
@@ -670,11 +694,11 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
                             )}
                         </div>
 
-                        {/* 重新显示图片信息的按钮（当信息隐藏时） */}
+                        {/* 重新显示图片信息的按钮 - 修复悬停效果和位置 */}
                         {!showImageInfo && (
                             <button
                                 onClick={handleImageInfoClick}
-                                className="absolute top-6 left-6 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60 transition-colors backdrop-blur-sm"
+                                className="absolute top-6 left-6 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/70 transition-all duration-200 backdrop-blur-sm hover:scale-105"
                                 title="显示图片信息"
                             >
                                 <svg
@@ -688,9 +712,9 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
                                 >
-                                    <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
-                                    <circle cx="9" cy="9" r="2"/>
-                                    <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
+                                    <circle cx="12" cy="12" r="10"/>
+                                    <path d="M12 16v-4"/>
+                                    <path d="M12 8h.01"/>
                                 </svg>
                             </button>
                         )}
@@ -705,11 +729,11 @@ function ImagePreview({ src, onClose }: { src: string; onClose: () => void }) {
                             滚轮缩放 • 拖拽移动 • ESC 或点击背景关闭
                         </div>
 
-                        {/* 重新显示提示的按钮（当提示隐藏时） */}
+                        {/* 重新显示提示的按钮 - 修复悬停效果 */}
                         {!showOperationTips && (
                             <button
                                 onClick={handleTipsClick}
-                                className="absolute bottom-6 right-6 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/60 transition-colors backdrop-blur-sm"
+                                className="absolute bottom-6 right-6 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/40 text-white hover:bg-black/70 transition-all duration-200 backdrop-blur-sm hover:scale-105"
                                 title="显示操作提示"
                             >
                                 <svg

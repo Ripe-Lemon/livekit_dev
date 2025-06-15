@@ -779,52 +779,7 @@ function RoomPageContent() {
     // 主要房间界面
     return (
         <div className={`min-h-screen bg-gray-900 flex flex-col ${uiState.isFullscreen ? 'fixed inset-0 z-50' : ''}`}>
-            {/* 房间标题栏 */}
-            {!uiState.isFullscreen && (
-                <header className="bg-gray-800 border-b border-gray-700 px-4 py-3 flex-shrink-0">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => router.push('/')}
-                                className="text-gray-400 hover:text-white"
-                                icon={
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                                    </svg>
-                                }
-                            >
-                                返回
-                            </Button>
-                            <div>
-                                <h1 className="text-xl font-semibold text-white">{roomName}</h1>
-                                <p className="text-sm text-gray-400">用户: {username}</p>
-                            </div>
-                        </div>
-                        
-                        <div className="flex items-center space-x-4">
-                            {/* 连接状态指示器 */}
-                            <ConnectionStatus compact={true} />
-                            
-                            {/* 快捷操作按钮 */}
-                            <div className="flex items-center space-x-2">
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={toggleFullscreen}
-                                    title="全屏模式"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                                    </svg>
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
-                </header>
-            )}
-
+            
             {/* 主要内容区域 */}
             <div className="flex-1 flex overflow-hidden">
                 <div className="flex-1 relative">

@@ -9,7 +9,7 @@ import {
     useTracks,
     RoomContext,
     useRoomContext,
-    Chat, // 导入 Chat 组件
+    Chat, LayoutContextProvider, // 导入 Chat 组件
 } from '@livekit/components-react';
 import {
     Room,
@@ -77,9 +77,6 @@ function RoomHeader() {
 function LiveKitRoom() {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    // =======================================================================
-    //     ↓↓↓ 修改点: 新增 state 用于控制聊天面板的显示/隐藏 ↓↓↓
-    // =======================================================================
     const [showChat, setShowChat] = useState(false);
 
     const [room] = useState(() => new Room({
@@ -93,9 +90,7 @@ function LiveKitRoom() {
     const searchParams = useSearchParams();
 
     const publishAudioTrack = useCallback(async (noiseSuppression: boolean, echoCancellation: boolean) => {
-        // 中文注释: 获取已有的麦克风轨道
         const existingTrackPublication = room.localParticipant.getTrackPublication(Track.Source.Microphone);
-        // 中文注释: 如果存在，先停止并取消发布
         if (existingTrackPublication && existingTrackPublication.track) {
             existingTrackPublication.track.stop();
             await room.localParticipant.unpublishTrack(existingTrackPublication.track);
@@ -103,14 +98,12 @@ function LiveKitRoom() {
 
         console.log(`正在创建音轨, 降噪: ${noiseSuppression}, 回声消除: ${echoCancellation}`);
         try {
-            // 中文注释: 根据新的设置创建本地音频轨道
             const audioTrack = await createLocalAudioTrack({
                 channelCount: 2,
                 echoCancellation: echoCancellation,
                 noiseSuppression: noiseSuppression,
             });
 
-            // 中文注释: 发布新的音频轨道
             await room.localParticipant.publishTrack(audioTrack, {
                 audioPreset: AudioPresets.musicHighQualityStereo,
                 dtx: false,
@@ -174,7 +167,7 @@ function LiveKitRoom() {
             room.disconnect();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []); // 依赖项已简化，避免不必要的重连
+    }, []);
 
     const handleToggleNoiseSuppression = async () => {
         const newValue = !isNoiseSuppressionEnabled;
@@ -206,57 +199,53 @@ function LiveKitRoom() {
 
     return (
         <RoomContext.Provider value={room}>
-            {/* ===============================================================
-                  ↓↓↓ 修改点: 使用 flex 布局实现 左侧聊天 + 右侧视频 的结构 ↓↓↓
-              ===============================================================
-            */}
-            <div data-lk-theme="default" className="flex h-screen flex-col bg-gray-900">
-                <RoomHeader />
-                <div className="flex flex-1 overflow-hidden">
-                    {/* 左侧聊天面板 */}
-                    <div
-                        className={`
-                            flex flex-col transition-all duration-300
-                            ${showChat ? 'w-full max-w-sm' : 'w-0'}
-                        `}
-                    >
-                        {showChat && <Chat className="flex-1" />}
+            {/* 2. 在 RoomContext 内部，用 LayoutContextProvider 包裹所有 UI 组件 */}
+            <LayoutContextProvider>
+                <div data-lk-theme="default" className="flex h-screen flex-col bg-gray-900">
+                    <RoomHeader />
+                    <div className="flex flex-1 overflow-hidden">
+                        {/* 左侧聊天面板 */}
+                        <div
+                            className={`
+                                flex flex-col transition-all duration-300
+                                ${showChat ? 'w-full max-w-sm' : 'w-0'}
+                            `}
+                        >
+                            {/* Chat 组件现在可以安全地访问 LayoutContext */}
+                            {showChat && <Chat className="flex-1" />}
+                        </div>
+
+                        {/* 右侧主视频区域 */}
+                        <div className="flex-1 flex flex-col">
+                            {/* MyVideoConference (及其中的 GridLayout) 也能访问 LayoutContext */}
+                            <MyVideoConference />
+                            <RoomAudioRenderer />
+                        </div>
                     </div>
 
-                    {/* 右侧主视频区域 */}
-                    <div className="flex-1 flex flex-col">
-                        <MyVideoConference />
-                        <RoomAudioRenderer />
+                    {/* 统一的底部控制栏 */}
+                    <div className="flex items-center justify-center gap-4 p-4 bg-gray-900/80 backdrop-blur-sm">
+                        {/* ControlBar 现在也可以正确地切换聊天面板 */}
+                        <ControlBar
+                            variation="minimal"
+                            controls={{
+                                microphone: true,
+                                camera: true,
+                                chat: true,
+                                screenShare: true,
+                            }}
+                            onChatToggle={() => setShowChat(!showChat)}
+                        />
+                        <div className="h-6 w-px bg-gray-600"></div>
+                        <AudioProcessingControls
+                            isNoiseSuppressionEnabled={isNoiseSuppressionEnabled}
+                            onToggleNoiseSuppression={handleToggleNoiseSuppression}
+                            isEchoCancellationEnabled={isEchoCancellationEnabled}
+                            onToggleEchoCancellation={handleToggleEchoCancellation}
+                        />
                     </div>
                 </div>
-
-                {/* ========================================================================================
-                      ↓↓↓ 修改点: 统一的底部控制栏，集成了标准控件和自定义音频控件, 并移除了 Disconnect 按钮 ↓↓↓
-                  ========================================================================================
-                */}
-                <div className="flex items-center justify-center gap-4 p-4 bg-gray-900/80 backdrop-blur-sm">
-                    {/* 标准 ControlBar, 用于控制麦克风、摄像头、屏幕共享和聊天 */}
-                    <ControlBar
-                        variation="minimal"
-                        controls={{
-                            microphone: true,
-                            camera: true,
-                            chat: true,
-                            screenShare: true,
-                        }}
-                        onToggle={() => setShowChat(!showChat)}
-                    />
-                    {/* 分隔符 */}
-                    <div className="h-6 w-px bg-gray-600"></div>
-                    {/* 自定义音频控件 */}
-                    <AudioProcessingControls
-                        isNoiseSuppressionEnabled={isNoiseSuppressionEnabled}
-                        onToggleNoiseSuppression={handleToggleNoiseSuppression}
-                        isEchoCancellationEnabled={isEchoCancellationEnabled}
-                        onToggleEchoCancellation={handleToggleEchoCancellation}
-                    />
-                </div>
-            </div>
+            </LayoutContextProvider>
         </RoomContext.Provider>
     );
 }

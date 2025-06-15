@@ -68,7 +68,7 @@ export default function Lobby() {
     return (
         <div className="flex min-h-screen flex-col items-center justify-center text-gray-800 p-4">
             <div className="w-full max-w-2xl rounded-lg text-gray-800 p-8 shadow-md">
-                <h1 className="mb-6 text-center text-3xl font-bold text-gray-800">LiveKit 房间大厅</h1>
+                <h1 className="mb-6 text-center text-3xl font-bold border-gray-300">LiveKit 房间大厅</h1>
 
                 {/* 公共的用户信息输入区 */}
                 <div className="mb-8">
@@ -88,7 +88,7 @@ export default function Lobby() {
 
                 {/* 创建新房间区域 */}
                 <div className="mb-8">
-                    <h2 className="mb-4 text-2xl font-semibold text-gray-700">创建新房间</h2>
+                    <h2 className="mb-4 text-2xl font-semibold border-gray-300">创建新房间</h2>
                     <form onSubmit={handleCreateRoom} className="flex gap-4">
                         <input
                             type="text"
@@ -109,7 +109,7 @@ export default function Lobby() {
 
                 {/* 现有房间列表 */}
                 <div>
-                    <h2 className="mb-4 text-2xl font-semibold text-gray-700">选择一个房间加入</h2>
+                    <h2 className="mb-4 text-2xl font-semibold border-gray-300">选择一个房间加入</h2>
                     {isLoading ? (
                         <p>正在加载房间列表...</p>
                     ) : error ? (
@@ -122,8 +122,8 @@ export default function Lobby() {
                                     className="flex items-center justify-between rounded-md bg-gray-700 p-4"
                                 >
                                     <div>
-                                        <p className="text-xl font-medium text-gray-900">{room.name}</p>
-                                        <p className="text-sm text-gray-500">
+                                        <p className="text-xl font-medium border-gray-300">{room.name}</p>
+                                        <p className="text-sm border-gray-300">
                                             {room.numParticipants} 人在线
                                         </p>
                                     </div>

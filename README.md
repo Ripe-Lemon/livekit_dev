@@ -40,3 +40,6 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 - 状态栏
 - 不听🙉
 - 音量平衡
+
+## 备忘录
+- useParticipantTracks 获取单个特定参与者的轨道

@@ -37,6 +37,7 @@ interface UseChatReturn {
     clearMessages: () => void;
     retryMessage: (messageId: string) => Promise<void>;
     deleteMessage: (messageId: string) => void;
+    markAsRead: () => void;
 }
 
 export function useChat(options: UseChatOptions = {}): UseChatReturn {
@@ -56,6 +57,14 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         isImageDragging: false
     });
 
+    // 添加标记已读功能
+    const markAsRead = useCallback(() => {
+        setChatState(prev => ({
+            ...prev,
+            unreadCount: 0
+        }));
+    }, []);
+    
     // Refs
     const imageChunkManagerRef = useRef<ImageChunkManager | null>(null);
     const pendingMessagesRef = useRef<Map<string, DisplayMessage>>(new Map());
@@ -365,6 +374,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         clearUnreadCount,
         clearMessages,
         retryMessage,
-        deleteMessage
+        deleteMessage,
+        markAsRead
     };
 }

@@ -15,6 +15,7 @@ interface FloatingChatProps {
     onClearMessages: () => void;
     onRetryMessage: (messageId: string) => void;
     onDeleteMessage: (messageId: string) => void;
+    onMarkAsRead?: () => void;
     className?: string;
 }
 
@@ -27,6 +28,7 @@ export default function FloatingChat({
     onClearMessages,
     onRetryMessage,
     onDeleteMessage,
+    onMarkAsRead,
     className = ''
 }: FloatingChatProps) {
     const [isVisible, setIsVisible] = useState(false);
@@ -34,6 +36,30 @@ export default function FloatingChat({
 
     // 确保在 LiveKit Room 内部使用这些 hooks
     const room = useRoomContext();
+
+    // 在组件显示时自动标记为已读
+    useEffect(() => {
+        if (onMarkAsRead) {
+            onMarkAsRead();
+        }
+    }, [onMarkAsRead]);
+
+    // 当消息列表滚动到底部时也标记为已读
+    useEffect(() => {
+        if (messagesEndRef.current && onMarkAsRead) {
+            const observer = new IntersectionObserver(
+                ([entry]) => {
+                    if (entry.isIntersecting) {
+                        onMarkAsRead();
+                    }
+                },
+                { threshold: 1.0 }
+            );
+
+            observer.observe(messagesEndRef.current);
+            return () => observer.disconnect();
+        }
+    }, [onMarkAsRead]);
 
     // 挂载动画
     useEffect(() => {
@@ -83,7 +109,13 @@ export default function FloatingChat({
     }
 
     return (
-        <div className={`fixed top-0 right-0 h-full w-80 z-40 ${className}`}>
+        <div className={`
+            h-full bg-gray-900/95 backdrop-blur-sm shadow-2xl 
+            border-l border-gray-700 lg:border-l md:border-l sm:border-none
+            flex flex-col transition-transform duration-300 ease-in-out
+            ${isVisible ? 'transform translate-x-0' : 'transform translate-x-full'}
+            ${className}
+        `}>
             <div 
                 className={`
                     h-full bg-gray-900/95 backdrop-blur-sm shadow-2xl border-l border-gray-700 

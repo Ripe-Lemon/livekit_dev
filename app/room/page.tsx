@@ -116,7 +116,8 @@ function RoomInnerContent({
         sendImageMessage, 
         clearMessages, 
         retryMessage, 
-        deleteMessage 
+        deleteMessage,
+        markAsRead
     } = useChat({
         maxMessages: 100,
         enableSounds: true,
@@ -214,14 +215,26 @@ function RoomInnerContent({
 
     return (
         <div className="relative w-full h-full flex">
-            {/* 左侧边栏 */}
-            <div className={`transition-all duration-300 ${uiState.sidebarCollapsed ? 'w-0' : 'w-80'} flex-shrink-0`}>
+            {/* 左侧边栏 - 移动端改为抽屉式 */}
+            <div className={`
+                transition-all duration-300 
+                ${uiState.sidebarCollapsed ? 'w-0' : 'w-80 lg:w-80 md:w-64 sm:w-full'} 
+                flex-shrink-0
+                ${!uiState.sidebarCollapsed ? 'absolute lg:relative z-20 h-full' : ''}
+            `}>
                 {!uiState.sidebarCollapsed && (
-                    <Sidebar
-                        currentRoomName={roomName}
-                        onRoomSwitch={switchRoom}
-                        className="h-full"
-                    />
+                    <>
+                        {/* 移动端遮罩层 */}
+                        <div 
+                            className="fixed inset-0 bg-black/50 lg:hidden z-10"
+                            onClick={() => toggleUIPanel('sidebarCollapsed')}
+                        />
+                        <Sidebar
+                            currentRoomName={roomName}
+                            onRoomSwitch={switchRoom}
+                            className="h-full relative z-20"
+                        />
+                    </>
                 )}
             </div>
 
@@ -229,33 +242,48 @@ function RoomInnerContent({
             <div className="relative bg-black w-full h-full">
                 <CustomVideoGrid />
                 
-                {/* 自定义控制栏 - 包含聊天按钮 */}
+                {/* 自定义控制栏 - 移动端优化 */}
                 <CustomControlBar
                     onToggleChat={() => toggleUIPanel('showChat')}
-                    onToggleParticipants={() => toggleUIPanel('showParticipants')}
+                    onToggleParticipants={() => toggleUIPanel('sidebarCollapsed')}
                     onToggleSettings={() => toggleUIPanel('showSettings')}
                     onToggleFullscreen={toggleFullscreen}
                     onLeaveRoom={leaveRoom}
                     isFullscreen={uiState.isFullscreen}
                     chatUnreadCount={chatState.unreadCount}
                     showChat={uiState.showChat}
+                    className="bottom-4 left-1/2 transform -translate-x-1/2" // 移动端居中
                 />
             </div>
 
-            {/* 参与者面板 */}
+            {/* 参与者面板 - 移动端全屏 */}
             {uiState.showParticipants && (
-                <div className="absolute top-0 left-0 h-full w-80 bg-gray-800 border-r border-gray-700 z-10">
+                <div className={`
+                    absolute top-0 left-0 h-full z-30
+                    w-80 lg:w-80 md:w-64 sm:w-full
+                    bg-gray-800 border-r border-gray-700
+                `}>
+                    {/* 移动端背景遮罩 */}
+                    <div 
+                        className="fixed inset-0 bg-black/50 lg:hidden z-10"
+                        onClick={() => toggleUIPanel('showParticipants')}
+                    />
                     <ParticipantList
                         onClose={() => toggleUIPanel('showParticipants')}
-                        className="h-full"
+                        className="h-full relative z-20"
                     />
                 </div>
             )}
 
             {/* 设置面板 */}
             {uiState.showSettings && (
-                <div className="absolute top-0 right-0 h-full w-80 bg-gray-800 border-l border-gray-700 z-10">
-                    <div className="p-4 h-full overflow-y-auto">
+                <div className={`absolute top-0 right-0 h-full z-30 w-80 lg:w-80 md:w-64 sm:w-full bg-gray-800 border-l border-gray-700`}>
+                    {/* 移动端背景遮罩 */}
+                    <div 
+                        className="fixed inset-0 bg-black/50 lg:hidden z-10"
+                        onClick={() => toggleUIPanel('showSettings')}
+                    />
+                    <div className="p-4 h-full overflow-y-auto relative z-20">
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="text-lg font-semibold text-white">设置</h3>
                             <Button
@@ -358,18 +386,30 @@ function RoomInnerContent({
                 </div>
             )}
 
-            {/* 悬浮聊天窗口 - 只在显示时渲染 */}
+            {/* 悬浮聊天窗口 - 移动端全屏 */}
             {uiState.showChat && (
-                <FloatingChat 
-                    setPreviewImage={(src) => src && openPreview(src)}
-                    onClose={() => toggleUIPanel('showChat')}
-                    chatState={chatState}
-                    onSendMessage={sendTextMessage}
-                    onSendImage={sendImageMessage}
-                    onClearMessages={clearMessages}
-                    onRetryMessage={retryMessage}
-                    onDeleteMessage={deleteMessage}
-                />
+                <div className={`
+                    fixed top-0 right-0 h-full z-40
+                    w-80 lg:w-80 md:w-64 sm:w-full
+                `}>
+                    {/* 移动端背景遮罩 */}
+                    <div 
+                        className="fixed inset-0 bg-black/50 lg:hidden z-10"
+                        onClick={() => toggleUIPanel('showChat')}
+                    />
+                    <FloatingChat 
+                        setPreviewImage={(src) => src && openPreview(src)}
+                        onClose={() => toggleUIPanel('showChat')}
+                        chatState={chatState}
+                        onSendMessage={sendTextMessage}
+                        onSendImage={sendImageMessage}
+                        onClearMessages={clearMessages}
+                        onRetryMessage={retryMessage}
+                        onDeleteMessage={deleteMessage}
+                        onMarkAsRead={markAsRead}
+                        className="relative z-20"
+                    />
+                </div>
             )}
 
             {/* 图片预览 */}

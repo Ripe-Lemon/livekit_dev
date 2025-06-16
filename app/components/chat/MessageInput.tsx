@@ -53,10 +53,10 @@ export function MessageInput({
             return;
         }
 
-        // 验证文件大小 (5MB)
-        const maxSize = 5 * 1024 * 1024;
+        // 验证文件大小 (10MB)
+        const maxSize = 10 * 1024 * 1024;
         if (file.size > maxSize) {
-            console.error('图片文件大小不能超过 5MB');
+            console.error('图片文件大小不能超过 10MB');
             return;
         }
 
@@ -149,7 +149,7 @@ export function MessageInput({
     }, [message, adjustTextareaHeight]);
 
     return (
-        <div className={`flex items-end space-x-2 ${className}`}>
+        <div className={`flex items-end space-x-2 p-2 lg:p-0 ${className}`}>
             {/* 隐藏的文件输入 */}
             <input
                 ref={fileInputRef}
@@ -167,7 +167,7 @@ export function MessageInput({
                 onClick={triggerFileSelect}
                 disabled={disabled || isUploading}
                 title="发送图片"
-                className="flex-shrink-0 h-10 w-10 p-0 flex items-center justify-center"
+                className="flex-shrink-0 h-10 w-10 lg:h-10 lg:w-10 sm:h-12 sm:w-12 p-0 flex items-center justify-center"
             >
                 {isUploading ? (
                     <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -204,6 +204,7 @@ export function MessageInput({
                         focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
                         disabled:opacity-50 disabled:cursor-not-allowed
                         min-h-[40px] max-h-[120px] overflow-y-auto
+                        text-base lg:text-sm
                         ${dragOver ? 'border-blue-500 bg-blue-900/20' : ''}
                     `}
                 />
@@ -228,7 +229,7 @@ export function MessageInput({
                 onClick={handleSendMessage}
                 disabled={!message.trim() || disabled}
                 title="发送消息 (Enter)"
-                className="flex-shrink-0 h-10 px-4 flex items-center justify-center"
+                className="flex-shrink-0 h-10 px-4 lg:h-10 lg:px-4 sm:h-12 sm:px-6 flex items-center justify-center"
             >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />

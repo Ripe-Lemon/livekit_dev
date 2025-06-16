@@ -74,7 +74,7 @@ export default function HomePage() {
     const loadPublicRooms = useCallback(async () => {
         setIsLoadingRooms(true);
         try {
-            const response = await fetch('/api/rooms');
+            const response = await fetch('https://livekit-api.2k2.cc/api/rooms');
             if (response.ok) {
                 const rooms = await response.json();
                 setPublicRooms(rooms.map((room: any) => ({

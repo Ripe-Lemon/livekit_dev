@@ -52,7 +52,7 @@ export default function HomePage() {
             const savedParticipantName = localStorage.getItem('participantName');
             if (savedParticipantName) {
                 setFormData(prev => ({ 
-                    ...prev, 
+                    ...prev,
                     participantName: savedParticipantName 
                 }));
             }
@@ -70,17 +70,30 @@ export default function HomePage() {
         }
     }, []);
 
-    // 加载公开房间列表
+// 加载公开房间列表
     const loadPublicRooms = useCallback(async () => {
         setIsLoadingRooms(true);
         try {
             const response = await fetch('https://livekit-api.2k2.cc/api/rooms');
             if (response.ok) {
-                const rooms = await response.json();
-                setPublicRooms(rooms.map((room: any) => ({
-                    ...room,
-                    createdAt: new Date(room.createdAt)
-                })));
+                // 1. 将API返回的JSON解析成一个对象
+                const responseData = await response.json();
+
+                // responseData 的值是: {"rooms": [...]}
+
+                // 2. 从对象中获取 "rooms" 属性，它才是一个数组
+                const roomList = responseData.rooms;
+
+                // 3. (推荐) 检查 roomList 是不是一个真正的数组，保证代码健壮性
+                if (Array.isArray(roomList)) {
+                    setPublicRooms(roomList.map((room: any) => ({
+                        ...room,
+                        createdAt: new Date(room.createdAt) // 假设 room 对象里有 createdAt
+                    })));
+                } else {
+                    console.error('API响应中 "rooms" 属性不是一个数组:', responseData);
+                    setPublicRooms([]); // 设置为空数组防止UI错误
+                }
             }
         } catch (error) {
             console.error('加载房间列表失败:', error);
@@ -88,7 +101,6 @@ export default function HomePage() {
             setIsLoadingRooms(false);
         }
     }, []);
-
     // 初始加载公开房间
     useEffect(() => {
         loadPublicRooms();

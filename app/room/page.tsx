@@ -476,7 +476,7 @@ function RoomPageContent() {
 
     // 启用全局错误音效
     useErrorAudio(true);
-    
+
     // 手动确保音频初始化
     useEffect(() => {
         const ensureAudioInit = async () => {
@@ -1009,7 +1009,7 @@ function RoomPageContent() {
 
 const audioManager = AudioManager.getInstance();
 
-export function useErrorAudio(enabled: boolean = true) {
+function useErrorAudio(enabled: boolean = true) {
     useEffect(() => {
         if (!enabled) return;
 

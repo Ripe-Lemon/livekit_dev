@@ -4,7 +4,7 @@ import { SoundConfig, AudioProcessingOptions, AudioEffects, AudioQualitySettings
 export const SOUND_PATHS = {
     'user-join': '/sounds/user-join.mp3',
     'user-leave': '/sounds/user-leave.mp3',
-    'message-notification': '/sounds/message.mp3',
+    'message-notification': '/sounds/message-notification.mp3',
     'error': '/sounds/error.mp3',
     'call-start': '/sounds/call-start.mp3',
     'call-end': '/sounds/call-end.mp3',

@@ -193,10 +193,12 @@ export function useAudioManager(options: UseAudioManagerOptions = {}): UseAudioM
         options: { volume?: number; delay?: number } = {}
     ) => {
         if (!isInitialized || !audioManagerRef.current) {
+            console.warn('音频管理器未初始化');
             return;
         }
 
         try {
+            console.log(`尝试播放音效: ${sound}`);
             audioManagerRef.current.playSound(sound, options);
         } catch (error) {
             console.error(`播放音效失败: ${sound}`, error);

@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { SoundEvent } from '../types/audio';
 
+export type { SoundEvent } from '../types/audio';
+
 // 简化的音频管理器，不依赖 LiveKit Room Context
 class SimpleAudioManager {
     private static instance: SimpleAudioManager;

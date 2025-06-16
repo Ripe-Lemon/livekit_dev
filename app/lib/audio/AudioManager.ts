@@ -1,33 +1,34 @@
 import { SoundEvent } from '../../types/audio';
+import { 
+    SOUND_PATHS, 
+    DEFAULT_SOUND_CONFIG,
+    AUDIO_STATES,
+    AUDIO_ERROR_CODES,
+    AUDIO_MONITORING
+} from '../../constants/audio';
 
-// 音效配置接口
+// 音效配置接口（从constants导入的类型）
 interface SoundConfig {
-    url: string;
+    enabled: boolean;
     volume: number;
-    preload: boolean;
-    loop: boolean;
-    description: string;
+    url?: string;
+    loop?: boolean;
+    fadeIn?: number;
+    fadeOut?: number;
+    delay?: number;
 }
 
 // 音频管理器配置
 interface AudioManagerConfig {
-    globalVolume: number;        // 全局音量 (0-1)
-    enabled: boolean;           // 是否启用音效
-    preloadAll: boolean;        // 是否预加载所有音效
-    maxRetries: number;         // 加载失败最大重试次数
-    retryDelay: number;         // 重试延迟（毫秒）
-    fadeInDuration: number;     // 淡入时间（毫秒）
-    fadeOutDuration: number;    // 淡出时间（毫秒）
+    globalVolume: number;
+    enabled: boolean;
+    preloadAll: boolean;
+    maxRetries: number;
+    retryDelay: number;
 }
 
-// 音效状态枚举
-enum SoundState {
-    UNLOADED = 'unloaded',
-    LOADING = 'loading',
-    LOADED = 'loaded',
-    ERROR = 'error',
-    PLAYING = 'playing'
-}
+// 音效状态枚举 - 使用constants中的状态
+type SoundState = typeof AUDIO_STATES[keyof typeof AUDIO_STATES];
 
 // 音效实例接口
 interface SoundInstance {
@@ -46,122 +47,6 @@ export class AudioManager {
     private masterGainNode: GainNode | null = null;
     private initialized: boolean = false;
 
-    // 默认音效配置
-    private readonly defaultSounds: Record<SoundEvent, SoundConfig> = {
-        'user-join': {
-            url: '/sounds/user-join.mp3',
-            volume: 0.6,
-            preload: true,
-            loop: false,
-            description: '用户加入房间'
-        },
-        'user-leave': {
-            url: '/sounds/user-leave.mp3',
-            volume: 0.6,
-            preload: true,
-            loop: false,
-            description: '用户离开房间'
-        },
-        'message-notification': {
-            url: '/sounds/message-notification.mp3',
-            volume: 0.5,
-            preload: true,
-            loop: false,
-            description: '新消息通知'
-        },
-        'error': {
-            url: '/sounds/error.mp3',
-            volume: 0.7,
-            preload: true,
-            loop: false,
-            description: '错误提示'
-        },
-        'call-start': {
-            url: '/sounds/call-start.mp3',
-            volume: 0.6,
-            preload: true,
-            loop: false,
-            description: '通话开始'
-        },
-        'call-end': {
-            url: '/sounds/call-end.mp3',
-            volume: 0.6,
-            preload: true,
-            loop: false,
-            description: '通话结束'
-        },
-        'recording-start': {
-            url: '/sounds/recording-start.mp3',
-            volume: 0.5,
-            preload: true,
-            loop: false,
-            description: '开始录制'
-        },
-        'recording-stop': {
-            url: '/sounds/recording-stop.mp3',
-            volume: 0.5,
-            preload: true,
-            loop: false,
-            description: '停止录制'
-        },
-        'mute': {
-            url: '/sounds/mute.mp3',
-            volume: 0.4,
-            preload: true,
-            loop: false,
-            description: '静音'
-        },
-        'unmute': {
-            url: '/sounds/unmute.mp3',
-            volume: 0.4,
-            preload: true,
-            loop: false,
-            description: '取消静音'
-        },
-        'screen-share-start': {
-            url: '/sounds/screen-share-start.mp3',
-            volume: 0.5,
-            preload: true,
-            loop: false,
-            description: '开始屏幕共享'
-        },
-        'screen-share-stop': {
-            url: '/sounds/screen-share-stop.mp3',
-            volume: 0.5,
-            preload: true,
-            loop: false,
-            description: '停止屏幕共享'
-        },
-        'camera-on': {
-            url: '/sounds/camera-on.mp3',
-            volume: 0.5,
-            preload: true,
-            loop: false,
-            description: '开启摄像头'
-        },
-        'camera-off': {
-            url: '/sounds/camera-off.mp3',
-            volume: 0.5,
-            preload: true,
-            loop: false,
-            description: '关闭摄像头'
-        },
-        'connection-lost': {
-            url: '/sounds/connection-lost.mp3',
-            volume: 0.7,
-            preload: true,
-            loop: false,
-            description: '连接丢失'
-        },
-        'connection-restored': {
-            url: '/sounds/connection-restored.mp3',
-            volume: 0.6,
-            preload: true,
-            loop: false,
-            description: '连接恢复'
-        }
-    };
-
     private constructor(config: Partial<AudioManagerConfig> = {}) {
         this.config = {
             globalVolume: 0.7,
@@ -169,8 +54,6 @@ export class AudioManager {
             preloadAll: true,
             maxRetries: 3,
             retryDelay: 1000,
-            fadeInDuration: 100,
-            fadeOutDuration: 200,
             ...config
         };
 
@@ -213,15 +96,13 @@ export class AudioManager {
 
         } catch (error) {
             console.error('音效管理器初始化失败:', error);
-            // 即使初始化失败，也标记为已初始化，使用降级方案
-            this.initialized = true;
+            this.initialized = true; // 即使失败也标记为已初始化
         }
     }
 
     // 初始化 Web Audio API
     private async initializeAudioContext(): Promise<void> {
         try {
-            // 检查浏览器支持
             const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
             if (!AudioContextClass) {
                 console.warn('浏览器不支持 Web Audio API，使用 HTML5 Audio');
@@ -233,7 +114,6 @@ export class AudioManager {
             this.masterGainNode.connect(this.audioContext.destination);
             this.masterGainNode.gain.value = this.config.globalVolume;
 
-            // 处理 autoplay 策略
             if (this.audioContext.state === 'suspended') {
                 console.log('AudioContext 被暂停，等待用户交互');
             }
@@ -245,10 +125,7 @@ export class AudioManager {
 
     // 设置事件监听器
     private setupEventListeners(): void {
-        // 监听页面可见性变化
         document.addEventListener('visibilitychange', this.handleVisibilityChange);
-
-        // 监听用户交互以恢复 AudioContext
         document.addEventListener('click', this.handleUserInteraction, { once: true });
         document.addEventListener('keydown', this.handleUserInteraction, { once: true });
         document.addEventListener('touchstart', this.handleUserInteraction, { once: true });
@@ -257,10 +134,8 @@ export class AudioManager {
     // 处理页面可见性变化
     private handleVisibilityChange(): void {
         if (document.hidden) {
-            // 页面隐藏时暂停音频上下文
             this.audioContext?.suspend();
         } else {
-            // 页面显示时恢复音频上下文
             this.audioContext?.resume();
         }
     }
@@ -276,14 +151,18 @@ export class AudioManager {
 
     // 预加载所有音效
     private async preloadAllSounds(): Promise<void> {
-        const loadPromises = Object.entries(this.defaultSounds).map(([name, config]) => {
-            if (config.preload) {
+        const loadPromises = Object.entries(DEFAULT_SOUND_CONFIG).map(([name, config]) => {
+            if (config.enabled) {
                 return this.preloadSound(name as SoundEvent, config);
             }
             return Promise.resolve();
         });
 
-        await Promise.allSettled(loadPromises);
+        const results = await Promise.allSettled(loadPromises);
+        const failedCount = results.filter(result => result.status === 'rejected').length;
+        const successCount = results.length - failedCount;
+        
+        console.log(`音效预加载完成: ${successCount}/${results.length} 个文件成功加载`);
     }
 
     // 预加载单个音效
@@ -293,7 +172,7 @@ export class AudioManager {
             const soundInstance: SoundInstance = {
                 audio,
                 config,
-                state: SoundState.LOADING,
+                state: AUDIO_STATES.INITIALIZING,
                 retryCount: 0
             };
 
@@ -302,25 +181,25 @@ export class AudioManager {
             // 设置音频属性
             audio.preload = 'auto';
             audio.volume = config.volume * this.config.globalVolume;
-            audio.loop = config.loop;
+            audio.loop = config.loop ?? false;
 
             // 监听加载事件
             const handleCanPlayThrough = () => {
-                soundInstance.state = SoundState.LOADED;
-                console.log(`音效加载成功: ${name} (${config.description})`);
+                soundInstance.state = AUDIO_STATES.ACTIVE;
+                console.log(`✅ 音效加载成功: ${name}`);
                 cleanup();
                 resolve();
             };
 
             const handleError = () => {
-                console.warn(`音效加载失败: ${name}`, audio.error);
-                soundInstance.state = SoundState.ERROR;
+                console.warn(`❌ 音效加载失败: ${name}`, audio.error);
+                soundInstance.state = AUDIO_STATES.ERROR;
                 soundInstance.lastError = audio.error?.message || '未知错误';
                 
                 // 尝试重试
                 if (soundInstance.retryCount < this.config.maxRetries) {
                     soundInstance.retryCount++;
-                    console.log(`重试加载音效: ${name} (${soundInstance.retryCount}/${this.config.maxRetries})`);
+                    console.log(`🔄 重试加载音效: ${name} (${soundInstance.retryCount}/${this.config.maxRetries})`);
                     
                     setTimeout(() => {
                         audio.load();
@@ -339,8 +218,8 @@ export class AudioManager {
             audio.addEventListener('canplaythrough', handleCanPlayThrough);
             audio.addEventListener('error', handleError);
 
-            // 开始加载
-            audio.src = config.url;
+            // 开始加载 - 使用 constants 中的路径
+            audio.src = SOUND_PATHS[name] || config.url;
             audio.load();
         });
     }
@@ -348,6 +227,7 @@ export class AudioManager {
     // 播放音效
     playSound(name: SoundEvent, options: { volume?: number; delay?: number } = {}): void {
         if (!this.config.enabled || !this.initialized) {
+            console.log('音效已禁用或未初始化');
             return;
         }
 
@@ -360,25 +240,24 @@ export class AudioManager {
                 return;
             }
 
-            if (soundInstance.state === SoundState.ERROR) {
-                // 如果之前加载失败，使用程序化音效
-                this.createProgrammaticSound(name);
+            if (soundInstance.state === AUDIO_STATES.ERROR) {
+                console.warn(`音效 ${name} 处于错误状态，跳过播放`);
                 return;
             }
 
-            if (soundInstance.state !== SoundState.LOADED) {
+            if (soundInstance.state !== AUDIO_STATES.ACTIVE) {
                 console.warn(`音效 ${name} 尚未加载完成，状态: ${soundInstance.state}`);
                 return;
             }
 
             try {
-                const { audio } = soundInstance;
+                const { audio, config } = soundInstance;
                 
                 // 重置播放位置
                 audio.currentTime = 0;
                 
                 // 设置音量
-                const volume = options.volume ?? soundInstance.config.volume;
+                const volume = options.volume ?? config.volume;
                 audio.volume = volume * this.config.globalVolume;
 
                 // 播放音效
@@ -387,25 +266,18 @@ export class AudioManager {
                 if (playPromise !== undefined) {
                     playPromise
                         .then(() => {
-                            soundInstance.state = SoundState.PLAYING;
+                            console.log(`🎵 音效播放成功: ${name}`);
                         })
                         .catch(error => {
-                            console.warn(`播放音效失败: ${name}`, error);
-                            // 尝试程序化音效作为后备
-                            this.createProgrammaticSound(name);
-                        })
-                        .finally(() => {
-                            // 播放结束后重置状态
-                            setTimeout(() => {
-                                if (soundInstance.state === SoundState.PLAYING) {
-                                    soundInstance.state = SoundState.LOADED;
-                                }
-                            }, 1000);
+                            console.warn(`🔇 播放音效失败: ${name}`, error);
+                            
+                            if (error.name === 'NotAllowedError') {
+                                console.log('需要用户交互才能播放音频，请先点击页面上的任意位置');
+                            }
                         });
                 }
             } catch (error) {
                 console.warn(`播放音效出错: ${name}`, error);
-                this.createProgrammaticSound(name);
             }
         };
 
@@ -419,126 +291,23 @@ export class AudioManager {
 
     // 动态加载并播放音效
     private async loadAndPlaySound(name: SoundEvent): Promise<void> {
-        const config = this.defaultSounds[name];
+        const config = DEFAULT_SOUND_CONFIG[name];
         if (!config) {
             console.warn(`未知音效: ${name}`);
             return;
         }
 
         try {
+            console.log(`动态加载音效: ${name}`);
             await this.preloadSound(name, config);
-            this.playSound(name);
+            
+            // 短暂延迟后播放，确保加载完成
+            setTimeout(() => {
+                this.playSound(name);
+            }, 100);
         } catch (error) {
             console.error(`动态加载音效失败: ${name}`, error);
-            this.createProgrammaticSound(name);
         }
-    }
-
-    // 创建程序化音效（后备方案）
-    private createProgrammaticSound(name: SoundEvent): void {
-        if (!this.audioContext || !this.masterGainNode) {
-            return;
-        }
-
-        try {
-            const oscillator = this.audioContext.createOscillator();
-            const gainNode = this.audioContext.createGain();
-            
-            oscillator.connect(gainNode);
-            gainNode.connect(this.masterGainNode);
-
-            // 根据音效类型设置不同的音调
-            switch (name) {
-                case 'user-join':
-                    this.createJoinSound(oscillator, gainNode);
-                    break;
-                case 'user-leave':
-                    this.createLeaveSound(oscillator, gainNode);
-                    break;
-                case 'message-notification':
-                    this.createNotificationSound(oscillator, gainNode);
-                    break;
-                case 'error':
-                    this.createErrorSound(oscillator, gainNode);
-                    break;
-                default:
-                    this.createDefaultSound(oscillator, gainNode);
-            }
-
-        } catch (error) {
-            console.warn('创建程序化音效失败:', error);
-        }
-    }
-
-    // 创建加入音效
-    private createJoinSound(oscillator: OscillatorNode, gainNode: GainNode): void {
-        const now = this.audioContext!.currentTime;
-        
-        oscillator.frequency.setValueAtTime(523, now); // C5
-        oscillator.frequency.setValueAtTime(659, now + 0.1); // E5
-        oscillator.frequency.setValueAtTime(784, now + 0.2); // G5
-        
-        gainNode.gain.setValueAtTime(0.3, now);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
-        
-        oscillator.start(now);
-        oscillator.stop(now + 0.4);
-    }
-
-    // 创建离开音效
-    private createLeaveSound(oscillator: OscillatorNode, gainNode: GainNode): void {
-        const now = this.audioContext!.currentTime;
-        
-        oscillator.frequency.setValueAtTime(784, now); // G5
-        oscillator.frequency.setValueAtTime(659, now + 0.1); // E5
-        oscillator.frequency.setValueAtTime(523, now + 0.2); // C5
-        
-        gainNode.gain.setValueAtTime(0.3, now);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
-        
-        oscillator.start(now);
-        oscillator.stop(now + 0.4);
-    }
-
-    // 创建通知音效
-    private createNotificationSound(oscillator: OscillatorNode, gainNode: GainNode): void {
-        const now = this.audioContext!.currentTime;
-        
-        oscillator.frequency.setValueAtTime(800, now);
-        oscillator.frequency.setValueAtTime(600, now + 0.1);
-        
-        gainNode.gain.setValueAtTime(0.3, now);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
-        
-        oscillator.start(now);
-        oscillator.stop(now + 0.3);
-    }
-
-    // 创建错误音效
-    private createErrorSound(oscillator: OscillatorNode, gainNode: GainNode): void {
-        const now = this.audioContext!.currentTime;
-        
-        oscillator.frequency.setValueAtTime(200, now);
-        oscillator.frequency.setValueAtTime(150, now + 0.15);
-        
-        gainNode.gain.setValueAtTime(0.4, now);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
-        
-        oscillator.start(now);
-        oscillator.stop(now + 0.4);
-    }
-
-    // 创建默认音效
-    private createDefaultSound(oscillator: OscillatorNode, gainNode: GainNode): void {
-        const now = this.audioContext!.currentTime;
-        
-        oscillator.frequency.setValueAtTime(440, now); // A4
-        
-        gainNode.gain.setValueAtTime(0.3, now);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
-        
-        oscillator.start(now);
-        oscillator.stop(now + 0.2);
     }
 
     // 设置全局音量
@@ -563,7 +332,6 @@ export class AudioManager {
         this.config.enabled = enabled;
         
         if (!enabled) {
-            // 停止所有正在播放的音效
             this.stopAllSounds();
         }
         
@@ -581,7 +349,6 @@ export class AudioManager {
             if (!soundInstance.audio.paused) {
                 soundInstance.audio.pause();
                 soundInstance.audio.currentTime = 0;
-                soundInstance.state = SoundState.LOADED;
             }
         });
     }
@@ -593,28 +360,88 @@ export class AudioManager {
     }
 
     // 获取所有音效状态
-    getAllSoundStates(): Record<SoundEvent, SoundState | null> {
+    getAllSoundStates(): Record<string, SoundState | null> {
         const states: Record<string, SoundState | null> = {};
         
-        Object.keys(this.defaultSounds).forEach(name => {
+        Object.keys(DEFAULT_SOUND_CONFIG).forEach(name => {
             states[name] = this.getSoundState(name as SoundEvent);
         });
         
-        return states as Record<SoundEvent, SoundState | null>;
+        return states;
     }
 
     // 重新加载音效
     async reloadSound(name: SoundEvent): Promise<void> {
-        const config = this.defaultSounds[name];
+        const config = DEFAULT_SOUND_CONFIG[name];
         if (!config) {
             throw new Error(`未知音效: ${name}`);
         }
 
         // 移除旧的音效实例
-        this.sounds.delete(name);
+        const oldInstance = this.sounds.get(name);
+        if (oldInstance) {
+            oldInstance.audio.pause();
+            this.sounds.delete(name);
+        }
         
         // 重新加载
         await this.preloadSound(name, config);
+    }
+
+    // 测试音效文件是否存在
+    async testSound(name: SoundEvent): Promise<boolean> {
+        try {
+            const soundPath = SOUND_PATHS[name];
+            if (!soundPath) {
+                console.error(`❌ 未配置音效路径: ${name}`);
+                return false;
+            }
+
+            const response = await fetch(soundPath);
+            
+            if (!response.ok) {
+                console.error(`❌ 音频文件不存在: ${name} -> ${soundPath} (HTTP ${response.status})`);
+                return false;
+            }
+            
+            console.log(`✅ 音频文件存在: ${name} -> ${soundPath}`);
+            return true;
+        } catch (error) {
+            console.error(`❌ 测试音频文件失败: ${name}`, error);
+            return false;
+        }
+    }
+
+    // 测试所有音频文件
+    async testAllSounds(): Promise<void> {
+        console.log('🔍 开始测试所有音频文件...');
+        
+        const testPromises = Object.keys(SOUND_PATHS).map(async (soundName) => {
+            const result = await this.testSound(soundName as SoundEvent);
+            return { soundName, result };
+        });
+        
+        const results = await Promise.all(testPromises);
+        
+        const successCount = results.filter(({ result }) => result).length;
+        const totalCount = results.length;
+        
+        console.log(`📊 音频文件测试完成: ${successCount}/${totalCount} 个文件可用`);
+        
+        // 显示失败的文件
+        const failedSounds = results.filter(({ result }) => !result);
+        if (failedSounds.length > 0) {
+            console.warn('❌ 以下音频文件无法加载:');
+            failedSounds.forEach(({ soundName }) => {
+                console.warn(`  - ${soundName}: ${SOUND_PATHS[soundName as SoundEvent]}`);
+            });
+        }
+    }
+
+    // 播放测试音效
+    testPlaySound(name: SoundEvent): void {
+        console.log(`🎵 测试播放音效: ${name}`);
+        this.playSound(name, { volume: 0.5 });
     }
 
     // 销毁音频管理器
@@ -645,17 +472,38 @@ export class AudioManager {
         loadedSounds: number;
         totalSounds: number;
         audioContextState: string;
+        soundStates: Record<string, SoundState | null>;
     } {
         const loadedCount = Array.from(this.sounds.values())
-            .filter(instance => instance.state === SoundState.LOADED).length;
+            .filter(instance => instance.state === AUDIO_STATES.ACTIVE).length;
         
         return {
             initialized: this.initialized,
             enabled: this.config.enabled,
             globalVolume: this.config.globalVolume,
             loadedSounds: loadedCount,
-            totalSounds: Object.keys(this.defaultSounds).length,
-            audioContextState: this.audioContext?.state || 'not-initialized'
+            totalSounds: Object.keys(DEFAULT_SOUND_CONFIG).length,
+            audioContextState: this.audioContext?.state || 'not-initialized',
+            soundStates: this.getAllSoundStates()
+        };
+    }
+
+    // 获取详细的调试信息
+    getDebugInfo(): any {
+        return {
+            config: this.config,
+            audioContextState: this.audioContext?.state,
+            masterGainValue: this.masterGainNode?.gain.value,
+            soundInstances: Array.from(this.sounds.entries()).map(([name, instance]) => ({
+                name,
+                state: instance.state,
+                retryCount: instance.retryCount,
+                lastError: instance.lastError,
+                audioSrc: instance.audio.src,
+                audioDuration: instance.audio.duration,
+                audioReadyState: instance.audio.readyState
+            })),
+            availablePaths: SOUND_PATHS
         };
     }
 }

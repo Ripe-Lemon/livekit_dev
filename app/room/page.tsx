@@ -30,7 +30,7 @@ import { Sidebar } from '../components/room/Sidebar';
 
 // Hooks
 import { useImagePreview } from '../hooks/useImagePreview';
-import { useAudioManager } from '../hooks/useAudioManager';
+import { useAudioManager, SoundEvent } from '../hooks/useAudioManager';
 import { useChat } from '../hooks/useChat';
 
 // Types
@@ -168,6 +168,18 @@ function RoomInnerContent({
         const timer = setTimeout(setupDefaultDeviceStates, 1000);
         return () => clearTimeout(timer);
     }, [room]);
+
+    useEffect(() => {
+        if (process.env.NODE_ENV === 'development') {
+            // 添加全局测试函数
+            (window as any).audioDebug = {
+                playSound: (name: string) => playSound(name as SoundEvent)
+            };
+            
+            console.log('🎵 音频调试功能已启用:');
+            console.log('  audioDebug.playSound("user-join") - 播放音效');
+        }
+    }, [playSound]);
 
     useEffect(() => {
         if (!room) return;

@@ -73,12 +73,16 @@ export class AudioManager {
     // 初始化音频管理器
     async initialize(): Promise<void> {
         if (this.initialized) {
-            console.log('音效管理器已初始化');
+            console.log('AudioManager 已初始化');
             return;
         }
 
         try {
-            console.log('正在初始化音效管理器...');
+            console.log('🎵 正在初始化 AudioManager...');
+
+            // 检查音频文件路径配置
+            console.log('📁 音频文件配置:', SOUND_PATHS);
+            console.log('⚙️ 默认音效配置:', DEFAULT_SOUND_CONFIG);
 
             // 初始化 Web Audio API
             await this.initializeAudioContext();
@@ -86,41 +90,78 @@ export class AudioManager {
             // 设置事件监听器
             this.setupEventListeners();
 
-            // 预加载音效
+            // 预加载音效（即使失败也不阻塞初始化）
             if (this.config.preloadAll) {
-                await this.preloadAllSounds();
+                try {
+                    await this.preloadAllSounds();
+                } catch (preloadError) {
+                    console.warn('音效预加载失败，但初始化继续:', preloadError);
+                }
             }
 
             this.initialized = true;
-            console.log('音效管理器初始化完成');
+            console.log('✅ AudioManager 初始化完成');
 
         } catch (error) {
-            console.error('音效管理器初始化失败:', error);
-            this.initialized = true; // 即使失败也标记为已初始化
+            console.error('❌ AudioManager 初始化失败:', error);
+            // 即使初始化失败，也标记为已初始化，避免无限重试
+            this.initialized = true;
+            throw error;
         }
     }
 
     // 初始化 Web Audio API
     private async initializeAudioContext(): Promise<void> {
         try {
-            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-            if (!AudioContextClass) {
-                console.warn('浏览器不支持 Web Audio API，使用 HTML5 Audio');
-                return;
-            }
-
-            this.audioContext = new AudioContextClass();
+            this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
             this.masterGainNode = this.audioContext.createGain();
             this.masterGainNode.connect(this.audioContext.destination);
             this.masterGainNode.gain.value = this.config.globalVolume;
-
-            if (this.audioContext.state === 'suspended') {
-                console.log('AudioContext 被暂停，等待用户交互');
-            }
-
+            
+            console.log('🎵 Web Audio API 初始化成功');
         } catch (error) {
-            console.warn('Web Audio API 初始化失败，使用降级方案:', error);
+            console.warn('Web Audio API 初始化失败，将使用基础音频功能:', error);
         }
+    }
+
+    private async preloadAllSounds(): Promise<void> {
+        console.log('🔄 开始预加载音效文件...');
+        
+        const soundEntries = Object.entries(DEFAULT_SOUND_CONFIG);
+        console.log(`📦 需要加载 ${soundEntries.length} 个音效文件`);
+
+        const loadPromises = soundEntries.map(async ([name, config]) => {
+            if (config.enabled) {
+                try {
+                    await this.preloadSound(name as SoundEvent, config);
+                    return { name, success: true };
+                } catch (error) {
+                    console.warn(`预加载音效失败: ${name}`, error);
+                    return { name, success: false, error };
+                }
+            }
+            return { name, success: false, reason: 'disabled' };
+        });
+
+        const results = await Promise.allSettled(loadPromises);
+        
+        let successCount = 0;
+        let failedCount = 0;
+        
+        results.forEach((result, index) => {
+            if (result.status === 'fulfilled') {
+                if (result.value.success) {
+                    successCount++;
+                } else {
+                    failedCount++;
+                }
+            } else {
+                failedCount++;
+                console.warn(`音效加载 Promise 失败:`, result.reason);
+            }
+        });
+        
+        console.log(`📊 音效预加载完成: ${successCount} 成功, ${failedCount} 失败`);
     }
 
     // 设置事件监听器
@@ -147,22 +188,6 @@ export class AudioManager {
                 console.log('AudioContext 已恢复');
             });
         }
-    }
-
-    // 预加载所有音效
-    private async preloadAllSounds(): Promise<void> {
-        const loadPromises = Object.entries(DEFAULT_SOUND_CONFIG).map(([name, config]) => {
-            if (config.enabled) {
-                return this.preloadSound(name as SoundEvent, config);
-            }
-            return Promise.resolve();
-        });
-
-        const results = await Promise.allSettled(loadPromises);
-        const failedCount = results.filter(result => result.status === 'rejected').length;
-        const successCount = results.length - failedCount;
-        
-        console.log(`音效预加载完成: ${successCount}/${results.length} 个文件成功加载`);
     }
 
     // 预加载单个音效
@@ -506,4 +531,66 @@ export class AudioManager {
             availablePaths: SOUND_PATHS
         };
     }
+}
+
+export async function checkAudioPermissions(): Promise<boolean> {
+    try {
+        // 检查是否需要用户交互
+        const audio = new Audio();
+        audio.volume = 0.1;
+        
+        const playPromise = audio.play();
+        if (playPromise !== undefined) {
+            await playPromise;
+            audio.pause();
+            console.log('✅ 音频权限正常');
+            return true;
+        }
+        
+        return true;
+    } catch (error) {
+        if (error instanceof Error && error.name === 'NotAllowedError') {
+            console.warn('❌ 需要用户交互才能播放音频');
+            return false;
+        }
+        console.warn('音频权限检测失败:', error);
+        return false;
+    }
+}
+
+export function requestAudioInteraction(): Promise<boolean> {
+    return new Promise((resolve) => {
+        const button = document.createElement('button');
+        button.textContent = '点击启用音效';
+        button.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10000;
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        `;
+        
+        button.onclick = async () => {
+            try {
+                const audio = new Audio('/sounds/user-join.mp3');
+                audio.volume = 0.1;
+                await audio.play();
+                audio.pause();
+                
+                button.remove();
+                resolve(true);
+            } catch (error) {
+                console.error('用户交互后仍无法播放音频:', error);
+                button.remove();
+                resolve(false);
+            }
+        };
+        
+        document.body.appendChild(button);
+    });
 }

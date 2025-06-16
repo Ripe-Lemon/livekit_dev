@@ -61,45 +61,67 @@ export function useAudioManager(options: UseAudioManagerOptions = {}): UseAudioM
 
     // 初始化音频管理器
     const initialize = useCallback(async () => {
-        if (isInitialized) return;
+    if (isInitialized) {
+        console.log('音频管理器已经初始化，跳过');
+        return;
+    }
 
-        try {
-            console.log('开始初始化音频管理器...');
-            const manager = getAudioManager();
-            await manager.initialize();
-            
-            if (isMountedRef.current) {
-                setIsInitialized(true);
-                setIsEnabled(manager.isAudioEnabled());
-                setStats(manager.getStats());
-                
-                console.log('✅ 音频管理器初始化成功');
-            }
-        } catch (error) {
-            console.error('❌ 音频管理器初始化失败:', error);
-            if (isMountedRef.current) {
-                setIsInitialized(false);
-            }
+    try {
+        console.log('🎵 开始初始化音频管理器...');
+        const manager = getAudioManager();
+        
+        // 检查浏览器支持
+        if (!window.AudioContext && !(window as any).webkitAudioContext) {
+            console.warn('浏览器不支持 Web Audio API');
         }
-    }, [isInitialized, getAudioManager]);
 
-    // 播放音效
-    const playSound = useCallback((
-        sound: SoundEvent, 
-        options: { volume?: number; delay?: number } = {}
-    ) => {
-        if (!isInitialized || !audioManagerRef.current) {
-            console.warn('音频管理器未初始化，无法播放音效:', sound);
+        await manager.initialize();
+        
+        if (isMountedRef.current) {
+            setIsInitialized(true);
+            setIsEnabled(manager.isAudioEnabled());
+            setStats(manager.getStats());
+            
+            console.log('✅ 音频管理器初始化成功');
+            console.log('📊 音频统计:', manager.getStats());
+        }
+    } catch (error) {
+        console.error('❌ 音频管理器初始化失败:', error);
+        if (isMountedRef.current) {
+            setIsInitialized(false);
+        }
+        throw error; // 重新抛出错误以便上层处理
+    }
+}, [isInitialized, getAudioManager]);
+
+// 播放音效（支持自动初始化）
+const playSound = useCallback(async (
+    sound: SoundEvent, 
+    options: { volume?: number; delay?: number } = {}
+) => {
+    // 如果未初始化，尝试自动初始化
+    if (!isInitialized) {
+        console.log('音频管理器未初始化，尝试自动初始化...');
+        try {
+            await initialize();
+        } catch (error) {
+            console.error('自动初始化失败:', error);
             return;
         }
+    }
 
-        try {
-            console.log(`🎵 播放音效: ${sound}`, options);
-            audioManagerRef.current.playSound(sound, options);
-        } catch (error) {
-            console.error(`播放音效失败: ${sound}`, error);
-        }
-    }, [isInitialized]);
+    if (!audioManagerRef.current) {
+        console.warn('音频管理器实例不存在');
+        return;
+    }
+
+    try {
+        console.log(`🎵 播放音效: ${sound}`, options);
+        audioManagerRef.current.playSound(sound, options);
+    } catch (error) {
+        console.error(`播放音效失败: ${sound}`, error);
+    }
+}, [isInitialized, initialize]);
 
     // 设置音频启用状态
     const setEnabled = useCallback((enabled: boolean) => {

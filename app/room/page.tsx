@@ -31,6 +31,7 @@ import { Sidebar } from '../components/room/Sidebar';
 // Hooks
 import { useImagePreview } from '../hooks/useImagePreview';
 import { useAudioManager, useAudioTesting, SoundEvent } from '../hooks/useAudioManager';
+import { useAudioNotifications } from '../hooks/useAudioNotifications';
 import { useChat } from '../hooks/useChat';
 
 // Types
@@ -109,6 +110,13 @@ function RoomInnerContent({
     const room = useRoomContext();
     const participants = useParticipants();
     
+    // 添加音频通知 Hook
+    useAudioNotifications(room, {
+        enableUserJoinLeave: true,
+        enableMessageNotification: true,
+        messageVolume: 0.5
+    });
+
     // 在 LiveKit Room 内部使用聊天 Hook
     const { 
         chatState, 
@@ -120,7 +128,7 @@ function RoomInnerContent({
         markAsRead
     } = useChat({
         maxMessages: 100,
-        enableSounds: true,
+        enableSounds: false, // 关闭 useChat 内置音效，使用 useAudioNotifications
         autoScrollToBottom: true
     });
 
@@ -449,7 +457,8 @@ function RoomPageContent() {
         playSound, 
         isInitialized: audioInitialized,
         getDebugInfo,
-        testAllSounds 
+        testAllSounds,
+        initialize: initializeAudio
     } = useAudioManager({
         autoInitialize: true,
         globalVolume: 0.7,
@@ -458,6 +467,49 @@ function RoomPageContent() {
 
     // 开发环境下的音频测试
     const { runFullTest } = useAudioTesting();
+
+    // 手动确保音频初始化
+    useEffect(() => {
+        const ensureAudioInit = async () => {
+            if (!audioInitialized) {
+                try {
+                    console.log('手动初始化音频管理器...');
+                    await initializeAudio();
+                } catch (error) {
+                    console.error('手动初始化音频失败:', error);
+                }
+            }
+        };
+
+        // 延迟一点执行，确保页面完全加载
+        const timer = setTimeout(ensureAudioInit, 1000);
+        return () => clearTimeout(timer);
+    }, [audioInitialized, initializeAudio]);
+
+    // 用户交互时尝试初始化音频（现代浏览器需要用户交互）
+    useEffect(() => {
+        const handleUserInteraction = async () => {
+            if (!audioInitialized) {
+                try {
+                    console.log('用户交互触发音频初始化...');
+                    await initializeAudio();
+                } catch (error) {
+                    console.error('用户交互音频初始化失败:', error);
+                }
+            }
+        };
+
+        // 监听用户交互事件
+        document.addEventListener('click', handleUserInteraction, { once: true });
+        document.addEventListener('keydown', handleUserInteraction, { once: true });
+        document.addEventListener('touchstart', handleUserInteraction, { once: true });
+
+        return () => {
+            document.removeEventListener('click', handleUserInteraction);
+            document.removeEventListener('keydown', handleUserInteraction);
+            document.removeEventListener('touchstart', handleUserInteraction);
+        };
+    }, [audioInitialized, initializeAudio]);
 
     // 状态管理 - 修复UIState初始化
     const [roomState, setRoomState] = useState<RoomState>({
@@ -609,23 +661,35 @@ function RoomPageContent() {
     // 添加调试功能
     useEffect(() => {
         if (process.env.NODE_ENV === 'development') {
-            // 添加全局测试函数
             (window as any).audioDebug = {
                 testAll: testAllSounds,
-                playTest: (name: string) => playSound(name as SoundEvent, { volume: 0.5 }),
+                playTest: (name: string) => {
+                    console.log(`尝试播放音效: ${name}, 初始化状态: ${audioInitialized}`);
+                    if (audioInitialized) {
+                        playSound(name as SoundEvent, { volume: 0.5 });
+                    } else {
+                        console.warn('音频管理器未初始化，尝试手动初始化...');
+                        initializeAudio().then(() => {
+                            console.log('初始化完成，重试播放音效...');
+                            playSound(name as SoundEvent, { volume: 0.5 });
+                        }).catch(error => {
+                            console.error('初始化失败:', error);
+                        });
+                    }
+                },
                 getDebug: getDebugInfo,
-                runFullTest: runFullTest,
-                initialized: audioInitialized
+                initialized: audioInitialized,
+                forceInit: initializeAudio
             };
             
             console.log('🎵 音频调试功能已启用:');
             console.log('  audioDebug.testAll() - 测试所有音频文件');
             console.log('  audioDebug.playTest("user-join") - 播放测试');
             console.log('  audioDebug.getDebug() - 获取调试信息');
-            console.log('  audioDebug.runFullTest() - 运行完整测试');
             console.log('  audioDebug.initialized - 查看初始化状态');
+            console.log('  audioDebug.forceInit() - 强制初始化');
         }
-    }, [testAllSounds, playSound, getDebugInfo, runFullTest, audioInitialized]);
+    }, [testAllSounds, playSound, getDebugInfo, audioInitialized, initializeAudio]);
 
     // 添加通知
     const addNotification = useCallback((notification: Omit<Notification, 'id' | 'timestamp'>) => {

@@ -1,11 +1,11 @@
-name: 'publish'
+# .github/workflows/release.yml
+
+name: 'Publish Release'
 
 on:
   push:
     branches:
-      - dev-tauri
-
-# This workflow will trigger on each push to the `release` branch to create or update a GitHub release, build your app, and upload the artifacts to the release.
+      - dev-tauri # 当代码推送到 dev-tauri 分支时触发
 
 jobs:
   publish-tauri:
@@ -15,11 +15,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: 'macos-latest' # for Arm based macs (M1 and above).
+          - platform: 'macos-latest'
             args: '--target aarch64-apple-darwin'
-          - platform: 'macos-latest' # for Intel based macs.
+          - platform: 'macos-latest'
             args: '--target x86_64-apple-darwin'
-          - platform: 'ubuntu-22.04' # for Tauri v1 you could replace this with ubuntu-20.04.
+          - platform: 'ubuntu-22.04'
             args: ''
           - platform: 'windows-latest'
             args: ''
@@ -31,32 +31,34 @@ jobs:
       - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: '20.15.0' # 使用 Node.js 的长期支持版本
 
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          # Those targets are only used on macos runners so it's in an `if` to slightly speed up windows and linux builds.
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: install dependencies (ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04' # This must match the platform value defined above.
+        if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.0-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-        # webkitgtk 4.0 is for Tauri v1 - webkitgtk 4.1 is for Tauri v2.
-        # You can remove the one that doesn't apply to your app to speed up the workflow a bit.
+        # 注意: webkitgtk 4.0 用于 Tauri v1, 4.1 用于 Tauri v2。你可以删除不需要的版本。
 
       - name: install frontend dependencies
-        run: yarn install # change this to npm, pnpm or bun depending on which one you use.
+        # 核心改动：将 yarn 改为 npm
+        run: npm install
 
-      - uses: tauri-apps/tauri-action@v0
+      # 核心改动：更新 tauri-action 版本并简化
+      # 这个 Action 会自动处理打包，它会调用你 tauri.conf.json 中定义的 beforeBuildCommand
+      # 从你的日志看，beforeBuildCommand 是 "npm run build"，这正是我们想要的
+      - uses: tauri-apps/tauri-action@v0.5 # 推荐使用更新的版本
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: app-v__VERSION__ # the action automatically replaces \_\_VERSION\_\_ with the app version.
-          releaseName: 'App v__VERSION__'
-          releaseBody: 'See the assets to download this version and install.'
+          tagName: app-v__VERSION__
+          releaseName: 'Livekit v__0.0.1'
+          releaseBody: 'Hello World!'
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

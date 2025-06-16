@@ -1,8 +1,6 @@
-// 用 CustomControlBar 的内容替换当前的 ControlBar
-
 'use client';
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
     useLocalParticipant, 
@@ -24,47 +22,128 @@ interface ControlBarProps {
     className?: string;
 }
 
-// 控制按钮组件（从 CustomControlBar 移过来）
+// 设备选择下拉菜单组件
+function DeviceDropdown({ 
+    devices, 
+    currentDeviceId, 
+    onDeviceChange, 
+    isOpen, 
+    onToggle,
+    type 
+}: {
+    devices: MediaDeviceInfo[];
+    currentDeviceId?: string;
+    onDeviceChange: (deviceId: string) => void;
+    isOpen: boolean;
+    onToggle: () => void;
+    type: 'microphone' | 'camera';
+}) {
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                onToggle();
+            }
+        };
+
+        if (isOpen) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [isOpen, onToggle]);
+
+    return (
+        <div className="relative" ref={dropdownRef}>
+            <button
+                onClick={onToggle}
+                className="flex items-center justify-center w-4 h-4 text-white/70 hover:text-white transition-colors"
+                title={`选择${type === 'microphone' ? '麦克风' : '摄像头'}设备`}
+            >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="6,9 12,15 18,9" />
+                </svg>
+            </button>
+            
+            {isOpen && (
+                <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-800 border border-gray-600 rounded-lg shadow-lg min-w-48 z-50">
+                    <div className="py-1">
+                        {devices.map((device) => (
+                            <button
+                                key={device.deviceId}
+                                onClick={() => {
+                                    onDeviceChange(device.deviceId);
+                                    onToggle();
+                                }}
+                                className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-700 transition-colors ${
+                                    currentDeviceId === device.deviceId 
+                                        ? 'bg-blue-600 text-white' 
+                                        : 'text-gray-200'
+                                }`}
+                            >
+                                {device.label || `${type === 'microphone' ? '麦克风' : '摄像头'} ${device.deviceId.substring(0, 8)}`}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+// 控制按钮组件
 function ControlButton({ 
     onClick, 
     isActive, 
     isLoading, 
     icon, 
-    activeIcon, 
     title, 
     activeColor = 'bg-green-600',
-    inactiveColor = 'bg-gray-700'
+    inactiveColor = 'bg-red-600',
+    children,
+    hasDropdown = false
 }: {
     onClick: () => void;
     isActive: boolean;
     isLoading?: boolean;
     icon: React.ReactNode;
-    activeIcon?: React.ReactNode;
     title: string;
     activeColor?: string;
     inactiveColor?: string;
+    children?: React.ReactNode;
+    hasDropdown?: boolean;
 }) {
     return (
-        <button
-            onClick={onClick}
-            disabled={isLoading}
-            className={`
-                flex items-center justify-center w-12 h-12 rounded-full
-                transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed
-                text-white hover:scale-105
-                ${isActive 
-                    ? `${activeColor} hover:opacity-90` 
-                    : `${inactiveColor} hover:bg-gray-600`
-                }
-            `}
-            title={title}
-        >
-            {isLoading ? (
-                <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full" />
-            ) : (
-                isActive && activeIcon ? activeIcon : icon
+        <div className="relative flex items-center">
+            <button
+                onClick={onClick}
+                disabled={isLoading}
+                className={`
+                    flex items-center justify-center w-12 h-10 rounded-lg
+                    transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed
+                    text-white hover:opacity-90
+                    ${isActive 
+                        ? `${activeColor}` 
+                        : `${inactiveColor}`
+                    }
+                `}
+                title={title}
+            >
+                {isLoading ? (
+                    <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full" />
+                ) : (
+                    icon
+                )}
+            </button>
+            {hasDropdown && children && (
+                <div className="ml-1">
+                    {children}
+                </div>
             )}
-        </button>
+        </div>
     );
 }
 
@@ -98,7 +177,7 @@ function LeaveRoomButton({ onLeaveRoom }: { onLeaveRoom?: () => void }) {
         <button
             onClick={handleLeave}
             disabled={isLeaving}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+            className="flex items-center justify-center w-12 h-10 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
             title="离开房间"
         >
             {isLeaving ? (
@@ -106,8 +185,8 @@ function LeaveRoomButton({ onLeaveRoom }: { onLeaveRoom?: () => void }) {
             ) : (
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
-                    width="16"
-                    height="16"
+                    width="20"
+                    height="20"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
@@ -120,7 +199,6 @@ function LeaveRoomButton({ onLeaveRoom }: { onLeaveRoom?: () => void }) {
                     <line x1="21" y1="12" x2="9" y2="12"/>
                 </svg>
             )}
-            <span className="hidden sm:inline">{isLeaving ? '离开中...' : '离开'}</span>
         </button>
     );
 }
@@ -141,13 +219,21 @@ export function ControlBar({
     const room = useRoomContext();
     
     // 状态管理
-    const [isMuted, setIsMuted] = useState(false);
+    const [isMuted, setIsMuted] = useState(true); // 默认静音状态
     const [isCameraOff, setIsCameraOff] = useState(true);
     const [isScreenSharing, setIsScreenSharing] = useState(false);
     const [isTogglingMic, setIsTogglingMic] = useState(false);
     const [isTogglingCamera, setIsTogglingCamera] = useState(false);
     const [isTogglingScreen, setIsTogglingScreen] = useState(false);
     const [isControlsVisible, setIsControlsVisible] = useState(true);
+
+    // 设备相关状态
+    const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
+    const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
+    const [currentAudioDevice, setCurrentAudioDevice] = useState<string>('');
+    const [currentVideoDevice, setCurrentVideoDevice] = useState<string>('');
+    const [showAudioDevices, setShowAudioDevices] = useState(false);
+    const [showVideoDevices, setShowVideoDevices] = useState(false);
 
     // 音效控制
     const {
@@ -163,14 +249,46 @@ export function ControlBar({
         volume: 0.6
     });
 
+    // 获取设备列表
+    const getDevices = useCallback(async () => {
+        try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const audioInputs = devices.filter(device => device.kind === 'audioinput');
+            const videoInputs = devices.filter(device => device.kind === 'videoinput');
+            
+            setAudioDevices(audioInputs);
+            setVideoDevices(videoInputs);
+        } catch (error) {
+            console.error('获取设备列表失败:', error);
+        }
+    }, []);
+
+    // 初始化设备列表
+    useEffect(() => {
+        getDevices();
+        
+        // 监听设备变化
+        navigator.mediaDevices.addEventListener('devicechange', getDevices);
+        
+        return () => {
+            navigator.mediaDevices.removeEventListener('devicechange', getDevices);
+        };
+    }, [getDevices]);
+
     // 同步设备状态
     useEffect(() => {
         if (localParticipant) {
-            setIsMuted(!localParticipant.isMicrophoneEnabled);
-            setIsCameraOff(!localParticipant.isCameraEnabled);
-            setIsScreenSharing(localParticipant.isScreenShareEnabled);
+            const micEnabled = localParticipant.isMicrophoneEnabled;
+            const cameraEnabled = localParticipant.isCameraEnabled;
+            const screenSharing = localParticipant.isScreenShareEnabled;
+            
+            setIsMuted(!micEnabled);
+            setIsCameraOff(!cameraEnabled);
+            setIsScreenSharing(screenSharing);
+            
+            console.log('设备状态同步:', { micEnabled, cameraEnabled, screenSharing });
         }
-    }, [localParticipant]);
+    }, [localParticipant, localParticipant?.isMicrophoneEnabled, localParticipant?.isCameraEnabled, localParticipant?.isScreenShareEnabled]);
 
     // 自动隐藏控制栏（全屏模式）
     useEffect(() => {
@@ -284,11 +402,35 @@ export function ControlBar({
         }
     }, [localParticipant, playScreenShareStartSound, playScreenShareStopSound, playErrorSound, isTogglingScreen]);
 
+    // 切换音频设备
+    const handleAudioDeviceChange = useCallback(async (deviceId: string) => {
+        try {
+            await room.switchActiveDevice('audioinput', deviceId);
+            setCurrentAudioDevice(deviceId);
+            console.log('音频设备已切换:', deviceId);
+        } catch (error) {
+            console.error('切换音频设备失败:', error);
+            playErrorSound();
+        }
+    }, [room, playErrorSound]);
+
+    // 切换视频设备
+    const handleVideoDeviceChange = useCallback(async (deviceId: string) => {
+        try {
+            await room.switchActiveDevice('videoinput', deviceId);
+            setCurrentVideoDevice(deviceId);
+            console.log('视频设备已切换:', deviceId);
+        } catch (error) {
+            console.error('切换视频设备失败:', error);
+            playErrorSound();
+        }
+    }, [room, playErrorSound]);
+
     return (
         <div className={`
             fixed bottom-4 left-1/2 transform -translate-x-1/2
-            flex items-center gap-3 px-4 py-3 
-            bg-gray-800/90 backdrop-blur-sm rounded-full
+            flex items-center gap-2 px-4 py-3 
+            bg-gray-800/90 backdrop-blur-sm rounded-xl
             border border-gray-600/50 shadow-lg
             transition-all duration-300
             ${isFullscreen && !isControlsVisible ? 'opacity-0 pointer-events-none' : 'opacity-100'}
@@ -302,27 +444,39 @@ export function ControlBar({
                 title={isMuted ? '开启麦克风' : '关闭麦克风'}
                 activeColor="bg-green-600"
                 inactiveColor="bg-red-600"
+                hasDropdown={true}
                 icon={
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         {isMuted ? (
-                            <>
-                                <line x1="1" y1="1" x2="23" y2="23"/>
-                                <path d="M9 9v3a3 3 0 0 0 5.12 2.12L19 10v2a7 7 0 0 1-5.14 6.74"/>
-                                <path d="M12 1a3 3 0 0 0-3 3v4"/>
-                                <line x1="12" y1="19" x2="12" y2="23"/>
-                                <line x1="8" y1="23" x2="16" y2="23"/>
-                            </>
+                            <g>
+                                <path d="M3 3l18 18" strokeLinecap="round" strokeLinejoin="round"/>
+                                <path d="M9 9v3a3 3 0 0 0 5.12 2.12" strokeLinecap="round" strokeLinejoin="round"/>
+                                <path d="M12 1a3 3 0 0 0-3 3v3" strokeLinecap="round" strokeLinejoin="round"/>
+                                <path d="M19 10v2a7 7 0 0 1-7 7" strokeLinecap="round" strokeLinejoin="round"/>
+                                <path d="M5 10v2a7 7 0 0 0 7 7" strokeLinecap="round" strokeLinejoin="round"/>
+                                <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round"/>
+                                <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round"/>
+                            </g>
                         ) : (
-                            <>
-                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                                <line x1="12" y1="19" x2="12" y2="23"/>
-                                <line x1="8" y1="23" x2="16" y2="23"/>
-                            </>
+                            <g>
+                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" strokeLinecap="round" strokeLinejoin="round"/>
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2" strokeLinecap="round" strokeLinejoin="round"/>
+                                <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round"/>
+                                <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round"/>
+                            </g>
                         )}
                     </svg>
                 }
-            />
+            >
+                <DeviceDropdown
+                    devices={audioDevices}
+                    currentDeviceId={currentAudioDevice}
+                    onDeviceChange={handleAudioDeviceChange}
+                    isOpen={showAudioDevices}
+                    onToggle={() => setShowAudioDevices(!showAudioDevices)}
+                    type="microphone"
+                />
+            </ControlButton>
 
             {/* 摄像头按钮 */}
             <ControlButton
@@ -332,24 +486,34 @@ export function ControlBar({
                 title={isCameraOff ? '开启摄像头' : '关闭摄像头'}
                 activeColor="bg-green-600"
                 inactiveColor="bg-red-600"
+                hasDropdown={true}
                 icon={
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         {isCameraOff ? (
-                            <>
-                                <line x1="1" y1="1" x2="23" y2="23"/>
-                                <path d="M21 21H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3"/>
-                                <path d="M9 3h6l2 2h2a2 2 0 0 1 2 2v9"/>
-                                <circle cx="12" cy="13" r="3"/>
-                            </>
+                            <g>
+                                <path d="M3 3l18 18" strokeLinecap="round" strokeLinejoin="round"/>
+                                <path d="M7 7H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h16" strokeLinecap="round" strokeLinejoin="round"/>
+                                <path d="M9.5 4h5L17 7h3a2 2 0 0 1 2 2v8" strokeLinecap="round" strokeLinejoin="round"/>
+                                <path d="M14.121 15.121A3 3 0 1 1 8.88 9.88" strokeLinecap="round" strokeLinejoin="round"/>
+                            </g>
                         ) : (
-                            <>
-                                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-                                <circle cx="12" cy="13" r="4"/>
-                            </>
+                            <g>
+                                <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" strokeLinecap="round" strokeLinejoin="round"/>
+                                <circle cx="12" cy="13" r="3" strokeLinecap="round" strokeLinejoin="round"/>
+                            </g>
                         )}
                     </svg>
                 }
-            />
+            >
+                <DeviceDropdown
+                    devices={videoDevices}
+                    currentDeviceId={currentVideoDevice}
+                    onDeviceChange={handleVideoDeviceChange}
+                    isOpen={showVideoDevices}
+                    onToggle={() => setShowVideoDevices(!showVideoDevices)}
+                    type="camera"
+                />
+            </ControlButton>
 
             {/* 屏幕共享按钮 */}
             <ControlButton
@@ -358,25 +522,31 @@ export function ControlBar({
                 isLoading={isTogglingScreen}
                 title={isScreenSharing ? '停止屏幕共享' : '开始屏幕共享'}
                 activeColor="bg-blue-600"
+                inactiveColor="bg-gray-700"
                 icon={
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <rect x="2" y="4" width="20" height="12" rx="2"/>
-                        <circle cx="8" cy="20" r="2"/>
-                        <path d="M12 18l4 2h-8l4-2z"/>
-                        {isScreenSharing && <path d="M7 10l5 5 5-5" strokeWidth="3"/>}
+                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        <line x1="8" y1="21" x2="16" y2="21" strokeLinecap="round"/>
+                        <line x1="12" y1="17" x2="12" y2="21" strokeLinecap="round"/>
+                        {isScreenSharing && (
+                            <g>
+                                <circle cx="12" cy="10" r="3" fill="currentColor"/>
+                                <path d="M8 10l4 4 4-4" strokeWidth="1" fill="none"/>
+                            </g>
+                        )}
                     </svg>
                 }
             />
 
             {/* 分隔线 */}
-            <div className="h-8 w-px bg-gray-600/50" />
+            <div className="h-6 w-px bg-gray-600/50" />
 
-            {/* 其他控制按钮 */}
+            {/* 聊天按钮 */}
             {onToggleChat && (
                 <button
                     onClick={onToggleChat}
                     className={`
-                        relative flex items-center justify-center w-10 h-10 rounded-lg
+                        relative flex items-center justify-center w-12 h-10 rounded-lg
                         transition-all duration-200 text-white
                         ${showChat 
                             ? 'bg-blue-600 hover:bg-blue-700' 
@@ -396,11 +566,11 @@ export function ControlBar({
                 </button>
             )}
 
-            {/* 参与者、设置、全屏按钮等保持原来的样式 */}
+            {/* 参与者按钮 */}
             {onToggleParticipants && (
                 <button
                     onClick={onToggleParticipants}
-                    className="flex items-center justify-center w-10 h-10 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-all duration-200"
+                    className="flex items-center justify-center w-12 h-10 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-all duration-200"
                     title="参与者"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -412,10 +582,11 @@ export function ControlBar({
                 </button>
             )}
 
+            {/* 设置按钮 */}
             {onToggleSettings && (
                 <button
                     onClick={onToggleSettings}
-                    className="flex items-center justify-center w-10 h-10 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-all duration-200"
+                    className="flex items-center justify-center w-12 h-10 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-all duration-200"
                     title="设置"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -425,10 +596,11 @@ export function ControlBar({
                 </button>
             )}
 
+            {/* 全屏按钮 */}
             {onToggleFullscreen && (
                 <button
                     onClick={onToggleFullscreen}
-                    className="flex items-center justify-center w-10 h-10 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-all duration-200"
+                    className="flex items-center justify-center w-12 h-10 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-all duration-200"
                     title={isFullscreen ? '退出全屏' : '进入全屏'}
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -452,7 +624,7 @@ export function ControlBar({
             )}
 
             {/* 分隔线 */}
-            <div className="h-8 w-px bg-gray-600/50" />
+            <div className="h-6 w-px bg-gray-600/50" />
 
             {/* 离开房间按钮 */}
             <LeaveRoomButton onLeaveRoom={onLeaveRoom} />

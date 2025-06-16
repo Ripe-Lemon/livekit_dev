@@ -6,8 +6,9 @@ import {
     useLocalParticipant, 
     useRoomContext
 } from '@livekit/components-react';
-import { Track as LiveKitTrack } from 'livekit-client';
+import { Track as LiveKitTrack, Track } from 'livekit-client';
 import { AudioManager } from '../../lib/audio/AudioManager';
+import { useControlAudio } from '../../hooks/useControlAudio';
 
 interface CustomControlBarProps {
     isNoiseSuppressionEnabled: boolean;
@@ -15,6 +16,15 @@ interface CustomControlBarProps {
     isEchoCancellationEnabled: boolean;
     onToggleEchoCancellation: () => Promise<void>;
     audioManager: AudioManager;
+    onToggleChat?: () => void;
+    onToggleParticipants?: () => void;
+    onToggleSettings?: () => void;
+    onToggleFullscreen?: () => void;
+    onLeaveRoom?: () => void;
+    isFullscreen?: boolean;
+    chatUnreadCount?: number;
+    showChat?: boolean;
+    className?: string;
 }
 
 // 音频处理控件属性类型
@@ -273,63 +283,97 @@ export default function CustomControlBar({
     const [isTogglingCamera, setIsTogglingCamera] = useState(false);
     const [isTogglingScreen, setIsTogglingScreen] = useState(false);
 
+    // 添加控件音效
+    const {
+        playMuteSound,
+        playUnmuteSound,
+        playCameraOnSound,
+        playCameraOffSound,
+        playScreenShareStartSound,
+        playScreenShareStopSound,
+        playErrorSound
+    } = useControlAudio({
+        enabled: true,
+        volume: 0.6
+    });
+
     // 切换麦克风
     const toggleMicrophone = useCallback(async () => {
-        if (isTogglingMic) return;
-        
-        setIsTogglingMic(true);
+        if (!room) return;
+
         try {
-            await localParticipant.setMicrophoneEnabled(!localParticipant.isMicrophoneEnabled);
-            setIsMuted(!localParticipant.isMicrophoneEnabled);
+            const audioTrack = room.localParticipant.getTrackPublication(Track.Source.Microphone);
+            
+            if (audioTrack) {
+                if (audioTrack.isMuted) {
+                    await audioTrack.unmute();
+                    setIsMuted(false);
+                    playUnmuteSound(); // 播放取消静音音效
+                } else {
+                    await audioTrack.mute();
+                    setIsMuted(true);
+                    playMuteSound(); // 播放静音音效
+                }
+            }
         } catch (error) {
             console.error('切换麦克风失败:', error);
-        } finally {
-            setIsTogglingMic(false);
+            playErrorSound(); // 播放错误音效
         }
-    }, [localParticipant, isTogglingMic]);
+    }, [room, playMuteSound, playUnmuteSound, playErrorSound]);
 
     // 切换摄像头
     const toggleCamera = useCallback(async () => {
-        if (isTogglingCamera) return;
-        
-        setIsTogglingCamera(true);
+        if (!room) return;
+
         try {
-            await localParticipant.setCameraEnabled(!localParticipant.isCameraEnabled);
-            setIsCameraOff(!localParticipant.isCameraEnabled);
+            const videoTrack = room.localParticipant.getTrackPublication(Track.Source.Camera);
+            
+            if (videoTrack) {
+                if (videoTrack.isMuted) {
+                    await videoTrack.unmute();
+                    setIsCameraOff(false);
+                    playCameraOnSound(); // 播放摄像头开启音效
+                } else {
+                    await videoTrack.mute();
+                    setIsCameraOff(true);
+                    playCameraOffSound(); // 播放摄像头关闭音效
+                }
+            } else {
+                // 如果没有摄像头轨道，尝试启动摄像头
+                await room.localParticipant.setCameraEnabled(true);
+                setIsCameraOff(false);
+                playCameraOnSound();
+            }
         } catch (error) {
             console.error('切换摄像头失败:', error);
-        } finally {
-            setIsTogglingCamera(false);
+            playErrorSound(); // 播放错误音效
         }
-    }, [localParticipant, isTogglingCamera]);
+    }, [room, playCameraOnSound, playCameraOffSound, playErrorSound]);
 
     // 切换屏幕共享
     const toggleScreenShare = useCallback(async () => {
-        if (isTogglingScreen) return;
-        
-        setIsTogglingScreen(true);
+        if (!room) return;
+
         try {
             if (isScreenSharing) {
-                // 停止屏幕共享
-                const screenTrack = localParticipant.getTrackPublication(LiveKitTrack.Source.ScreenShare);
-                if (screenTrack?.track) {
-                    await localParticipant.unpublishTrack(screenTrack.track);
-                }
+                await room.localParticipant.setScreenShareEnabled(false);
                 setIsScreenSharing(false);
+                playScreenShareStopSound(); // 播放屏幕共享结束音效
             } else {
-                // 开始屏幕共享
-                await localParticipant.setScreenShareEnabled(true);
+                await room.localParticipant.setScreenShareEnabled(true);
                 setIsScreenSharing(true);
+                playScreenShareStartSound(); // 播放屏幕共享开始音效
             }
         } catch (error) {
             console.error('切换屏幕共享失败:', error);
-            // 重置状态
-            const hasScreenTrack = localParticipant.getTrackPublication(LiveKitTrack.Source.ScreenShare);
-            setIsScreenSharing(!!hasScreenTrack);
-        } finally {
-            setIsTogglingScreen(false);
+            playErrorSound(); // 播放错误音效
+            
+            // 如果是权限问题，显示用户友好的错误信息
+            if (error instanceof Error && error.name === 'NotAllowedError') {
+                console.warn('用户拒绝了屏幕共享权限');
+            }
         }
-    }, [localParticipant, isScreenSharing, isTogglingScreen]);
+    }, [room, isScreenSharing, playScreenShareStartSound, playScreenShareStopSound, playErrorSound]);
 
     return (
         <div className="flex flex-wrap items-center justify-center gap-3">

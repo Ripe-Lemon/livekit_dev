@@ -15,6 +15,8 @@ import {
 } from '@livekit/components-react';
 import { Room, DisconnectReason, ConnectionQuality, Track } from 'livekit-client';
 
+import { AudioManager } from '../lib/audio/AudioManager';
+
 // Components
 import { LoadingSpinner, PageLoadingSpinner } from '../components/ui/LoadingSpinner';
 import { ErrorDisplay } from '../components/ui/ErrorDisplay';
@@ -112,9 +114,13 @@ function RoomInnerContent({
     
     // 添加音频通知 Hook
     useAudioNotifications(room, {
-        enableUserJoinLeave: true,
-        enableMessageNotification: true,
-        messageVolume: 0.5
+        enableUserJoinLeave: true,       // 用户加入/离开音效
+        enableMessageNotification: true, // 消息通知音效
+        enableMediaControls: true,       // 媒体控制音效（静音/摄像头）
+        enableScreenShare: true,         // 屏幕共享音效
+        enableConnection: true,          // 连接状态音效
+        messageVolume: 0.6,             // 消息音效音量
+        controlVolume: 0.7              // 控制音效音量
     });
 
     // 在 LiveKit Room 内部使用聊天 Hook
@@ -468,6 +474,9 @@ function RoomPageContent() {
     // 开发环境下的音频测试
     const { runFullTest } = useAudioTesting();
 
+    // 启用全局错误音效
+    useErrorAudio(true);
+    
     // 手动确保音频初始化
     useEffect(() => {
         const ensureAudioInit = async () => {
@@ -996,6 +1005,34 @@ function RoomPageContent() {
             )}
         </div>
     );
+}
+
+const audioManager = AudioManager.getInstance();
+
+export function useErrorAudio(enabled: boolean = true) {
+    useEffect(() => {
+        if (!enabled) return;
+
+        // 监听全局错误
+        const handleError = (event: ErrorEvent) => {
+            console.log('全局错误，播放错误音效');
+            audioManager.playSound('error', { volume: 0.7 });
+        };
+
+        // 监听未处理的 Promise 拒绝
+        const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+            console.log('未处理的 Promise 拒绝，播放错误音效');
+            audioManager.playSound('error', { volume: 0.7 });
+        };
+
+        window.addEventListener('error', handleError);
+        window.addEventListener('unhandledrejection', handleUnhandledRejection);
+
+        return () => {
+            window.removeEventListener('error', handleError);
+            window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+        };
+    }, [enabled]);
 }
 
 // 主组件 - 使用 Suspense 包装

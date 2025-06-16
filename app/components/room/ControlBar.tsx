@@ -7,7 +7,7 @@ import {
 } from '@livekit/components-react';
 import { Button } from '../ui/Button';
 import { Track } from 'livekit-client';
-import { useControlAudio } from '../../hooks/useControlAudio';
+import { useControlAudio } from '../../hooks/useControlAudio'; // 添加这行
 
 interface ControlBarProps {
     onToggleChat: () => void;
@@ -27,12 +27,26 @@ export function ControlBar({
     onToggleSettings,
     onToggleFullscreen,
     onLeaveRoom,
-    isFullscreen,
+    isFullscreen = false,
     chatUnreadCount = 0,
     showChat = false,
     className = ''
 }: ControlBarProps) {
     const [isControlsVisible, setIsControlsVisible] = useState(true);
+
+    // 添加音效控制
+    const {
+        playMuteSound,
+        playUnmuteSound,
+        playCameraOnSound,
+        playCameraOffSound,
+        playScreenShareStartSound,
+        playScreenShareStopSound,
+        playErrorSound
+    } = useControlAudio({
+        enabled: true,
+        volume: 0.6
+    });
 
     // 安全地获取 room context
     let room = null;
@@ -46,6 +60,9 @@ export function ControlBar({
     const [isMicEnabled, setIsMicEnabled] = useState(false);
     const [isCameraEnabled, setIsCameraEnabled] = useState(false);
     const [isScreenShareEnabled, setIsScreenShareEnabled] = useState(false);
+    const [isTogglingMic, setIsTogglingMic] = useState(false);
+    const [isTogglingCamera, setIsTogglingCamera] = useState(false);
+    const [isTogglingScreen, setIsTogglingScreen] = useState(false);
 
     // 更新设备状态
     useEffect(() => {
@@ -79,47 +96,87 @@ export function ControlBar({
         };
     }, [room]);
 
-    // 切换麦克风
+    // 切换麦克风 - 添加音效
     const toggleMicrophone = useCallback(async () => {
-        if (!room?.localParticipant) return;
+        if (!room?.localParticipant || isTogglingMic) return;
         
+        setIsTogglingMic(true);
         try {
             const newState = !isMicEnabled;
             await room.localParticipant.setMicrophoneEnabled(newState);
-            setIsMicEnabled(newState); // 立即更新状态
+            setIsMicEnabled(newState);
+            
+            // 播放对应音效
+            if (newState) {
+                playUnmuteSound();
+            } else {
+                playMuteSound();
+            }
+            
             console.log('麦克风状态切换为:', newState);
         } catch (error) {
             console.error('切换麦克风失败:', error);
+            playErrorSound();
+        } finally {
+            setIsTogglingMic(false);
         }
-    }, [room, isMicEnabled]);
+    }, [room, isMicEnabled, isTogglingMic, playMuteSound, playUnmuteSound, playErrorSound]);
 
-    // 切换摄像头
+    // 切换摄像头 - 添加音效
     const toggleCamera = useCallback(async () => {
-        if (!room?.localParticipant) return;
+        if (!room?.localParticipant || isTogglingCamera) return;
         
+        setIsTogglingCamera(true);
         try {
             const newState = !isCameraEnabled;
             await room.localParticipant.setCameraEnabled(newState);
-            setIsCameraEnabled(newState); // 立即更新状态
+            setIsCameraEnabled(newState);
+            
+            // 播放对应音效
+            if (newState) {
+                playCameraOnSound();
+            } else {
+                playCameraOffSound();
+            }
+            
             console.log('摄像头状态切换为:', newState);
         } catch (error) {
             console.error('切换摄像头失败:', error);
+            playErrorSound();
+        } finally {
+            setIsTogglingCamera(false);
         }
-    }, [room, isCameraEnabled]);
+    }, [room, isCameraEnabled, isTogglingCamera, playCameraOnSound, playCameraOffSound, playErrorSound]);
 
-    // 切换屏幕共享
+    // 切换屏幕共享 - 添加音效
     const toggleScreenShare = useCallback(async () => {
-        if (!room?.localParticipant) return;
+        if (!room?.localParticipant || isTogglingScreen) return;
         
+        setIsTogglingScreen(true);
         try {
             const newState = !isScreenShareEnabled;
             await room.localParticipant.setScreenShareEnabled(newState);
-            setIsScreenShareEnabled(newState); // 立即更新状态
+            setIsScreenShareEnabled(newState);
+            
+            // 播放对应音效
+            if (newState) {
+                playScreenShareStartSound();
+            } else {
+                playScreenShareStopSound();
+            }
+            
             console.log('屏幕共享状态切换为:', newState);
         } catch (error) {
             console.error('切换屏幕共享失败:', error);
+            playErrorSound();
+            
+            if (error instanceof Error && error.name === 'NotAllowedError') {
+                alert('屏幕共享权限被拒绝，请在浏览器中允许屏幕共享权限。');
+            }
+        } finally {
+            setIsTogglingScreen(false);
         }
-    }, [room, isScreenShareEnabled]);
+    }, [room, isScreenShareEnabled, isTogglingScreen, playScreenShareStartSound, playScreenShareStopSound, playErrorSound]);
 
     // 自动隐藏控制栏
     useEffect(() => {
@@ -164,20 +221,24 @@ export function ControlBar({
                         variant={isMicEnabled ? "primary" : "danger"}
                         size="sm"
                         onClick={toggleMicrophone}
-                        disabled={!room}
+                        disabled={!room || isTogglingMic}
                         title={isMicEnabled ? "关闭麦克风" : "开启麦克风"}
                         className="relative"
                     >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            {isMicEnabled ? (
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                            ) : (
-                                <>
+                        {isTogglingMic ? (
+                            <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                        ) : (
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                {isMicEnabled ? (
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5l14 14" />
-                                </>
-                            )}
-                        </svg>
+                                ) : (
+                                    <>
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5l14 14" />
+                                    </>
+                                )}
+                            </svg>
+                        )}
                     </Button>
 
                     {/* 摄像头按钮 */}
@@ -185,19 +246,23 @@ export function ControlBar({
                         variant={isCameraEnabled ? "primary" : "danger"}
                         size="sm"
                         onClick={toggleCamera}
-                        disabled={!room}
+                        disabled={!room || isTogglingCamera}
                         title={isCameraEnabled ? "关闭摄像头" : "开启摄像头"}
                     >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            {isCameraEnabled ? (
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                            ) : (
-                                <>
+                        {isTogglingCamera ? (
+                            <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                        ) : (
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                {isCameraEnabled ? (
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5l14 14" />
-                                </>
-                            )}
-                        </svg>
+                                ) : (
+                                    <>
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5l14 14" />
+                                    </>
+                                )}
+                            </svg>
+                        )}
                     </Button>
 
                     {/* 屏幕共享按钮 */}
@@ -205,12 +270,16 @@ export function ControlBar({
                         variant={isScreenShareEnabled ? "primary" : "ghost"}
                         size="sm"
                         onClick={toggleScreenShare}
-                        disabled={!room}
+                        disabled={!room || isTogglingScreen}
                         title={isScreenShareEnabled ? "停止屏幕共享" : "开始屏幕共享"}
                     >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                        </svg>
+                        {isTogglingScreen ? (
+                            <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                        ) : (
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                            </svg>
+                        )}
                     </Button>
 
                     {/* 分隔线 */}

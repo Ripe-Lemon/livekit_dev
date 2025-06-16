@@ -114,13 +114,13 @@ function RoomInnerContent({
     
     // 添加音频通知 Hook
     useAudioNotifications(room, {
-        enableUserJoinLeave: true,       // 用户加入/离开音效
-        enableMessageNotification: true, // 消息通知音效
-        enableMediaControls: true,       // 媒体控制音效（静音/摄像头）
-        enableScreenShare: true,         // 屏幕共享音效
-        enableConnection: true,          // 连接状态音效
-        messageVolume: 0.6,             // 消息音效音量
-        controlVolume: 0.7              // 控制音效音量
+        enableUserJoinLeave: true,       // 保留用户加入/离开音效
+        enableMessageNotification: true, // 保留消息通知音效
+        enableMediaControls: false,      // 禁用自动媒体控制音效（避免重复）
+        enableScreenShare: false,        // 禁用自动屏幕共享音效（避免重复）
+        enableConnection: true,          // 保留连接状态音效
+        messageVolume: 0.6,
+        controlVolume: 0.7
     });
 
     // 在 LiveKit Room 内部使用聊天 Hook

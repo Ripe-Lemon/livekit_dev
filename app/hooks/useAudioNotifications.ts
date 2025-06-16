@@ -20,7 +20,7 @@ export function useAudioNotifications(room: any, options: {
         enableScreenShare = true,
         enableConnection = true,
         messageVolume = 0.6,
-        controlVolume = 0.6
+        controlVolume = 0.7
     } = options;
 
     useEffect(() => {

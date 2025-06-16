@@ -8,6 +8,7 @@
     "build:export": "cross-env IS_STATIC_EXPORT=true next build",
     "start": "next start",
     "lint": "next lint",
+    "tauri": "tauri",
     "deploy": "npx wrangler pages deploy .next"
   },
   "dependencies": {
@@ -25,6 +26,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@tauri-apps/cli": "^2.5.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

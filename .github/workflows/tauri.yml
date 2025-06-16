@@ -9,6 +9,7 @@ on:
 
 jobs:
   publish-tauri-desktop:
+    environment: LIVEKIT
     permissions:
       contents: write
     strategy:
@@ -53,6 +54,9 @@ jobs:
       # 从你的日志看，beforeBuildCommand 是 "npm run build"，这正是我们想要的
       - uses: tauri-apps/tauri-action@v0.5 # 推荐使用更新的版本
         env:
+          NEXT_PUBLIC_LIVEKIT_URL: ${{ vars.NEXT_PUBLIC_LIVEKIT_URL }}
+          NEXT_PUBLIC_LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+          NEXT_PUBLIC_LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: app-v__VERSION__

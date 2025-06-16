@@ -33,7 +33,8 @@ function DeviceDropdown({
     type,
     isLoading = false,
     error = null,
-    hasPermission = true
+    hasPermission = true,
+    onRequestPermission
 }: {
     devices: any[];
     currentDeviceId?: string;
@@ -44,6 +45,7 @@ function DeviceDropdown({
     isLoading?: boolean;
     error?: string | null;
     hasPermission?: boolean;
+    onRequestPermission?: () => void;
 }) {
     const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -63,9 +65,6 @@ function DeviceDropdown({
         };
     }, [isOpen, onToggle]);
 
-    // 确定是否显示加载状态
-    const showLoading = isLoading || (!hasPermission && devices.length === 0);
-
     return (
         <div className="relative" ref={dropdownRef}>
             <button
@@ -73,7 +72,7 @@ function DeviceDropdown({
                 className="flex items-center justify-center w-4 h-4 text-white/70 hover:text-white transition-colors"
                 title={`选择${type === 'microphone' ? '麦克风' : '摄像头'}设备`}
             >
-                {showLoading ? (
+                {isLoading ? (
                     <div className="animate-spin h-3 w-3 border border-white border-t-transparent rounded-full" />
                 ) : (
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -90,7 +89,7 @@ function DeviceDropdown({
                     <div className="py-1 max-h-48 overflow-y-auto">
                         {!hasPermission ? (
                             <div className="px-3 py-2 text-sm text-yellow-400">
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 mb-2">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                         <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
                                         <line x1="12" y1="9" x2="12" y2="13"/>
@@ -98,12 +97,17 @@ function DeviceDropdown({
                                     </svg>
                                     需要{type === 'microphone' ? '麦克风' : '摄像头'}权限
                                 </div>
-                                <button 
-                                    onClick={() => window.location.reload()}
-                                    className="mt-2 text-blue-400 hover:text-blue-300 underline"
-                                >
-                                    刷新页面重新授权
-                                </button>
+                                {onRequestPermission && (
+                                    <button 
+                                        onClick={() => {
+                                            onRequestPermission();
+                                            onToggle();
+                                        }}
+                                        className="w-full bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded text-sm transition-colors"
+                                    >
+                                        授权{type === 'microphone' ? '麦克风' : '摄像头'}
+                                    </button>
+                                )}
                             </div>
                         ) : error ? (
                             <div className="px-3 py-2 text-sm text-red-400">
@@ -125,7 +129,7 @@ function DeviceDropdown({
                                         <line x1="9" y1="9" x2="9.01" y2="9"/>
                                         <line x1="15" y1="9" x2="15.01" y2="9"/>
                                     </svg>
-                                    {showLoading ? '正在加载设备...' : `未找到${type === 'microphone' ? '麦克风' : '摄像头'}设备`}
+                                    未找到{type === 'microphone' ? '麦克风' : '摄像头'}设备
                                 </div>
                             </div>
                         ) : (
@@ -159,25 +163,6 @@ function DeviceDropdown({
                                         )}
                                     </button>
                                 ))}
-                                
-                                <div className="border-t border-gray-600 my-1" />
-                                <button
-                                    onClick={() => {
-                                        // 刷新设备列表
-                                        window.location.reload();
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-sm text-gray-400 hover:bg-gray-700 hover:text-white transition-colors"
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                            <polyline points="23,4 23,10 17,10" />
-                                            <polyline points="1,20 1,14 7,14" />
-                                            <path d="M20.49,9A9,9,0,0,0,5.64,5.64L1,10" />
-                                            <path d="M3.51,15a9,9,0,0,0,14.85,4.36L23,14" />
-                                        </svg>
-                                        刷新设备列表
-                                    </div>
-                                </button>
                             </>
                         )}
                     </div>
@@ -322,11 +307,11 @@ export function ControlBar({
         refreshDevices,
         selectDevice,
         getSelectedDeviceInfo,
-        requestPermissions
+        requestSinglePermission,
+        permissionRequested
     } = useDeviceManager({
-        autoRefresh: true,
-        refreshInterval: 5000, // 5秒刷新一次
-        requestPermissions: true,
+        autoRefresh: false, // 关闭自动刷新
+        requestPermissions: false, // 不自动请求权限
         enableAudioOutput: false,
         storageKey: 'livekit_controlbar_devices'
     });
@@ -343,6 +328,10 @@ export function ControlBar({
     // 下拉菜单状态
     const [showAudioDevices, setShowAudioDevices] = useState(false);
     const [showVideoDevices, setShowVideoDevices] = useState(false);
+
+    // 权限请求状态
+    const [isRequestingAudioPermission, setIsRequestingAudioPermission] = useState(false);
+    const [isRequestingVideoPermission, setIsRequestingVideoPermission] = useState(false);
 
     // 音效控制
     const {
@@ -373,32 +362,48 @@ export function ControlBar({
         }
     }, [localParticipant?.isMicrophoneEnabled, localParticipant?.isCameraEnabled, localParticipant?.isScreenShareEnabled]);
 
-    // 调试设备信息
-    useEffect(() => {
-        console.log('🎤 音频设备:', devices.audioinput);
-        console.log('📹 视频设备:', devices.videoinput);
-        console.log('🔒 权限状态:', permissions);
-        console.log('⚡ 是否支持:', isSupported);
-        console.log('🔄 加载中:', devicesLoading);
-        console.log('❌ 错误:', devicesError);
-    }, [devices, permissions, isSupported, devicesLoading, devicesError]);
-
-    // 初始化时请求设备权限并强制刷新设备列表
-    useEffect(() => {
-        const initializeDevices = async () => {
-            if (isSupported) {
-                try {
-                    console.log('🚀 初始化设备管理...');
-                    await requestPermissions();
-                    await refreshDevices();
-                } catch (error) {
-                    console.error('❌ 初始化设备失败:', error);
-                }
+    // 请求权限的处理函数
+    const handleRequestAudioPermission = useCallback(async () => {
+        if (isRequestingAudioPermission) return;
+        
+        setIsRequestingAudioPermission(true);
+        try {
+            console.log('🎤 请求麦克风权限...');
+            const granted = await requestSinglePermission('audio');
+            if (granted) {
+                console.log('✅ 麦克风权限已获取');
+                // 权限获取后刷新设备列表
+                await refreshDevices();
+            } else {
+                console.warn('❌ 麦克风权限被拒绝');
             }
-        };
+        } catch (error) {
+            console.error('❌ 请求麦克风权限失败:', error);
+        } finally {
+            setIsRequestingAudioPermission(false);
+        }
+    }, [requestSinglePermission, refreshDevices, isRequestingAudioPermission]);
 
-        initializeDevices();
-    }, [isSupported, requestPermissions, refreshDevices]);
+    const handleRequestVideoPermission = useCallback(async () => {
+        if (isRequestingVideoPermission) return;
+        
+        setIsRequestingVideoPermission(true);
+        try {
+            console.log('📹 请求摄像头权限...');
+            const granted = await requestSinglePermission('video');
+            if (granted) {
+                console.log('✅ 摄像头权限已获取');
+                // 权限获取后刷新设备列表
+                await refreshDevices();
+            } else {
+                console.warn('❌ 摄像头权限被拒绝');
+            }
+        } catch (error) {
+            console.error('❌ 请求摄像头权限失败:', error);
+        } finally {
+            setIsRequestingVideoPermission(false);
+        }
+    }, [requestSinglePermission, refreshDevices, isRequestingVideoPermission]);
 
     // 自动隐藏控制栏（全屏模式）
     useEffect(() => {
@@ -431,6 +436,12 @@ export function ControlBar({
     const toggleMicrophone = useCallback(async () => {
         if (!room || isTogglingMic) return;
 
+        // 如果没有权限，先请求权限
+        if (!permissions.audio && !permissionRequested.audio) {
+            await handleRequestAudioPermission();
+            return;
+        }
+
         setIsTogglingMic(true);
         try {
             const currentlyMuted = !localParticipant.isMicrophoneEnabled;
@@ -452,11 +463,17 @@ export function ControlBar({
         } finally {
             setIsTogglingMic(false);
         }
-    }, [localParticipant, playMuteSound, playUnmuteSound, playErrorSound, isTogglingMic, room]);
+    }, [localParticipant, playMuteSound, playUnmuteSound, playErrorSound, isTogglingMic, room, permissions.audio, permissionRequested.audio, handleRequestAudioPermission]);
 
     // 切换摄像头
     const toggleCamera = useCallback(async () => {
         if (!room || isTogglingCamera) return;
+
+        // 如果没有权限，先请求权限
+        if (!permissions.video && !permissionRequested.video) {
+            await handleRequestVideoPermission();
+            return;
+        }
 
         setIsTogglingCamera(true);
         try {
@@ -479,7 +496,7 @@ export function ControlBar({
         } finally {
             setIsTogglingCamera(false);
         }
-    }, [localParticipant, playCameraOnSound, playCameraOffSound, playErrorSound, isTogglingCamera, room]);
+    }, [localParticipant, playCameraOnSound, playCameraOffSound, playErrorSound, isTogglingCamera, room, permissions.video, permissionRequested.video, handleRequestVideoPermission]);
 
     // 切换屏幕共享
     const toggleScreenShare = useCallback(async () => {
@@ -560,6 +577,10 @@ export function ControlBar({
     const hasAudioPermission = permissions.audio;
     const hasVideoPermission = permissions.video;
 
+    // 确定加载状态 - 只在正在请求权限时显示加载
+    const audioLoading = devicesLoading && !hasAudioPermission && !permissionRequested.audio;
+    const videoLoading = devicesLoading && !hasVideoPermission && !permissionRequested.video;
+
     return (
         <div className={`
             fixed bottom-4 left-1/2 transform -translate-x-1/2
@@ -574,7 +595,7 @@ export function ControlBar({
             <ControlButton
                 onClick={toggleMicrophone}
                 isActive={!isMuted}
-                isLoading={isTogglingMic}
+                isLoading={isTogglingMic || isRequestingAudioPermission}
                 title={isMuted ? '开启麦克风' : '关闭麦克风'}
                 activeColor="bg-green-600"
                 inactiveColor="bg-red-600"
@@ -609,9 +630,10 @@ export function ControlBar({
                     isOpen={showAudioDevices}
                     onToggle={() => setShowAudioDevices(!showAudioDevices)}
                     type="microphone"
-                    isLoading={devicesLoading}
+                    isLoading={audioLoading}
                     error={devicesError}
                     hasPermission={hasAudioPermission}
+                    onRequestPermission={handleRequestAudioPermission}
                 />
             </ControlButton>
 
@@ -619,7 +641,7 @@ export function ControlBar({
             <ControlButton
                 onClick={toggleCamera}
                 isActive={!isCameraOff}
-                isLoading={isTogglingCamera}
+                isLoading={isTogglingCamera || isRequestingVideoPermission}
                 title={isCameraOff ? '开启摄像头' : '关闭摄像头'}
                 activeColor="bg-green-600"
                 inactiveColor="bg-red-600"
@@ -649,9 +671,10 @@ export function ControlBar({
                     isOpen={showVideoDevices}
                     onToggle={() => setShowVideoDevices(!showVideoDevices)}
                     type="camera"
-                    isLoading={devicesLoading}
+                    isLoading={videoLoading}
                     error={devicesError}
                     hasPermission={hasVideoPermission}
+                    onRequestPermission={handleRequestVideoPermission}
                 />
             </ControlButton>
 

@@ -1,8 +1,13 @@
 'use client';
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { useRoomContext } from '@livekit/components-react';
+import { 
+    useLocalParticipant, 
+    useRoomContext
+} from '@livekit/components-react';
 import { Button } from '../ui/Button';
+import { Track } from 'livekit-client';
+import { useControlAudio } from '../../hooks/useControlAudio';
 
 interface ControlBarProps {
     onToggleChat: () => void;

@@ -23,7 +23,7 @@ import { ErrorDisplay } from '../components/ui/ErrorDisplay';
 import { ImagePreview } from '../components/ui/ImagePreview';
 import { NotificationCenter } from '../components/ui/NotificationCenter';
 import { Button } from '../components/ui/Button';
-import { ControlBar as CustomControlBar } from '../components/room/ControlBar';
+import { ControlBar } from '../components/room/ControlBar';
 import ConnectionStatus from '../components/room/ConnectionStatus';
 import RoomInfo from '../components/room/RoomInfo';
 import { ParticipantList } from '../components/room/ParticipantList';
@@ -269,7 +269,7 @@ function RoomInnerContent({
                 <CustomVideoGrid />
                 
                 {/* 自定义控制栏 - 移动端优化 */}
-                <CustomControlBar
+                <ControlBar
                     onToggleChat={() => toggleUIPanel('showChat')}
                     onToggleParticipants={() => toggleUIPanel('sidebarCollapsed')}
                     onToggleSettings={() => toggleUIPanel('showSettings')}

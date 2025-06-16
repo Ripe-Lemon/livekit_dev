@@ -127,23 +127,39 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '' }: Sideb
                                 {/* 麦克风状态 */}
                                 <div className={`w-4 h-4 ${participant.isMicEnabled ? 'text-green-400' : 'text-gray-500'}`}>
                                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                                            d={participant.isMicEnabled 
-                                                ? "M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
-                                                : "M5.586 15H4a1 1 0 01-1-1v-3a1 1 0 011-1h1m0 0V7a3 3 0 013-3h8a3 3 0 013 3v3a3 3 0 01-3 3h-1M4 10h16m-8-3v10"
-                                            } 
-                                        />
+                                        {participant.isMicEnabled ? (
+                                            <>
+                                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                <path d="M19 10v2a7 7 0 0 1-14 0v-2" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round" strokeWidth={2}/>
+                                                <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round" strokeWidth={2}/>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                <path d="M19 10v2a7 7 0 0 1-14 0v-2" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round" strokeWidth={2}/>
+                                                <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round" strokeWidth={2}/>
+                                                <line x1="1" y1="1" x2="23" y2="23" strokeLinecap="round" strokeWidth={2}/>
+                                            </>
+                                        )}
                                     </svg>
                                 </div>
                                 {/* 摄像头状态 */}
                                 <div className={`w-4 h-4 ${participant.isCameraEnabled ? 'text-green-400' : 'text-gray-500'}`}>
                                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                                            d={participant.isCameraEnabled
-                                                ? "M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
-                                                : "M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18.364 5.636M5.636 18.364l12.728-12.728"
-                                            } 
-                                        />
+                                        {participant.isCameraEnabled ? (
+                                            <>
+                                                <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                <circle cx="12" cy="13" r="3" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                <circle cx="12" cy="13" r="3" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                <line x1="1" y1="1" x2="23" y2="23" strokeLinecap="round" strokeWidth={2}/>
+                                            </>
+                                        )}
                                     </svg>
                                 </div>
                                 {/* 屏幕共享状态 */}

@@ -604,13 +604,11 @@ export function ControlBar({
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         {isMuted ? (
                             <g>
-                                <path d="M3 3l18 18" strokeLinecap="round" strokeLinejoin="round"/>
-                                <path d="M9 9v3a3 3 0 0 0 5.12 2.12" strokeLinecap="round" strokeLinejoin="round"/>
-                                <path d="M12 1a3 3 0 0 0-3 3v3" strokeLinecap="round" strokeLinejoin="round"/>
-                                <path d="M19 10v2a7 7 0 0 1-7 7" strokeLinecap="round" strokeLinejoin="round"/>
-                                <path d="M5 10v2a7 7 0 0 0 7 7" strokeLinecap="round" strokeLinejoin="round"/>
+                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" strokeLinecap="round" strokeLinejoin="round"/>
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2" strokeLinecap="round" strokeLinejoin="round"/>
                                 <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round"/>
                                 <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round"/>
+                                <line x1="1" y1="1" x2="23" y2="23" strokeLinecap="round"/>
                             </g>
                         ) : (
                             <g>
@@ -650,10 +648,9 @@ export function ControlBar({
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         {isCameraOff ? (
                             <g>
-                                <path d="M3 3l18 18" strokeLinecap="round" strokeLinejoin="round"/>
-                                <path d="M7 7H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h16" strokeLinecap="round" strokeLinejoin="round"/>
-                                <path d="M9.5 4h5L17 7h3a2 2 0 0 1 2 2v8" strokeLinecap="round" strokeLinejoin="round"/>
-                                <path d="M14.121 15.121A3 3 0 1 1 8.88 9.88" strokeLinecap="round" strokeLinejoin="round"/>
+                                <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" strokeLinecap="round" strokeLinejoin="round"/>
+                                <circle cx="12" cy="13" r="3" strokeLinecap="round" strokeLinejoin="round"/>
+                                <line x1="1" y1="1" x2="23" y2="23" strokeLinecap="round"/>
                             </g>
                         ) : (
                             <g>

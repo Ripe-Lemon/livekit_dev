@@ -1,26 +1,131 @@
+// 用 CustomControlBar 的内容替换当前的 ControlBar
+
 'use client';
 
 import React, { useState, useCallback, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { 
     useLocalParticipant, 
     useRoomContext
 } from '@livekit/components-react';
-import { Button } from '../ui/Button';
 import { Track } from 'livekit-client';
-import { useControlAudio } from '../../hooks/useControlAudio'; // 添加这行
+import { useControlAudio } from '../../hooks/useControlAudio';
 
+// 统一的 props 接口
 interface ControlBarProps {
-    onToggleChat: () => void;
-    onToggleParticipants: () => void;
-    onToggleSettings: () => void;
-    onToggleFullscreen: () => void;
-    onLeaveRoom: () => void;
-    isFullscreen: boolean;
+    onToggleChat?: () => void;
+    onToggleParticipants?: () => void;
+    onToggleSettings?: () => void;
+    onToggleFullscreen?: () => void;
+    onLeaveRoom?: () => void;
+    isFullscreen?: boolean;
     chatUnreadCount?: number;
     showChat?: boolean;
     className?: string;
 }
 
+// 控制按钮组件（从 CustomControlBar 移过来）
+function ControlButton({ 
+    onClick, 
+    isActive, 
+    isLoading, 
+    icon, 
+    activeIcon, 
+    title, 
+    activeColor = 'bg-green-600',
+    inactiveColor = 'bg-gray-700'
+}: {
+    onClick: () => void;
+    isActive: boolean;
+    isLoading?: boolean;
+    icon: React.ReactNode;
+    activeIcon?: React.ReactNode;
+    title: string;
+    activeColor?: string;
+    inactiveColor?: string;
+}) {
+    return (
+        <button
+            onClick={onClick}
+            disabled={isLoading}
+            className={`
+                flex items-center justify-center w-12 h-12 rounded-full
+                transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed
+                text-white hover:scale-105
+                ${isActive 
+                    ? `${activeColor} hover:opacity-90` 
+                    : `${inactiveColor} hover:bg-gray-600`
+                }
+            `}
+            title={title}
+        >
+            {isLoading ? (
+                <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full" />
+            ) : (
+                isActive && activeIcon ? activeIcon : icon
+            )}
+        </button>
+    );
+}
+
+// 离开房间按钮组件
+function LeaveRoomButton({ onLeaveRoom }: { onLeaveRoom?: () => void }) {
+    const router = useRouter();
+    const room = useRoomContext();
+    const [isLeaving, setIsLeaving] = useState(false);
+
+    const handleLeave = useCallback(async () => {
+        if (isLeaving) return;
+
+        const confirmed = window.confirm('确定要离开房间吗？');
+        if (!confirmed) return;
+
+        setIsLeaving(true);
+        try {
+            if (onLeaveRoom) {
+                onLeaveRoom();
+            } else {
+                await room.disconnect();
+                router.push('/');
+            }
+        } catch (error) {
+            console.error('离开房间失败:', error);
+            setIsLeaving(false);
+        }
+    }, [room, router, isLeaving, onLeaveRoom]);
+
+    return (
+        <button
+            onClick={handleLeave}
+            disabled={isLeaving}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+            title="离开房间"
+        >
+            {isLeaving ? (
+                <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+            ) : (
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                >
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                    <polyline points="16,17 21,12 16,7"/>
+                    <line x1="21" y1="12" x2="9" y2="12"/>
+                </svg>
+            )}
+            <span className="hidden sm:inline">{isLeaving ? '离开中...' : '离开'}</span>
+        </button>
+    );
+}
+
+// 主控制栏组件
 export function ControlBar({
     onToggleChat,
     onToggleParticipants,
@@ -32,9 +137,19 @@ export function ControlBar({
     showChat = false,
     className = ''
 }: ControlBarProps) {
+    const { localParticipant } = useLocalParticipant();
+    const room = useRoomContext();
+    
+    // 状态管理
+    const [isMuted, setIsMuted] = useState(false);
+    const [isCameraOff, setIsCameraOff] = useState(true);
+    const [isScreenSharing, setIsScreenSharing] = useState(false);
+    const [isTogglingMic, setIsTogglingMic] = useState(false);
+    const [isTogglingCamera, setIsTogglingCamera] = useState(false);
+    const [isTogglingScreen, setIsTogglingScreen] = useState(false);
     const [isControlsVisible, setIsControlsVisible] = useState(true);
 
-    // 添加音效控制
+    // 音效控制
     const {
         playMuteSound,
         playUnmuteSound,
@@ -48,137 +163,16 @@ export function ControlBar({
         volume: 0.6
     });
 
-    // 安全地获取 room context
-    let room = null;
-    try {
-        room = useRoomContext();
-    } catch (error) {
-        console.warn('无法获取房间上下文');
-    }
-
-    // 设备状态
-    const [isMicEnabled, setIsMicEnabled] = useState(false);
-    const [isCameraEnabled, setIsCameraEnabled] = useState(false);
-    const [isScreenShareEnabled, setIsScreenShareEnabled] = useState(false);
-    const [isTogglingMic, setIsTogglingMic] = useState(false);
-    const [isTogglingCamera, setIsTogglingCamera] = useState(false);
-    const [isTogglingScreen, setIsTogglingScreen] = useState(false);
-
-    // 更新设备状态
+    // 同步设备状态
     useEffect(() => {
-        if (!room?.localParticipant) return;
-
-        const updateStates = () => {
-            setIsMicEnabled(room.localParticipant.isMicrophoneEnabled);
-            setIsCameraEnabled(room.localParticipant.isCameraEnabled);
-            setIsScreenShareEnabled(room.localParticipant.isScreenShareEnabled);
-        };
-
-        // 立即更新一次
-        updateStates();
-
-        // 监听设备状态变化
-        const participant = room.localParticipant;
-        participant.on('trackMuted', updateStates);
-        participant.on('trackUnmuted', updateStates);
-        participant.on('trackPublished', updateStates);
-        participant.on('trackUnpublished', updateStates);
-
-        // 定期检查状态（备用方案）
-        const interval = setInterval(updateStates, 1000);
-
-        return () => {
-            participant.off('trackMuted', updateStates);
-            participant.off('trackUnmuted', updateStates);
-            participant.off('trackPublished', updateStates);
-            participant.off('trackUnpublished', updateStates);
-            clearInterval(interval);
-        };
-    }, [room]);
-
-    // 切换麦克风 - 添加音效
-    const toggleMicrophone = useCallback(async () => {
-        if (!room?.localParticipant || isTogglingMic) return;
-        
-        setIsTogglingMic(true);
-        try {
-            const newState = !isMicEnabled;
-            await room.localParticipant.setMicrophoneEnabled(newState);
-            setIsMicEnabled(newState);
-            
-            // 播放对应音效
-            if (newState) {
-                playUnmuteSound();
-            } else {
-                playMuteSound();
-            }
-            
-            console.log('麦克风状态切换为:', newState);
-        } catch (error) {
-            console.error('切换麦克风失败:', error);
-            playErrorSound();
-        } finally {
-            setIsTogglingMic(false);
+        if (localParticipant) {
+            setIsMuted(!localParticipant.isMicrophoneEnabled);
+            setIsCameraOff(!localParticipant.isCameraEnabled);
+            setIsScreenSharing(localParticipant.isScreenShareEnabled);
         }
-    }, [room, isMicEnabled, isTogglingMic, playMuteSound, playUnmuteSound, playErrorSound]);
+    }, [localParticipant]);
 
-    // 切换摄像头 - 添加音效
-    const toggleCamera = useCallback(async () => {
-        if (!room?.localParticipant || isTogglingCamera) return;
-        
-        setIsTogglingCamera(true);
-        try {
-            const newState = !isCameraEnabled;
-            await room.localParticipant.setCameraEnabled(newState);
-            setIsCameraEnabled(newState);
-            
-            // 播放对应音效
-            if (newState) {
-                playCameraOnSound();
-            } else {
-                playCameraOffSound();
-            }
-            
-            console.log('摄像头状态切换为:', newState);
-        } catch (error) {
-            console.error('切换摄像头失败:', error);
-            playErrorSound();
-        } finally {
-            setIsTogglingCamera(false);
-        }
-    }, [room, isCameraEnabled, isTogglingCamera, playCameraOnSound, playCameraOffSound, playErrorSound]);
-
-    // 切换屏幕共享 - 添加音效
-    const toggleScreenShare = useCallback(async () => {
-        if (!room?.localParticipant || isTogglingScreen) return;
-        
-        setIsTogglingScreen(true);
-        try {
-            const newState = !isScreenShareEnabled;
-            await room.localParticipant.setScreenShareEnabled(newState);
-            setIsScreenShareEnabled(newState);
-            
-            // 播放对应音效
-            if (newState) {
-                playScreenShareStartSound();
-            } else {
-                playScreenShareStopSound();
-            }
-            
-            console.log('屏幕共享状态切换为:', newState);
-        } catch (error) {
-            console.error('切换屏幕共享失败:', error);
-            playErrorSound();
-            
-            if (error instanceof Error && error.name === 'NotAllowedError') {
-                alert('屏幕共享权限被拒绝，请在浏览器中允许屏幕共享权限。');
-            }
-        } finally {
-            setIsTogglingScreen(false);
-        }
-    }, [room, isScreenShareEnabled, isTogglingScreen, playScreenShareStartSound, playScreenShareStopSound, playErrorSound]);
-
-    // 自动隐藏控制栏
+    // 自动隐藏控制栏（全屏模式）
     useEffect(() => {
         let timeout: NodeJS.Timeout;
         
@@ -205,163 +199,266 @@ export function ControlBar({
         };
     }, [isFullscreen]);
 
+    // 切换麦克风
+    const toggleMicrophone = useCallback(async () => {
+        if (!room || isTogglingMic) return;
+
+        setIsTogglingMic(true);
+        try {
+            const currentlyMuted = !localParticipant.isMicrophoneEnabled;
+            
+            if (currentlyMuted) {
+                await localParticipant.setMicrophoneEnabled(true);
+                setIsMuted(false);
+                playUnmuteSound();
+                console.log('🔊 麦克风已开启');
+            } else {
+                await localParticipant.setMicrophoneEnabled(false);
+                setIsMuted(true);
+                playMuteSound();
+                console.log('🔇 麦克风已关闭');
+            }
+        } catch (error) {
+            console.error('切换麦克风失败:', error);
+            playErrorSound();
+        } finally {
+            setIsTogglingMic(false);
+        }
+    }, [localParticipant, playMuteSound, playUnmuteSound, playErrorSound, isTogglingMic]);
+
+    // 切换摄像头
+    const toggleCamera = useCallback(async () => {
+        if (!room || isTogglingCamera) return;
+
+        setIsTogglingCamera(true);
+        try {
+            const currentlyOff = !localParticipant.isCameraEnabled;
+            
+            if (currentlyOff) {
+                await localParticipant.setCameraEnabled(true);
+                setIsCameraOff(false);
+                playCameraOnSound();
+                console.log('📹 摄像头已开启');
+            } else {
+                await localParticipant.setCameraEnabled(false);
+                setIsCameraOff(true);
+                playCameraOffSound();
+                console.log('📹❌ 摄像头已关闭');
+            }
+        } catch (error) {
+            console.error('切换摄像头失败:', error);
+            playErrorSound();
+        } finally {
+            setIsTogglingCamera(false);
+        }
+    }, [localParticipant, playCameraOnSound, playCameraOffSound, playErrorSound, isTogglingCamera]);
+
+    // 切换屏幕共享
+    const toggleScreenShare = useCallback(async () => {
+        if (!room || isTogglingScreen) return;
+
+        setIsTogglingScreen(true);
+        try {
+            const currentlySharing = localParticipant.isScreenShareEnabled;
+            
+            if (currentlySharing) {
+                await localParticipant.setScreenShareEnabled(false);
+                setIsScreenSharing(false);
+                playScreenShareStopSound();
+                console.log('🖥️❌ 屏幕共享已停止');
+            } else {
+                await localParticipant.setScreenShareEnabled(true);
+                setIsScreenSharing(true);
+                playScreenShareStartSound();
+                console.log('🖥️ 屏幕共享已开始');
+            }
+        } catch (error) {
+            console.error('切换屏幕共享失败:', error);
+            playErrorSound();
+            
+            if (error instanceof Error && error.name === 'NotAllowedError') {
+                alert('屏幕共享权限被拒绝，请在浏览器中允许屏幕共享权限。');
+            }
+        } finally {
+            setIsTogglingScreen(false);
+        }
+    }, [localParticipant, playScreenShareStartSound, playScreenShareStopSound, playErrorSound, isTogglingScreen]);
+
     return (
-        <div 
-            className={`
-                absolute bottom-0 left-0 right-0 z-30 p-4
-                transition-all duration-300
-                ${isFullscreen && !isControlsVisible ? 'opacity-0 pointer-events-none' : 'opacity-100'}
-                ${className}
-            `}
-        >
-            <div className="flex items-center justify-center">
-                <div className="flex items-center space-x-2 bg-black/60 backdrop-blur-sm rounded-lg px-4 py-2">
-                    {/* 麦克风按钮 */}
-                    <Button
-                        variant={isMicEnabled ? "primary" : "danger"}
-                        size="sm"
-                        onClick={toggleMicrophone}
-                        disabled={!room || isTogglingMic}
-                        title={isMicEnabled ? "关闭麦克风" : "开启麦克风"}
-                        className="relative"
-                    >
-                        {isTogglingMic ? (
-                            <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+        <div className={`
+            fixed bottom-4 left-1/2 transform -translate-x-1/2
+            flex items-center gap-3 px-4 py-3 
+            bg-gray-800/90 backdrop-blur-sm rounded-full
+            border border-gray-600/50 shadow-lg
+            transition-all duration-300
+            ${isFullscreen && !isControlsVisible ? 'opacity-0 pointer-events-none' : 'opacity-100'}
+            ${className}
+        `}>
+            {/* 麦克风按钮 */}
+            <ControlButton
+                onClick={toggleMicrophone}
+                isActive={!isMuted}
+                isLoading={isTogglingMic}
+                title={isMuted ? '开启麦克风' : '关闭麦克风'}
+                activeColor="bg-green-600"
+                inactiveColor="bg-red-600"
+                icon={
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        {isMuted ? (
+                            <>
+                                <line x1="1" y1="1" x2="23" y2="23"/>
+                                <path d="M9 9v3a3 3 0 0 0 5.12 2.12L19 10v2a7 7 0 0 1-5.14 6.74"/>
+                                <path d="M12 1a3 3 0 0 0-3 3v4"/>
+                                <line x1="12" y1="19" x2="12" y2="23"/>
+                                <line x1="8" y1="23" x2="16" y2="23"/>
+                            </>
                         ) : (
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                {isMicEnabled ? (
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                                ) : (
-                                    <>
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5l14 14" />
-                                    </>
-                                )}
-                            </svg>
+                            <>
+                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                                <line x1="12" y1="19" x2="12" y2="23"/>
+                                <line x1="8" y1="23" x2="16" y2="23"/>
+                            </>
                         )}
-                    </Button>
+                    </svg>
+                }
+            />
 
-                    {/* 摄像头按钮 */}
-                    <Button
-                        variant={isCameraEnabled ? "primary" : "danger"}
-                        size="sm"
-                        onClick={toggleCamera}
-                        disabled={!room || isTogglingCamera}
-                        title={isCameraEnabled ? "关闭摄像头" : "开启摄像头"}
-                    >
-                        {isTogglingCamera ? (
-                            <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+            {/* 摄像头按钮 */}
+            <ControlButton
+                onClick={toggleCamera}
+                isActive={!isCameraOff}
+                isLoading={isTogglingCamera}
+                title={isCameraOff ? '开启摄像头' : '关闭摄像头'}
+                activeColor="bg-green-600"
+                inactiveColor="bg-red-600"
+                icon={
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        {isCameraOff ? (
+                            <>
+                                <line x1="1" y1="1" x2="23" y2="23"/>
+                                <path d="M21 21H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3"/>
+                                <path d="M9 3h6l2 2h2a2 2 0 0 1 2 2v9"/>
+                                <circle cx="12" cy="13" r="3"/>
+                            </>
                         ) : (
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                {isCameraEnabled ? (
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                ) : (
-                                    <>
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5l14 14" />
-                                    </>
-                                )}
-                            </svg>
+                            <>
+                                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                                <circle cx="12" cy="13" r="4"/>
+                            </>
                         )}
-                    </Button>
+                    </svg>
+                }
+            />
 
-                    {/* 屏幕共享按钮 */}
-                    <Button
-                        variant={isScreenShareEnabled ? "primary" : "ghost"}
-                        size="sm"
-                        onClick={toggleScreenShare}
-                        disabled={!room || isTogglingScreen}
-                        title={isScreenShareEnabled ? "停止屏幕共享" : "开始屏幕共享"}
-                    >
-                        {isTogglingScreen ? (
-                            <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+            {/* 屏幕共享按钮 */}
+            <ControlButton
+                onClick={toggleScreenShare}
+                isActive={isScreenSharing}
+                isLoading={isTogglingScreen}
+                title={isScreenSharing ? '停止屏幕共享' : '开始屏幕共享'}
+                activeColor="bg-blue-600"
+                icon={
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <rect x="2" y="4" width="20" height="12" rx="2"/>
+                        <circle cx="8" cy="20" r="2"/>
+                        <path d="M12 18l4 2h-8l4-2z"/>
+                        {isScreenSharing && <path d="M7 10l5 5 5-5" strokeWidth="3"/>}
+                    </svg>
+                }
+            />
+
+            {/* 分隔线 */}
+            <div className="h-8 w-px bg-gray-600/50" />
+
+            {/* 其他控制按钮 */}
+            {onToggleChat && (
+                <button
+                    onClick={onToggleChat}
+                    className={`
+                        relative flex items-center justify-center w-10 h-10 rounded-lg
+                        transition-all duration-200 text-white
+                        ${showChat 
+                            ? 'bg-blue-600 hover:bg-blue-700' 
+                            : 'bg-gray-700 hover:bg-gray-600'
+                        }
+                    `}
+                    title="聊天"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                    </svg>
+                    {chatUnreadCount > 0 && (
+                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                            {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
+                        </span>
+                    )}
+                </button>
+            )}
+
+            {/* 参与者、设置、全屏按钮等保持原来的样式 */}
+            {onToggleParticipants && (
+                <button
+                    onClick={onToggleParticipants}
+                    className="flex items-center justify-center w-10 h-10 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-all duration-200"
+                    title="参与者"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                        <circle cx="9" cy="7" r="4"/>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                    </svg>
+                </button>
+            )}
+
+            {onToggleSettings && (
+                <button
+                    onClick={onToggleSettings}
+                    className="flex items-center justify-center w-10 h-10 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-all duration-200"
+                    title="设置"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1 1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.04a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                    </svg>
+                </button>
+            )}
+
+            {onToggleFullscreen && (
+                <button
+                    onClick={onToggleFullscreen}
+                    className="flex items-center justify-center w-10 h-10 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-all duration-200"
+                    title={isFullscreen ? '退出全屏' : '进入全屏'}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        {isFullscreen ? (
+                            <>
+                                <path d="M8 3v3a2 2 0 0 1-2 2H3"/>
+                                <path d="M21 8h-3a2 2 0 0 1-2-2V3"/>
+                                <path d="M3 16h3a2 2 0 0 1 2 2v3"/>
+                                <path d="M16 21v-3a2 2 0 0 1 2-2h3"/>
+                            </>
                         ) : (
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                            </svg>
+                            <>
+                                <path d="M8 3H5a2 2 0 0 0-2 2v3"/>
+                                <path d="M21 8V5a2 2 0 0 0-2-2h-3"/>
+                                <path d="M3 16v3a2 2 0 0 0 2 2h3"/>
+                                <path d="M16 21h3a2 2 0 0 0 2-2v-3"/>
+                            </>
                         )}
-                    </Button>
+                    </svg>
+                </button>
+            )}
 
-                    {/* 分隔线 */}
-                    <div className="w-px h-6 bg-gray-600" />
+            {/* 分隔线 */}
+            <div className="h-8 w-px bg-gray-600/50" />
 
-                    {/* 聊天按钮 */}
-                    <Button
-                        variant={showChat ? "primary" : "ghost"}
-                        size="sm"
-                        onClick={onToggleChat}
-                        title="聊天"
-                        className="relative"
-                    >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                        </svg>
-                        {/* 未读消息气泡 */}
-                        {chatUnreadCount > 0 && !showChat && (
-                            <div className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white">
-                                {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
-                            </div>
-                        )}
-                    </Button>
-
-                    {/* 参与者按钮 */}
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={onToggleParticipants}
-                        title="参与者列表"
-                    >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
-                        </svg>
-                    </Button>
-
-                    {/* 设置按钮 */}
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={onToggleSettings}
-                        title="设置"
-                    >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
-                    </Button>
-
-                    {/* 全屏按钮 */}
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={onToggleFullscreen}
-                        title={isFullscreen ? "退出全屏" : "进入全屏"}
-                    >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                                d={isFullscreen 
-                                    ? "M9 9V4.5M9 9H4.5M9 9L3.5 3.5M15 9h4.5M15 9V4.5M15 9l5.5-5.5M9 15H4.5M9 15v4.5M9 15l-5.5 5.5M15 15h4.5M15 15v4.5m0-4.5l5.5 5.5"
-                                    : "M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
-                                } 
-                            />
-                        </svg>
-                    </Button>
-
-                    {/* 分隔线 */}
-                    <div className="w-px h-6 bg-gray-600" />
-
-                    {/* 离开房间按钮 */}
-                    <Button
-                        variant="danger"
-                        size="sm"
-                        onClick={onLeaveRoom}
-                        title="离开房间"
-                    >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                        </svg>
-                    </Button>
-                </div>
-            </div>
+            {/* 离开房间按钮 */}
+            <LeaveRoomButton onLeaveRoom={onLeaveRoom} />
         </div>
     );
 }
+
+// 导出默认组件
+export default ControlBar;

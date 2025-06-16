@@ -19,7 +19,7 @@ export function useAudioNotifications(room: any, options: {
         enableMediaControls = true,
         enableScreenShare = true,
         enableConnection = true,
-        messageVolume = 0.5,
+        messageVolume = 0.6,
         controlVolume = 0.6
     } = options;
 
@@ -63,55 +63,85 @@ export function useAudioNotifications(room: any, options: {
         };
 
         // 音频轨道变化（静音/取消静音）
-        const handleTrackMuted = (track: any, participant: any) => {
-            if (!enableMediaControls) return;
+        const handleTrackMuted = (track: any, publication: any) => {
+            if (!enableMediaControls || !track) return;
             
-            if (track.kind === Track.Kind.Audio) {
-                if (participant.identity === room.localParticipant?.identity) {
-                    console.log('本地音频静音');
-                    audioManager.playSound('mute', { volume: controlVolume });
-                }
+            console.log('轨道静音事件:', { 
+                trackKind: track.kind, 
+                trackSource: track.source,
+                isLocal: publication?.participant === room.localParticipant
+            });
+            
+            // 只处理本地参与者的音频轨道
+            if (track.kind === Track.Kind.Audio && 
+                publication?.participant === room.localParticipant) {
+                console.log('🔇 本地音频静音');
+                audioManager.playSound('mute', { volume: controlVolume });
             }
         };
 
-        const handleTrackUnmuted = (track: any, participant: any) => {
-            if (!enableMediaControls) return;
+        const handleTrackUnmuted = (track: any, publication: any) => {
+            if (!enableMediaControls || !track) return;
             
-            if (track.kind === Track.Kind.Audio) {
-                if (participant.identity === room.localParticipant?.identity) {
-                    console.log('本地音频取消静音');
-                    audioManager.playSound('unmute', { volume: controlVolume });
-                }
+            console.log('轨道取消静音事件:', { 
+                trackKind: track.kind, 
+                trackSource: track.source,
+                isLocal: publication?.participant === room.localParticipant
+            });
+            
+            // 只处理本地参与者的音频轨道
+            if (track.kind === Track.Kind.Audio && 
+                publication?.participant === room.localParticipant) {
+                console.log('🔊 本地音频取消静音');
+                audioManager.playSound('unmute', { volume: controlVolume });
             }
         };
 
         // 视频轨道变化（摄像头开关）
-        const handleTrackSubscribed = (track: any, publication: any, participant: any) => {
-            if (!enableMediaControls) return;
+        const handleTrackPublished = (publication: any, participant: any) => {
+            if (!enableMediaControls || !publication?.track || !participant) return;
             
-            if (track.kind === Track.Kind.Video && participant.identity === room.localParticipant?.identity) {
-                if (track.source === Track.Source.Camera) {
-                    console.log('摄像头开启');
+            const track = publication.track;
+            console.log('轨道发布事件:', { 
+                trackKind: track.kind, 
+                trackSource: track.source,
+                participantIdentity: participant.identity,
+                isLocal: participant === room.localParticipant
+            });
+            
+            // 只处理本地参与者的轨道
+            if (participant === room.localParticipant) {
+                if (track.kind === Track.Kind.Video && track.source === Track.Source.Camera) {
+                    console.log('📹 摄像头开启');
                     audioManager.playSound('camera-on', { volume: controlVolume });
-                } else if (track.source === Track.Source.ScreenShare) {
+                } else if (track.kind === Track.Kind.Video && track.source === Track.Source.ScreenShare) {
                     if (enableScreenShare) {
-                        console.log('屏幕共享开始');
+                        console.log('🖥️ 屏幕共享开始');
                         audioManager.playSound('screen-share-start', { volume: controlVolume });
                     }
                 }
             }
         };
 
-        const handleTrackUnsubscribed = (track: any, publication: any, participant: any) => {
-            if (!enableMediaControls) return;
+        const handleTrackUnpublished = (publication: any, participant: any) => {
+            if (!enableMediaControls || !publication?.track || !participant) return;
             
-            if (track.kind === Track.Kind.Video && participant.identity === room.localParticipant?.identity) {
-                if (track.source === Track.Source.Camera) {
-                    console.log('摄像头关闭');
+            const track = publication.track;
+            console.log('轨道取消发布事件:', { 
+                trackKind: track.kind, 
+                trackSource: track.source,
+                participantIdentity: participant.identity,
+                isLocal: participant === room.localParticipant
+            });
+            
+            // 只处理本地参与者的轨道
+            if (participant === room.localParticipant) {
+                if (track.kind === Track.Kind.Video && track.source === Track.Source.Camera) {
+                    console.log('📹❌ 摄像头关闭');
                     audioManager.playSound('camera-off', { volume: controlVolume });
-                } else if (track.source === Track.Source.ScreenShare) {
+                } else if (track.kind === Track.Kind.Video && track.source === Track.Source.ScreenShare) {
                     if (enableScreenShare) {
-                        console.log('屏幕共享结束');
+                        console.log('🖥️❌ 屏幕共享结束');
                         audioManager.playSound('screen-share-stop', { volume: controlVolume });
                     }
                 }
@@ -140,52 +170,86 @@ export function useAudioNotifications(room: any, options: {
             }
         };
 
-        // 绑定所有事件监听器
+        // 绑定房间级别的事件监听器
         room.on('participantConnected', handleParticipantConnected);
         room.on('participantDisconnected', handleParticipantDisconnected);
         room.on('dataReceived', handleDataReceived);
+        room.on('connectionStateChanged', handleConnectionStateChanged);
+
+        // 监听轨道事件 - 使用更安全的事件处理
         room.on('trackMuted', handleTrackMuted);
         room.on('trackUnmuted', handleTrackUnmuted);
-        room.on('trackSubscribed', handleTrackSubscribed);
-        room.on('trackUnsubscribed', handleTrackUnsubscribed);
-        room.on('connectionStateChanged', handleConnectionStateChanged);
+        room.on('trackPublished', handleTrackPublished);
+        room.on('trackUnpublished', handleTrackUnpublished);
 
         // 监听本地轨道变化
         const localParticipant = room.localParticipant;
         if (localParticipant) {
-            localParticipant.on('trackMuted', handleTrackMuted);
-            localParticipant.on('trackUnmuted', handleTrackUnmuted);
-            localParticipant.on('trackPublished', (publication: any) => {
+            console.log('设置本地参与者事件监听:', localParticipant.identity);
+            
+            // 使用本地参与者的事件，避免 participant 参数问题
+            const handleLocalTrackMuted = (publication: any) => {
+                if (!enableMediaControls || !publication?.track) return;
+                
                 const track = publication.track;
-                if (track) {
-                    handleTrackSubscribed(track, publication, localParticipant);
+                console.log('本地轨道静音:', { trackKind: track.kind, trackSource: track.source });
+                
+                if (track.kind === Track.Kind.Audio) {
+                    console.log('🔇 本地音频静音（本地事件）');
+                    audioManager.playSound('mute', { volume: controlVolume });
                 }
-            });
-            localParticipant.on('trackUnpublished', (publication: any) => {
+            };
+
+            const handleLocalTrackUnmuted = (publication: any) => {
+                if (!enableMediaControls || !publication?.track) return;
+                
                 const track = publication.track;
-                if (track) {
-                    handleTrackUnsubscribed(track, publication, localParticipant);
+                console.log('本地轨道取消静音:', { trackKind: track.kind, trackSource: track.source });
+                
+                if (track.kind === Track.Kind.Audio) {
+                    console.log('🔊 本地音频取消静音（本地事件）');
+                    audioManager.playSound('unmute', { volume: controlVolume });
                 }
-            });
+            };
+
+            localParticipant.on('trackMuted', handleLocalTrackMuted);
+            localParticipant.on('trackUnmuted', handleLocalTrackUnmuted);
+            localParticipant.on('trackPublished', handleTrackPublished);
+            localParticipant.on('trackUnpublished', handleTrackUnpublished);
+
+            // 清理函数也要更新
+            return () => {
+                console.log('清理音频通知事件监听器');
+                
+                // 清理房间事件
+                room.off('participantConnected', handleParticipantConnected);
+                room.off('participantDisconnected', handleParticipantDisconnected);
+                room.off('dataReceived', handleDataReceived);
+                room.off('trackMuted', handleTrackMuted);
+                room.off('trackUnmuted', handleTrackUnmuted);
+                room.off('trackPublished', handleTrackPublished);
+                room.off('trackUnpublished', handleTrackUnpublished);
+                room.off('connectionStateChanged', handleConnectionStateChanged);
+
+                // 清理本地参与者事件
+                localParticipant.off('trackMuted', handleLocalTrackMuted);
+                localParticipant.off('trackUnmuted', handleLocalTrackUnmuted);
+                localParticipant.off('trackPublished', handleTrackPublished);
+                localParticipant.off('trackUnpublished', handleTrackUnpublished);
+            };
         }
 
         return () => {
-            // 清理所有事件监听器
+            console.log('清理音频通知事件监听器（无本地参与者）');
+            
             room.off('participantConnected', handleParticipantConnected);
             room.off('participantDisconnected', handleParticipantDisconnected);
             room.off('dataReceived', handleDataReceived);
             room.off('trackMuted', handleTrackMuted);
             room.off('trackUnmuted', handleTrackUnmuted);
-            room.off('trackSubscribed', handleTrackSubscribed);
-            room.off('trackUnsubscribed', handleTrackUnsubscribed);
+            room.off('trackPublished', handleTrackPublished);
+            room.off('trackUnpublished', handleTrackUnpublished);
             room.off('connectionStateChanged', handleConnectionStateChanged);
-
-            if (localParticipant) {
-                localParticipant.off('trackMuted', handleTrackMuted);
-                localParticipant.off('trackUnmuted', handleTrackUnmuted);
-                localParticipant.off('trackPublished', () => {});
-                localParticipant.off('trackUnpublished', () => {});
-            }
         };
     }, [room, enableUserJoinLeave, enableMessageNotification, enableMediaControls, enableScreenShare, enableConnection, messageVolume, controlVolume]);
 }

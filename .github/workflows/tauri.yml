@@ -60,8 +60,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: app-v__VERSION__
-          releaseName: 'Livekit v_0.0.1'
-          releaseBody: 'Hello World!'
+          releaseName: 'Livekit v_0.0.1-hotfix'
+          releaseBody: '修复了打开聊天框后接收消息仍然有红点的BUG'
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

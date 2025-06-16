@@ -2,134 +2,21 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { SoundEvent } from '../types/audio';
+import { AudioManager } from '../lib/audio/AudioManager';
 
+// 导出 SoundEvent 类型
 export type { SoundEvent } from '../types/audio';
 
-// 简化的音频管理器，不依赖 LiveKit Room Context
-class SimpleAudioManager {
-    private static instance: SimpleAudioManager;
-    private audioContext: AudioContext | null = null;
-    private sounds: Map<SoundEvent, AudioBuffer> = new Map();
-    private gainNode: GainNode | null = null;
-    private enabled: boolean = true;
-    private volume: number = 0.7;
-
-    static getInstance(): SimpleAudioManager {
-        if (!SimpleAudioManager.instance) {
-            SimpleAudioManager.instance = new SimpleAudioManager();
-        }
-        return SimpleAudioManager.instance;
-    }
-
-    async initialize(): Promise<void> {
-        if (this.audioContext) return;
-
-        try {
-            this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-            this.gainNode = this.audioContext.createGain();
-            this.gainNode.connect(this.audioContext.destination);
-            this.gainNode.gain.value = this.volume;
-            
-            console.log('音频管理器初始化成功');
-        } catch (error) {
-            console.error('音频管理器初始化失败:', error);
-        }
-    }
-
-    playSound(sound: SoundEvent, options: { volume?: number; delay?: number } = {}): void {
-        if (!this.enabled || !this.audioContext || !this.gainNode) {
-            return;
-        }
-
-        try {
-            // 播放简单的音效
-            const oscillator = this.audioContext.createOscillator();
-            const gain = this.audioContext.createGain();
-            
-            oscillator.connect(gain);
-            gain.connect(this.gainNode);
-
-            // 根据不同音效设置不同频率
-            switch (sound) {
-                case 'user-join':
-                    oscillator.frequency.setValueAtTime(800, this.audioContext.currentTime);
-                    break;
-                case 'user-leave':
-                    oscillator.frequency.setValueAtTime(400, this.audioContext.currentTime);
-                    break;
-                case 'message-notification':
-                    oscillator.frequency.setValueAtTime(600, this.audioContext.currentTime);
-                    break;
-                case 'error':
-                    oscillator.frequency.setValueAtTime(200, this.audioContext.currentTime);
-                    break;
-                default:
-                    oscillator.frequency.setValueAtTime(500, this.audioContext.currentTime);
-            }
-
-            const volume = (options.volume ?? 1) * this.volume;
-            gain.gain.setValueAtTime(volume * 0.3, this.audioContext.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + 0.3);
-
-            oscillator.start(this.audioContext.currentTime + (options.delay ?? 0));
-            oscillator.stop(this.audioContext.currentTime + (options.delay ?? 0) + 0.3);
-        } catch (error) {
-            console.error('播放音效失败:', error);
-        }
-    }
-
-    setEnabled(enabled: boolean): void {
-        this.enabled = enabled;
-    }
-
-    setGlobalVolume(volume: number): void {
-        this.volume = Math.max(0, Math.min(1, volume));
-        if (this.gainNode) {
-            this.gainNode.gain.value = this.volume;
-        }
-    }
-
-    isAudioEnabled(): boolean {
-        return this.enabled;
-    }
-
-    getStats(): any {
-        return {
-            initialized: !!this.audioContext,
-            enabled: this.enabled,
-            globalVolume: this.volume,
-            loadedSounds: this.sounds.size,
-            totalSounds: 4,
-            audioContextState: this.audioContext?.state || 'suspended'
-        };
-    }
-
-    stopAllSounds(): void {
-        // 简单实现，实际上oscillator会自动停止
-    }
-
-    async reloadSound(sound: SoundEvent): Promise<void> {
-        // 简单实现，不需要重新加载
-    }
-
-    destroy(): void {
-        if (this.audioContext) {
-            this.audioContext.close();
-            this.audioContext = null;
-            this.gainNode = null;
-        }
-        this.sounds.clear();
-    }
-}
-
+// Hook 选项接口
 interface UseAudioManagerOptions {
     autoInitialize?: boolean;
     globalVolume?: number;
     enabled?: boolean;
 }
 
+// Hook 返回值接口
 interface UseAudioManagerReturn {
-    audioManager: SimpleAudioManager | null;
+    audioManager: AudioManager | null;
     isInitialized: boolean;
     isEnabled: boolean;
     globalVolume: number;
@@ -141,8 +28,14 @@ interface UseAudioManagerReturn {
     stopAllSounds: () => void;
     reloadSound: (sound: SoundEvent) => Promise<void>;
     destroy: () => void;
+    testAllSounds: () => Promise<void>;
+    testSound: (sound: SoundEvent) => Promise<boolean>;
+    testPlaySound: (sound: SoundEvent) => void;
+    getStats: () => any;
+    getDebugInfo: () => any;
 }
 
+// 主要的音频管理 Hook
 export function useAudioManager(options: UseAudioManagerOptions = {}): UseAudioManagerReturn {
     const {
         autoInitialize = true,
@@ -155,13 +48,13 @@ export function useAudioManager(options: UseAudioManagerOptions = {}): UseAudioM
     const [globalVolume, setGlobalVolumeState] = useState(initialGlobalVolume);
     const [stats, setStats] = useState<any>(null);
 
-    const audioManagerRef = useRef<SimpleAudioManager | null>(null);
+    const audioManagerRef = useRef<AudioManager | null>(null);
     const isMountedRef = useRef(true);
 
     // 获取 AudioManager 实例
     const getAudioManager = useCallback(() => {
         if (!audioManagerRef.current) {
-            audioManagerRef.current = SimpleAudioManager.getInstance();
+            audioManagerRef.current = AudioManager.getInstance();
         }
         return audioManagerRef.current;
     }, []);
@@ -171,6 +64,7 @@ export function useAudioManager(options: UseAudioManagerOptions = {}): UseAudioM
         if (isInitialized) return;
 
         try {
+            console.log('开始初始化音频管理器...');
             const manager = getAudioManager();
             await manager.initialize();
             
@@ -179,10 +73,10 @@ export function useAudioManager(options: UseAudioManagerOptions = {}): UseAudioM
                 setIsEnabled(manager.isAudioEnabled());
                 setStats(manager.getStats());
                 
-                console.log('音频管理器初始化成功');
+                console.log('✅ 音频管理器初始化成功');
             }
         } catch (error) {
-            console.error('音频管理器初始化失败:', error);
+            console.error('❌ 音频管理器初始化失败:', error);
             if (isMountedRef.current) {
                 setIsInitialized(false);
             }
@@ -195,21 +89,22 @@ export function useAudioManager(options: UseAudioManagerOptions = {}): UseAudioM
         options: { volume?: number; delay?: number } = {}
     ) => {
         if (!isInitialized || !audioManagerRef.current) {
-            console.warn('音频管理器未初始化');
+            console.warn('音频管理器未初始化，无法播放音效:', sound);
             return;
         }
 
         try {
-            console.log(`尝试播放音效: ${sound}`);
+            console.log(`🎵 播放音效: ${sound}`, options);
             audioManagerRef.current.playSound(sound, options);
         } catch (error) {
             console.error(`播放音效失败: ${sound}`, error);
         }
     }, [isInitialized]);
 
-    // 设置启用状态
+    // 设置音频启用状态
     const setEnabled = useCallback((enabled: boolean) => {
         if (!audioManagerRef.current) {
+            console.warn('音频管理器未初始化');
             return;
         }
 
@@ -217,7 +112,9 @@ export function useAudioManager(options: UseAudioManagerOptions = {}): UseAudioM
             audioManagerRef.current.setEnabled(enabled);
             setIsEnabled(enabled);
             
+            // 保存到本地存储
             localStorage.setItem('audioEnabled', JSON.stringify(enabled));
+            console.log(`音频${enabled ? '已启用' : '已禁用'}`);
         } catch (error) {
             console.error('设置音频启用状态失败:', error);
         }
@@ -226,6 +123,7 @@ export function useAudioManager(options: UseAudioManagerOptions = {}): UseAudioM
     // 设置全局音量
     const setGlobalVolume = useCallback((volume: number) => {
         if (!audioManagerRef.current) {
+            console.warn('音频管理器未初始化');
             return;
         }
 
@@ -234,7 +132,9 @@ export function useAudioManager(options: UseAudioManagerOptions = {}): UseAudioM
             audioManagerRef.current.setGlobalVolume(clampedVolume);
             setGlobalVolumeState(clampedVolume);
             
+            // 保存到本地存储
             localStorage.setItem('audioVolume', JSON.stringify(clampedVolume));
+            console.log(`全局音量设置为: ${Math.round(clampedVolume * 100)}%`);
         } catch (error) {
             console.error('设置全局音量失败:', error);
         }
@@ -243,26 +143,31 @@ export function useAudioManager(options: UseAudioManagerOptions = {}): UseAudioM
     // 停止所有音效
     const stopAllSounds = useCallback(() => {
         if (!audioManagerRef.current) {
+            console.warn('音频管理器未初始化');
             return;
         }
 
         try {
             audioManagerRef.current.stopAllSounds();
+            console.log('已停止所有音效');
         } catch (error) {
             console.error('停止所有音效失败:', error);
         }
     }, []);
 
-    // 重新加载音效
+    // 重新加载单个音效
     const reloadSound = useCallback(async (sound: SoundEvent) => {
         if (!audioManagerRef.current) {
+            console.warn('音频管理器未初始化');
             return;
         }
 
         try {
+            console.log(`🔄 重新加载音效: ${sound}`);
             await audioManagerRef.current.reloadSound(sound);
+            console.log(`✅ 音效重新加载成功: ${sound}`);
         } catch (error) {
-            console.error(`重新加载音效失败: ${sound}`, error);
+            console.error(`❌ 重新加载音效失败: ${sound}`, error);
             throw error;
         }
     }, []);
@@ -276,6 +181,41 @@ export function useAudioManager(options: UseAudioManagerOptions = {}): UseAudioM
         
         setIsInitialized(false);
         setStats(null);
+        console.log('音频管理器已销毁');
+    }, []);
+
+    // 测试所有音频文件
+    const testAllSounds = useCallback(async () => {
+        const manager = getAudioManager();
+        await manager.testAllSounds();
+    }, [getAudioManager]);
+
+    // 测试单个音效文件
+    const testSound = useCallback(async (sound: SoundEvent): Promise<boolean> => {
+        const manager = getAudioManager();
+        return await manager.testSound(sound);
+    }, [getAudioManager]);
+
+    // 播放测试音效
+    const testPlaySound = useCallback((sound: SoundEvent) => {
+        const manager = getAudioManager();
+        manager.testPlaySound(sound);
+    }, [getAudioManager]);
+
+    // 获取统计信息
+    const getStats = useCallback(() => {
+        if (!audioManagerRef.current) {
+            return null;
+        }
+        return audioManagerRef.current.getStats();
+    }, []);
+
+    // 获取调试信息
+    const getDebugInfo = useCallback(() => {
+        if (!audioManagerRef.current) {
+            return null;
+        }
+        return audioManagerRef.current.getDebugInfo();
     }, []);
 
     // 从本地存储恢复设置
@@ -290,7 +230,7 @@ export function useAudioManager(options: UseAudioManagerOptions = {}): UseAudioM
             const savedVolume = localStorage.getItem('audioVolume');
             if (savedVolume !== null) {
                 const volume = JSON.parse(savedVolume);
-                setGlobalVolumeState(volume);
+                setGlobalVolumeState(Math.max(0, Math.min(1, volume)));
             }
         } catch (error) {
             console.warn('恢复音频设置失败:', error);
@@ -309,8 +249,24 @@ export function useAudioManager(options: UseAudioManagerOptions = {}): UseAudioM
         if (isInitialized && audioManagerRef.current) {
             audioManagerRef.current.setEnabled(isEnabled);
             audioManagerRef.current.setGlobalVolume(globalVolume);
+            
+            // 更新统计信息
+            setStats(audioManagerRef.current.getStats());
         }
     }, [isInitialized, isEnabled, globalVolume]);
+
+    // 定期更新统计信息
+    useEffect(() => {
+        if (!isInitialized) return;
+
+        const interval = setInterval(() => {
+            if (audioManagerRef.current) {
+                setStats(audioManagerRef.current.getStats());
+            }
+        }, 5000); // 每5秒更新一次
+
+        return () => clearInterval(interval);
+    }, [isInitialized]);
 
     // 清理
     useEffect(() => {
@@ -331,7 +287,12 @@ export function useAudioManager(options: UseAudioManagerOptions = {}): UseAudioM
         setGlobalVolume,
         stopAllSounds,
         reloadSound,
-        destroy
+        destroy,
+        testAllSounds,
+        testSound,
+        testPlaySound,
+        getStats,
+        getDebugInfo
     };
 }
 
@@ -342,6 +303,46 @@ export function usePlaySound() {
     return useCallback((sound: SoundEvent, options?: { volume?: number; delay?: number }) => {
         if (isInitialized) {
             playSound(sound, options);
+        } else {
+            console.warn('音频管理器未初始化，无法播放音效:', sound);
         }
     }, [playSound, isInitialized]);
+}
+
+// 音频状态监听 Hook
+export function useAudioStatus() {
+    const { isInitialized, isEnabled, globalVolume, stats } = useAudioManager({ autoInitialize: false });
+
+    return {
+        isInitialized,
+        isEnabled,
+        globalVolume,
+        stats
+    };
+}
+
+// 音频测试 Hook（仅用于开发环境）
+export function useAudioTesting() {
+    const { testAllSounds, testSound, testPlaySound, getDebugInfo } = useAudioManager();
+
+    const runFullTest = useCallback(async () => {
+        console.log('🔍 开始完整音频测试...');
+        
+        // 测试所有文件
+        await testAllSounds();
+        
+        // 获取详细信息
+        const debugInfo = getDebugInfo();
+        console.log('📊 音频系统详细信息:', debugInfo);
+        
+        return debugInfo;
+    }, [testAllSounds, getDebugInfo]);
+
+    return {
+        testAllSounds,
+        testSound,
+        testPlaySound,
+        getDebugInfo,
+        runFullTest
+    };
 }

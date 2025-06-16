@@ -30,7 +30,7 @@ import { Sidebar } from '../components/room/Sidebar';
 
 // Hooks
 import { useImagePreview } from '../hooks/useImagePreview';
-import { useAudioManager, SoundEvent } from '../hooks/useAudioManager';
+import { useAudioManager, useAudioTesting, SoundEvent } from '../hooks/useAudioManager';
 import { useChat } from '../hooks/useChat';
 
 // Types
@@ -126,7 +126,7 @@ function RoomInnerContent({
 
     // 音频管理
     const { playSound } = useAudioManager({
-        autoInitialize: true,
+        autoInitialize: false,
         globalVolume: 0.7,
         enabled: true
     });
@@ -172,7 +172,7 @@ function RoomInnerContent({
     useEffect(() => {
         if (process.env.NODE_ENV === 'development') {
             // 添加全局测试函数
-            (window as any).audioDebug = {
+            (window as any).roomAudioDebug = {
                 playSound: (name: string) => playSound(name as SoundEvent)
             };
             
@@ -444,6 +444,21 @@ function RoomPageContent() {
     const username = searchParams.get('username');
     const password = searchParams.get('password');
 
+    // 添加音频管理器 Hook - 在状态管理之前添加
+    const { 
+        playSound, 
+        isInitialized: audioInitialized,
+        getDebugInfo,
+        testAllSounds 
+    } = useAudioManager({
+        autoInitialize: true,
+        globalVolume: 0.7,
+        enabled: true
+    });
+
+    // 开发环境下的音频测试
+    const { runFullTest } = useAudioTesting();
+
     // 状态管理 - 修复UIState初始化
     const [roomState, setRoomState] = useState<RoomState>({
         isConnecting: false,
@@ -590,6 +605,27 @@ function RoomPageContent() {
             }
         }
     }, [validateParams, getAccessToken, roomName]);
+
+    // 添加调试功能
+    useEffect(() => {
+        if (process.env.NODE_ENV === 'development') {
+            // 添加全局测试函数
+            (window as any).audioDebug = {
+                testAll: testAllSounds,
+                playTest: (name: string) => playSound(name as SoundEvent, { volume: 0.5 }),
+                getDebug: getDebugInfo,
+                runFullTest: runFullTest,
+                initialized: audioInitialized
+            };
+            
+            console.log('🎵 音频调试功能已启用:');
+            console.log('  audioDebug.testAll() - 测试所有音频文件');
+            console.log('  audioDebug.playTest("user-join") - 播放测试');
+            console.log('  audioDebug.getDebug() - 获取调试信息');
+            console.log('  audioDebug.runFullTest() - 运行完整测试');
+            console.log('  audioDebug.initialized - 查看初始化状态');
+        }
+    }, [testAllSounds, playSound, getDebugInfo, runFullTest, audioInitialized]);
 
     // 添加通知
     const addNotification = useCallback((notification: Omit<Notification, 'id' | 'timestamp'>) => {

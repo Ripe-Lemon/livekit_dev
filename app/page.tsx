@@ -22,7 +22,7 @@ interface RecentRoom {
 
 interface RoomInfo {
     name: string;
-    participants: number;
+    numParticipants: number;
     isActive: boolean;
     createdAt: Date;
     maxParticipants: number;
@@ -496,13 +496,13 @@ export default function HomePage() {
                                                     <div>
                                                         <p className="text-white font-medium">{room.name}</p>
                                                         <div className="flex items-center space-x-4 text-xs text-gray-400">
-                                                            <span>{room.participants} 人在线</span>
-                                                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded ${
-                                                                room.isActive 
-                                                                    ? 'bg-green-900 text-green-300' 
-                                                                    : 'bg-red-900 text-red-300'
+                                                            <span>{room.numParticipants} 人在线</span>
+                                                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs ${
+                                                                room.numParticipants > 0
+                                                                    ? 'bg-green-900 text-green-300'
+                                                                    : 'bg-gray-700 text-gray-400' // '空闲'状态颜色也可以调整
                                                             }`}>
-                                                                {room.isActive ? '活跃' : '空闲'}
+                                                            {room.numParticipants > 0 ? '活跃' : '空闲'}
                                                             </span>
                                                         </div>
                                                     </div>

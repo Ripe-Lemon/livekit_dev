@@ -121,7 +121,7 @@ function RoomInnerContent({
         enableConnection: true,          // 保留连接状态音效
         messageVolume: 0.6,
         controlVolume: 0.7
-    });
+    },{ isOpen: uiState.showChat });
 
     // 在 LiveKit Room 内部使用聊天 Hook
     const { 
@@ -135,8 +135,18 @@ function RoomInnerContent({
     } = useChat({
         maxMessages: 100,
         enableSounds: false, // 关闭 useChat 内置音效，使用 useAudioNotifications
-        autoScrollToBottom: true
+        autoScrollToBottom: true,
+        isChatOpen: uiState.showChat
     });
+
+    // 修改聊天切换处理函数
+    const handleToggleChat = useCallback(() => {
+        // 如果聊天栏即将打开，立即清除未读计数
+        if (!uiState.showChat) {
+            markAsRead();
+        }
+        toggleUIPanel('showChat');
+    }, [uiState.showChat, toggleUIPanel, markAsRead]);
 
     // 音频管理
     const { playSound } = useAudioManager({
@@ -270,7 +280,7 @@ function RoomInnerContent({
                 
                 {/* 自定义控制栏 - 移动端优化 */}
                 <ControlBar
-                    onToggleChat={() => toggleUIPanel('showChat')}
+                    onToggleChat={handleToggleChat}
                     onToggleParticipants={() => toggleUIPanel('sidebarCollapsed')}
                     onToggleSettings={() => toggleUIPanel('showSettings')}
                     onToggleFullscreen={toggleFullscreen}
@@ -425,7 +435,7 @@ function RoomInnerContent({
                     />
                     <FloatingChat 
                         setPreviewImage={(src) => src && openPreview(src)}
-                        onClose={() => toggleUIPanel('showChat')}
+                        onClose={handleToggleChat}
                         chatState={chatState}
                         onSendMessage={sendTextMessage}
                         onSendImage={sendImageMessage}

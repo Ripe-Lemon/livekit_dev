@@ -32,7 +32,8 @@ function DeviceDropdown({
     onToggle,
     type,
     isLoading = false,
-    error = null
+    error = null,
+    hasPermission = true
 }: {
     devices: any[];
     currentDeviceId?: string;
@@ -42,6 +43,7 @@ function DeviceDropdown({
     type: 'microphone' | 'camera';
     isLoading?: boolean;
     error?: string | null;
+    hasPermission?: boolean;
 }) {
     const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -61,6 +63,9 @@ function DeviceDropdown({
         };
     }, [isOpen, onToggle]);
 
+    // 确定是否显示加载状态
+    const showLoading = isLoading || (!hasPermission && devices.length === 0);
+
     return (
         <div className="relative" ref={dropdownRef}>
             <button
@@ -68,7 +73,7 @@ function DeviceDropdown({
                 className="flex items-center justify-center w-4 h-4 text-white/70 hover:text-white transition-colors"
                 title={`选择${type === 'microphone' ? '麦克风' : '摄像头'}设备`}
             >
-                {isLoading ? (
+                {showLoading ? (
                     <div className="animate-spin h-3 w-3 border border-white border-t-transparent rounded-full" />
                 ) : (
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -78,43 +83,83 @@ function DeviceDropdown({
             </button>
             
             {isOpen && (
-                <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-800 border border-gray-600 rounded-lg shadow-lg min-w-48 z-50">
+                <div 
+                    className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-gray-800 border border-gray-600 rounded-lg shadow-lg min-w-48 z-[9999]"
+                    style={{ zIndex: 9999 }}
+                >
                     <div className="py-1 max-h-48 overflow-y-auto">
-                        {error ? (
+                        {!hasPermission ? (
+                            <div className="px-3 py-2 text-sm text-yellow-400">
+                                <div className="flex items-center gap-2">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                        <line x1="12" y1="9" x2="12" y2="13"/>
+                                        <line x1="12" y1="17" x2="12.01" y2="17"/>
+                                    </svg>
+                                    需要{type === 'microphone' ? '麦克风' : '摄像头'}权限
+                                </div>
+                                <button 
+                                    onClick={() => window.location.reload()}
+                                    className="mt-2 text-blue-400 hover:text-blue-300 underline"
+                                >
+                                    刷新页面重新授权
+                                </button>
+                            </div>
+                        ) : error ? (
                             <div className="px-3 py-2 text-sm text-red-400">
-                                {error}
+                                <div className="flex items-center gap-2">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <line x1="15" y1="9" x2="9" y2="15"/>
+                                        <line x1="9" y1="9" x2="15" y2="15"/>
+                                    </svg>
+                                    {error}
+                                </div>
                             </div>
                         ) : devices.length === 0 ? (
                             <div className="px-3 py-2 text-sm text-gray-400">
-                                {isLoading ? '加载设备中...' : `未找到${type === 'microphone' ? '麦克风' : '摄像头'}设备`}
+                                <div className="flex items-center gap-2">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <path d="M16 16s-1.5-2-4-2-4 2-4 2"/>
+                                        <line x1="9" y1="9" x2="9.01" y2="9"/>
+                                        <line x1="15" y1="9" x2="15.01" y2="9"/>
+                                    </svg>
+                                    {showLoading ? '正在加载设备...' : `未找到${type === 'microphone' ? '麦克风' : '摄像头'}设备`}
+                                </div>
                             </div>
                         ) : (
-                            devices.map((device) => (
-                                <button
-                                    key={device.deviceId}
-                                    onClick={() => {
-                                        onDeviceChange(device.deviceId);
-                                        onToggle();
-                                    }}
-                                    className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-700 transition-colors ${
-                                        currentDeviceId === device.deviceId 
-                                            ? 'bg-blue-600 text-white' 
-                                            : 'text-gray-200'
-                                    }`}
-                                    title={device.label}
-                                >
-                                    <div className="truncate">
-                                        {device.label || `${type === 'microphone' ? '麦克风' : '摄像头'} ${device.deviceId.substring(0, 8)}`}
-                                    </div>
-                                    {currentDeviceId === device.deviceId && (
-                                        <div className="text-xs text-blue-200 mt-1">当前选择</div>
-                                    )}
-                                </button>
-                            ))
-                        )}
-                        
-                        {devices.length > 0 && (
                             <>
+                                {devices.map((device) => (
+                                    <button
+                                        key={device.deviceId}
+                                        onClick={() => {
+                                            onDeviceChange(device.deviceId);
+                                            onToggle();
+                                        }}
+                                        className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-700 transition-colors ${
+                                            currentDeviceId === device.deviceId 
+                                                ? 'bg-blue-600 text-white' 
+                                                : 'text-gray-200'
+                                        }`}
+                                        title={device.label}
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <div className="truncate flex-1">
+                                                {device.label || `${type === 'microphone' ? '麦克风' : '摄像头'} ${device.deviceId.substring(0, 8)}`}
+                                            </div>
+                                            {currentDeviceId === device.deviceId && (
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                    <polyline points="20,6 9,17 4,12"/>
+                                                </svg>
+                                            )}
+                                        </div>
+                                        {currentDeviceId === device.deviceId && (
+                                            <div className="text-xs text-blue-200 mt-1">当前选择</div>
+                                        )}
+                                    </button>
+                                ))}
+                                
                                 <div className="border-t border-gray-600 my-1" />
                                 <button
                                     onClick={() => {
@@ -280,9 +325,9 @@ export function ControlBar({
         requestPermissions
     } = useDeviceManager({
         autoRefresh: true,
-        refreshInterval: 10000, // 10秒刷新一次
+        refreshInterval: 5000, // 5秒刷新一次
         requestPermissions: true,
-        enableAudioOutput: false, // 在控制栏中不需要音频输出设备选择
+        enableAudioOutput: false,
         storageKey: 'livekit_controlbar_devices'
     });
     
@@ -326,15 +371,34 @@ export function ControlBar({
             
             console.log('设备状态同步:', { micEnabled, cameraEnabled, screenSharing });
         }
-    }, [localParticipant, localParticipant?.isMicrophoneEnabled, localParticipant?.isCameraEnabled, localParticipant?.isScreenShareEnabled]);
+    }, [localParticipant?.isMicrophoneEnabled, localParticipant?.isCameraEnabled, localParticipant?.isScreenShareEnabled]);
 
-    // 初始化时请求设备权限
+    // 调试设备信息
     useEffect(() => {
-        if (isSupported && !permissions.audio && !permissions.video) {
-            console.log('请求设备权限...');
-            requestPermissions().catch(console.error);
-        }
-    }, [isSupported, permissions, requestPermissions]);
+        console.log('🎤 音频设备:', devices.audioinput);
+        console.log('📹 视频设备:', devices.videoinput);
+        console.log('🔒 权限状态:', permissions);
+        console.log('⚡ 是否支持:', isSupported);
+        console.log('🔄 加载中:', devicesLoading);
+        console.log('❌ 错误:', devicesError);
+    }, [devices, permissions, isSupported, devicesLoading, devicesError]);
+
+    // 初始化时请求设备权限并强制刷新设备列表
+    useEffect(() => {
+        const initializeDevices = async () => {
+            if (isSupported) {
+                try {
+                    console.log('🚀 初始化设备管理...');
+                    await requestPermissions();
+                    await refreshDevices();
+                } catch (error) {
+                    console.error('❌ 初始化设备失败:', error);
+                }
+            }
+        };
+
+        initializeDevices();
+    }, [isSupported, requestPermissions, refreshDevices]);
 
     // 自动隐藏控制栏（全屏模式）
     useEffect(() => {
@@ -388,7 +452,7 @@ export function ControlBar({
         } finally {
             setIsTogglingMic(false);
         }
-    }, [localParticipant, playMuteSound, playUnmuteSound, playErrorSound, isTogglingMic]);
+    }, [localParticipant, playMuteSound, playUnmuteSound, playErrorSound, isTogglingMic, room]);
 
     // 切换摄像头
     const toggleCamera = useCallback(async () => {
@@ -415,7 +479,7 @@ export function ControlBar({
         } finally {
             setIsTogglingCamera(false);
         }
-    }, [localParticipant, playCameraOnSound, playCameraOffSound, playErrorSound, isTogglingCamera]);
+    }, [localParticipant, playCameraOnSound, playCameraOffSound, playErrorSound, isTogglingCamera, room]);
 
     // 切换屏幕共享
     const toggleScreenShare = useCallback(async () => {
@@ -446,12 +510,12 @@ export function ControlBar({
         } finally {
             setIsTogglingScreen(false);
         }
-    }, [localParticipant, playScreenShareStartSound, playScreenShareStopSound, playErrorSound, isTogglingScreen]);
+    }, [localParticipant, playScreenShareStartSound, playScreenShareStopSound, playErrorSound, isTogglingScreen, room]);
 
     // 切换音频设备
     const handleAudioDeviceChange = useCallback(async (deviceId: string) => {
         try {
-            console.log('切换音频设备到:', deviceId);
+            console.log('🎤 切换音频设备到:', deviceId);
             
             // 使用设备管理器选择设备
             selectDevice('audioinput', deviceId);
@@ -471,7 +535,7 @@ export function ControlBar({
     // 切换视频设备
     const handleVideoDeviceChange = useCallback(async (deviceId: string) => {
         try {
-            console.log('切换视频设备到:', deviceId);
+            console.log('📹 切换视频设备到:', deviceId);
             
             // 使用设备管理器选择设备
             selectDevice('videoinput', deviceId);
@@ -492,13 +556,17 @@ export function ControlBar({
     const currentAudioDevice = getSelectedDeviceInfo('audioinput');
     const currentVideoDevice = getSelectedDeviceInfo('videoinput');
 
+    // 检查是否有设备权限
+    const hasAudioPermission = permissions.audio;
+    const hasVideoPermission = permissions.video;
+
     return (
         <div className={`
             fixed bottom-4 left-1/2 transform -translate-x-1/2
             flex items-center gap-2 px-4 py-3 
             bg-gray-800/90 backdrop-blur-sm rounded-xl
             border border-gray-600/50 shadow-lg
-            transition-all duration-300
+            transition-all duration-300 z-50
             ${isFullscreen && !isControlsVisible ? 'opacity-0 pointer-events-none' : 'opacity-100'}
             ${className}
         `}>
@@ -535,14 +603,15 @@ export function ControlBar({
                 }
             >
                 <DeviceDropdown
-                    devices={devices.audioinput}
+                    devices={devices.audioinput || []}
                     currentDeviceId={currentAudioDevice?.deviceId}
                     onDeviceChange={handleAudioDeviceChange}
                     isOpen={showAudioDevices}
                     onToggle={() => setShowAudioDevices(!showAudioDevices)}
                     type="microphone"
                     isLoading={devicesLoading}
-                    error={devicesError && !permissions.audio ? '需要麦克风权限' : devicesError}
+                    error={devicesError}
+                    hasPermission={hasAudioPermission}
                 />
             </ControlButton>
 
@@ -574,14 +643,15 @@ export function ControlBar({
                 }
             >
                 <DeviceDropdown
-                    devices={devices.videoinput}
+                    devices={devices.videoinput || []}
                     currentDeviceId={currentVideoDevice?.deviceId}
                     onDeviceChange={handleVideoDeviceChange}
                     isOpen={showVideoDevices}
                     onToggle={() => setShowVideoDevices(!showVideoDevices)}
                     type="camera"
                     isLoading={devicesLoading}
-                    error={devicesError && !permissions.video ? '需要摄像头权限' : devicesError}
+                    error={devicesError}
+                    hasPermission={hasVideoPermission}
                 />
             </ControlButton>
 

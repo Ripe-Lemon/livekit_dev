@@ -19,6 +19,7 @@ interface ChatContainerProps {
     showTypingIndicator?: boolean;
     isLoading?: boolean;
     error?: string | null;
+    currentUser?: string;
 }
 
 const ChatContainer: React.FC<ChatContainerProps> = ({
@@ -33,7 +34,8 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     maxHeight = 'h-full',
     showTypingIndicator = false,
     isLoading = false,
-    error = null
+    error = null,
+    currentUser = '你'
 }) => {
     const [isAtBottom, setIsAtBottom] = useState(true);
     const [showScrollButton, setShowScrollButton] = useState(false);
@@ -108,12 +110,13 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         onImagePreview?.(src);
     }, [onImagePreview]);
 
+    // 修复回调函数类型
     const handleRetryMessage = useCallback((messageId: string) => {
-        onRetryMessage?.(messageId);
+        return () => onRetryMessage?.(messageId);
     }, [onRetryMessage]);
 
     const handleDeleteMessage = useCallback((messageId: string) => {
-        onDeleteMessage?.(messageId);
+        return () => onDeleteMessage?.(messageId);
     }, [onDeleteMessage]);
 
     return (
@@ -166,10 +169,10 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
                         <MessageItem
                             key={message.id}
                             message={message}
-                            isOwn={message.sender === 'current-user'} // You may need to adjust this logic based on your user identification
+                            currentUser={currentUser}
                             onImageClick={handleImageClick}
-                            onRetry={handleRetryMessage}
-                            onDelete={handleDeleteMessage}
+                            onRetry={handleRetryMessage(message.id)}
+                            onDelete={handleDeleteMessage(message.id)}
                         />
                     ))}
 

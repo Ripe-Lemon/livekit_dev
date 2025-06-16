@@ -34,6 +34,10 @@ interface DeviceManagerState {
     isLoading: boolean;
     error: string | null;
     isSupported: boolean;
+    permissionRequested: {
+        audio: boolean;
+        video: boolean;
+    };
 }
 
 interface UseDeviceManagerOptions {
@@ -56,8 +60,8 @@ interface DeviceTestResult {
 
 // 常量
 const DEFAULT_STORAGE_KEY = 'livekit_selected_devices';
-const DEFAULT_REFRESH_INTERVAL = 5000; // 5秒
-const DEVICE_CHANGE_DEBOUNCE = 500; // 500ms
+const DEFAULT_REFRESH_INTERVAL = 10000; // 增加到10秒
+const DEVICE_CHANGE_DEBOUNCE = 300; // 减少到300ms
 
 // 设备类型映射
 const DEVICE_KIND_MAP: Record<MediaDeviceKind, keyof DeviceState> = {
@@ -68,10 +72,10 @@ const DEVICE_KIND_MAP: Record<MediaDeviceKind, keyof DeviceState> = {
 
 export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
     const {
-        autoRefresh = true,
+        autoRefresh = false, // 默认关闭自动刷新
         refreshInterval = DEFAULT_REFRESH_INTERVAL,
-        requestPermissions: shouldRequestPermissions = true,
-        enableAudioOutput = true,
+        requestPermissions: shouldRequestPermissions = false, // 默认不自动请求权限
+        enableAudioOutput = false, // 默认关闭音频输出
         storageKey = DEFAULT_STORAGE_KEY
     } = options;
 
@@ -89,14 +93,22 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
         },
         isLoading: false,
         error: null,
-        isSupported: typeof navigator !== 'undefined' && !!navigator.mediaDevices
+        isSupported: typeof navigator !== 'undefined' && !!navigator.mediaDevices,
+        permissionRequested: {
+            audio: false,
+            video: false
+        }
     });
 
     // Refs
     const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-    const permissionRequestRef = useRef<Promise<void> | null>(null);
+    const permissionRequestRef = useRef<{
+        audio?: Promise<boolean>;
+        video?: Promise<boolean>;
+    }>({});
     const isMountedRef = useRef(true);
+    const lastRefreshRef = useRef<number>(0);
 
     // 检查浏览器支持
     const checkSupport = useCallback((): boolean => {
@@ -133,60 +145,101 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
         }
     }, [storageKey]);
 
-    // 请求媒体权限
-    const requestPermissions = useCallback(async (): Promise<DevicePermissions> => {
+    // 请求单个类型的权限
+    const requestSinglePermission = useCallback(async (type: 'audio' | 'video'): Promise<boolean> => {
         if (!state.isSupported) {
-            throw new Error('浏览器不支持媒体设备API');
+            console.warn(`浏览器不支持${type}权限请求`);
+            return false;
         }
 
         // 避免重复请求
-        if (permissionRequestRef.current) {
-            await permissionRequestRef.current;
-            return state.permissions;
+        if (permissionRequestRef.current[type]) {
+            return await permissionRequestRef.current[type]!;
         }
 
-        const requestPromise = (async () => {
-            const permissions: DevicePermissions = { audio: false, video: false };
-
+        const requestPromise = (async (): Promise<boolean> => {
             try {
-                // 请求音频权限
-                const audioStream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: true, 
-                    video: false 
+                console.log(`🎯 请求${type}权限...`);
+                
+                const constraints: MediaStreamConstraints = {};
+                if (type === 'audio') {
+                    constraints.audio = {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    };
+                } else {
+                    constraints.video = {
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                        frameRate: { ideal: 30 }
+                    };
+                }
+
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                
+                // 立即停止流
+                stream.getTracks().forEach(track => {
+                    track.stop();
+                    console.log(`✅ ${type}权限获取成功，轨道已停止`);
                 });
-                permissions.audio = true;
-                audioStream.getTracks().forEach(track => track.stop());
+
+                if (isMountedRef.current) {
+                    setState(prev => ({
+                        ...prev,
+                        permissions: {
+                            ...prev.permissions,
+                            [type]: true
+                        },
+                        permissionRequested: {
+                            ...prev.permissionRequested,
+                            [type]: true
+                        }
+                    }));
+                }
+
+                return true;
             } catch (error) {
-                console.warn('音频权限请求失败:', error);
-            }
+                console.warn(`❌ ${type}权限请求失败:`, error);
+                
+                if (isMountedRef.current) {
+                    setState(prev => ({
+                        ...prev,
+                        permissions: {
+                            ...prev.permissions,
+                            [type]: false
+                        },
+                        permissionRequested: {
+                            ...prev.permissionRequested,
+                            [type]: true
+                        }
+                    }));
+                }
 
-            try {
-                // 请求视频权限
-                const videoStream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: false, 
-                    video: true 
-                });
-                permissions.video = true;
-                videoStream.getTracks().forEach(track => track.stop());
-            } catch (error) {
-                console.warn('视频权限请求失败:', error);
+                return false;
             }
-
-            if (isMountedRef.current) {
-                setState(prev => ({ ...prev, permissions }));
-            }
-
-            return permissions;
         })();
 
-        permissionRequestRef.current = requestPromise.then(() => {});
+        permissionRequestRef.current[type] = requestPromise;
         
         try {
             return await requestPromise;
         } finally {
-            permissionRequestRef.current = null;
+            delete permissionRequestRef.current[type];
         }
-    }, [state.isSupported, state.permissions]);
+    }, [state.isSupported]);
+
+    // 请求媒体权限
+    const requestPermissions = useCallback(async (types?: ('audio' | 'video')[]): Promise<DevicePermissions> => {
+        const typesToRequest = types || ['audio', 'video'];
+        const results: DevicePermissions = { audio: false, video: false };
+
+        for (const type of typesToRequest) {
+            results[type] = await requestSinglePermission(type);
+        }
+
+        return results;
+    }, [requestSinglePermission]);
 
     // 枚举设备
     const enumerateDevices = useCallback(async (): Promise<DeviceState> => {
@@ -222,6 +275,7 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
                 deviceState.audiooutput = [];
             }
 
+            console.log('📱 设备枚举结果:', deviceState);
             return deviceState;
         } catch (error) {
             console.error('设备枚举失败:', error);
@@ -231,6 +285,14 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
 
     // 刷新设备列表
     const refreshDevices = useCallback(async (forcePermissionRequest = false): Promise<void> => {
+        // 防止频繁刷新
+        const now = Date.now();
+        if (now - lastRefreshRef.current < 1000) {
+            console.log('⏸️ 跳过频繁刷新');
+            return;
+        }
+        lastRefreshRef.current = now;
+
         if (!state.isSupported) {
             setState(prev => ({ 
                 ...prev, 
@@ -257,6 +319,7 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
                     isLoading: false,
                     error: null
                 }));
+                console.log('✅ 设备列表刷新成功');
             }
         } catch (error) {
             console.error('刷新设备失败:', error);
@@ -269,13 +332,15 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
                 }));
             }
         }
-    }, [state.isSupported, requestPermissions, enumerateDevices]);
+    }, [state.isSupported, requestPermissions, enumerateDevices, shouldRequestPermissions]);
 
     // 选择设备
     const selectDevice = useCallback((
         deviceType: keyof SelectedDevices, 
         deviceId: string | null
     ): void => {
+        console.log(`🔄 选择${deviceType}设备:`, deviceId);
+        
         const newSelectedDevices = {
             ...state.selectedDevices,
             [deviceType]: deviceId || undefined
@@ -421,6 +486,8 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
         if (!state.isSupported) return;
 
         const handleDeviceChange = () => {
+            console.log('🔄 检测到设备变化');
+            
             // 防抖刷新
             if (debounceTimeoutRef.current) {
                 clearTimeout(debounceTimeoutRef.current);
@@ -479,8 +546,8 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
             selectedDevices: savedDevices
         }));
 
-        // 初始刷新
-        refreshDevices(shouldRequestPermissions);
+        // 初始枚举设备（不请求权限）
+        refreshDevices(false);
 
         return () => {
             isMountedRef.current = false;
@@ -493,7 +560,7 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
                 clearTimeout(debounceTimeoutRef.current);
             }
         };
-    }, [checkSupport, loadSelectedDevices, refreshDevices, requestPermissions]);
+    }, [checkSupport, loadSelectedDevices, refreshDevices]);
 
     return {
         // 状态
@@ -503,6 +570,7 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
         isLoading: state.isLoading,
         error: state.error,
         isSupported: state.isSupported,
+        permissionRequested: state.permissionRequested,
 
         // 方法
         refreshDevices: () => refreshDevices(true),
@@ -512,7 +580,8 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
         getDefaultDevice,
         isDeviceAvailable,
         getDeviceConstraints,
-        requestPermissions: () => requestPermissions()
+        requestPermissions,
+        requestSinglePermission
     };
 }
 

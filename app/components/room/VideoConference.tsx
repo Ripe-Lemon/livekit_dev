@@ -21,7 +21,7 @@ interface VideoConferenceProps {
     maxParticipants?: number;
 }
 
-export default function VideoConference({
+export default function CustomVideoConference({
     className = '',
     layout = 'grid',
     showParticipantNames = true,

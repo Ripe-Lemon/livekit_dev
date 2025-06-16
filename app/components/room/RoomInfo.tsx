@@ -1,244 +1,176 @@
+// filepath: /Users/hotxiang/livekit_dev/app/components/room/RoomInfo.tsx
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { useRoomContext, useParticipants } from '@livekit/components-react';
-import { formatDisplayTime } from '../../utils/chatUtils';
 
 interface RoomInfoProps {
     className?: string;
 }
 
 export default function RoomInfo({ className = '' }: RoomInfoProps) {
-    const room = useRoomContext();
-    const participants = useParticipants();
-    const [connectionTime, setConnectionTime] = useState<Date | null>(null);
-    const [duration, setDuration] = useState<string>('00:00');
-    const [connectionQuality, setConnectionQuality] = useState<'excellent' | 'good' | 'poor' | 'unknown'>('unknown');
+    // 安全地获取 room context
+    let room = null;
+    let participants = [];
+    
+    try {
+        room = useRoomContext();
+        participants = useParticipants();
+    } catch (error) {
+        console.warn('无法获取房间上下文');
+    }
 
-    // 格式化持续时间
-    const formatDuration = (seconds: number): string => {
-        const hours = Math.floor(seconds / 3600);
-        const minutes = Math.floor((seconds % 3600) / 60);
-        const secs = seconds % 60;
+    if (!room) {
+        return (
+            <div className={`p-4 ${className}`}>
+                <div className="text-center text-gray-400">
+                    <p>房间信息不可用</p>
+                </div>
+            </div>
+        );
+    }
 
-        if (hours > 0) {
-            return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-        }
-        return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    };
-
-    // 监听房间连接状态
-    useEffect(() => {
-        if (room.state === 'connected' && !connectionTime) {
-            setConnectionTime(new Date());
-        }
-    }, [room.state, connectionTime]);
-
-    // 更新持续时间
-    useEffect(() => {
-        if (!connectionTime) return;
-
-        const updateDuration = () => {
-            const now = new Date();
-            const diffSeconds = Math.floor((now.getTime() - connectionTime.getTime()) / 1000);
-            setDuration(formatDuration(diffSeconds));
-        };
-
-        updateDuration();
-        const interval = setInterval(updateDuration, 1000);
-
-        return () => clearInterval(interval);
-    }, [connectionTime]);
-
-    // 监听连接质量
-    useEffect(() => {
-        const updateConnectionQuality = async () => {
-            // 这里可以根据实际的连接统计数据来判断质量
-            // 目前使用简单的逻辑
-            if (room.engine) {
-                const serverAddress = await room.engine.getConnectedServerAddress();
-                if (serverAddress) {
-                    // 可以基于 ping、丢包率等数据来判断
-                    setConnectionQuality('good');
-                } else {
-                    setConnectionQuality('unknown');
-                }
-            }
-        };
-
-        updateConnectionQuality();
-        const interval = setInterval(updateConnectionQuality, 5000);
-
-        return () => clearInterval(interval);
-    }, [room]);
-
-    // 获取连接质量颜色
-    const getQualityColor = (quality: typeof connectionQuality) => {
-        switch (quality) {
-            case 'excellent':
-                return 'text-green-400';
-            case 'good':
-                return 'text-yellow-400';
-            case 'poor':
-                return 'text-red-400';
-            default:
-                return 'text-gray-400';
-        }
-    };
-
-    // 获取连接质量图标
-    const getQualityIcon = (quality: typeof connectionQuality) => {
-        const baseClass = "w-4 h-4";
+    const formatUptime = (startTime: Date) => {
+        const now = new Date();
+        const diff = now.getTime() - startTime.getTime();
+        const minutes = Math.floor(diff / 60000);
+        const hours = Math.floor(minutes / 60);
         
-        switch (quality) {
-            case 'excellent':
-                return (
-                    <svg className={`${baseClass} text-green-400`} fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm2 2v8h10V6H5z" clipRule="evenodd"/>
-                        <circle cx="10" cy="10" r="3" fill="currentColor"/>
-                    </svg>
-                );
-            case 'good':
-                return (
-                    <svg className={`${baseClass} text-yellow-400`} fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm2 2v8h10V6H5z" clipRule="evenodd"/>
-                        <circle cx="10" cy="10" r="2" fill="currentColor"/>
-                    </svg>
-                );
-            case 'poor':
-                return (
-                    <svg className={`${baseClass} text-red-400`} fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm2 2v8h10V6H5z" clipRule="evenodd"/>
-                        <circle cx="10" cy="10" r="1" fill="currentColor"/>
-                    </svg>
-                );
-            default:
-                return (
-                    <svg className={`${baseClass} text-gray-400`} fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm2 2v8h10V6H5z" clipRule="evenodd"/>
-                    </svg>
-                );
+        if (hours > 0) {
+            return `${hours}小时${minutes % 60}分钟`;
         }
+        return `${minutes}分钟`;
     };
 
     return (
-        <div className={`flex flex-wrap items-center justify-center gap-4 text-sm text-gray-300 ${className}`}>
-            {/* 房间名称 */}
-            <div className="flex items-center gap-2">
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="text-blue-400"
-                >
-                    <path d="M21 16V8a2 2 0 0 0-1-1.73L12 2L4 6.27A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73L12 22l8-4.27A2 2 0 0 0 21 16z"/>
-                    <polyline points="3.27,6.96 12,12.01 20.73,6.96"/>
-                    <line x1="12" y1="22.08" x2="12" y2="12"/>
-                </svg>
-                <span className="font-medium text-white">
-                    {room.name || '会议室'}
-                </span>
-            </div>
+        <div className={`space-y-4 ${className}`}>
+            <div className="grid grid-cols-2 gap-4">
+                {/* 房间名称 */}
+                <div className="bg-gray-700 p-3 rounded-lg">
+                    <div className="text-sm text-gray-400 mb-1">房间名称</div>
+                    <div className="text-white font-medium">{room.name || '未知房间'}</div>
+                </div>
 
-            {/* 分隔符 */}
-            <div className="h-4 w-px bg-gray-600" />
+                {/* 参与者数量 */}
+                <div className="bg-gray-700 p-3 rounded-lg">
+                    <div className="text-sm text-gray-400 mb-1">参与者</div>
+                    <div className="text-white font-medium">{participants.length} 人</div>
+                </div>
 
-            {/* 参与者数量 */}
-            <div className="flex items-center gap-2">
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="text-green-400"
-                >
-                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
-                    <circle cx="9" cy="7" r="4"/>
-                    <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
-                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                </svg>
-                <span>
-                    {participants.length} 人在线
-                </span>
-            </div>
+                {/* 本地参与者 */}
+                <div className="bg-gray-700 p-3 rounded-lg">
+                    <div className="text-sm text-gray-400 mb-1">你的身份</div>
+                    <div className="text-white font-medium">
+                        {room.localParticipant?.identity || '未知用户'}
+                    </div>
+                </div>
 
-            {/* 分隔符 */}
-            <div className="h-4 w-px bg-gray-600" />
-
-            {/* 持续时间 */}
-            <div className="flex items-center gap-2">
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="text-purple-400"
-                >
-                    <circle cx="12" cy="12" r="10"/>
-                    <polyline points="12,6 12,12 16,14"/>
-                </svg>
-                <span className="font-mono">
-                    {duration}
-                </span>
-            </div>
-
-            {/* 分隔符 */}
-            <div className="h-4 w-px bg-gray-600" />
-
-            {/* 连接状态 */}
-            <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1">
-                    {getQualityIcon(connectionQuality)}
-                    <span className={getQualityColor(connectionQuality)}>
-                        {room.state === 'connected' ? '已连接' : '连接中...'}
-                    </span>
+                {/* 连接状态 */}
+                <div className="bg-gray-700 p-3 rounded-lg">
+                    <div className="text-sm text-gray-400 mb-1">连接状态</div>
+                    <div className="flex items-center">
+                        <div className={`w-2 h-2 rounded-full mr-2 ${
+                            room.state === 'connected' ? 'bg-green-400' : 'bg-red-400'
+                        }`}></div>
+                        <span className="text-white font-medium">
+                            {room.state === 'connected' ? '已连接' : '未连接'}
+                        </span>
+                    </div>
                 </div>
             </div>
 
-            {/* 连接时间（仅在较大屏幕显示） */}
-            {connectionTime && (
-                <>
-                    <div className="hidden md:block h-4 w-px bg-gray-600" />
-                    <div className="hidden md:flex items-center gap-2">
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            className="text-orange-400"
-                        >
-                            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-                            <line x1="16" y1="2" x2="16" y2="6"/>
-                            <line x1="8" y1="2" x2="8" y2="6"/>
-                            <line x1="3" y1="10" x2="21" y2="10"/>
-                        </svg>
-                        <span className="text-xs">
-                            {formatDisplayTime(connectionTime)} 加入
+            {/* 设备状态 */}
+            <div className="bg-gray-700 p-4 rounded-lg">
+                <div className="text-sm text-gray-400 mb-3">设备状态</div>
+                <div className="grid grid-cols-3 gap-4 text-sm">
+                    <div className="text-center">
+                        <div className={`w-8 h-8 mx-auto mb-2 rounded-full flex items-center justify-center ${
+                            room.localParticipant?.isMicrophoneEnabled ? 'bg-green-500' : 'bg-red-500'
+                        }`}>
+                            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                {room.localParticipant?.isMicrophoneEnabled ? (
+                                    <>
+                                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" strokeLinecap="round" strokeLinejoin="round"/>
+                                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" strokeLinecap="round" strokeLinejoin="round"/>
+                                        <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round"/>
+                                        <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round"/>
+                                    </>
+                                ) : (
+                                    <>
+                                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" strokeLinecap="round" strokeLinejoin="round"/>
+                                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" strokeLinecap="round" strokeLinejoin="round"/>
+                                        <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round"/>
+                                        <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round"/>
+                                        <line x1="1" y1="1" x2="23" y2="23" strokeLinecap="round"/>
+                                    </>
+                                )}
+                            </svg>
+                        </div>
+                        <div className="text-white">麦克风</div>
+                        <div className="text-gray-400">
+                            {room.localParticipant?.isMicrophoneEnabled ? '开启' : '关闭'}
+                        </div>
+                    </div>
+
+                    <div className="text-center">
+                        <div className={`w-8 h-8 mx-auto mb-2 rounded-full flex items-center justify-center ${
+                            room.localParticipant?.isCameraEnabled ? 'bg-green-500' : 'bg-red-500'
+                        }`}>
+                            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                {room.localParticipant?.isCameraEnabled ? (
+                                <g>
+                                    <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" strokeLinecap="round" strokeLinejoin="round"/>
+                                    <circle cx="12" cy="13" r="3" strokeLinecap="round" strokeLinejoin="round"/>
+                                </g>
+                            ) : (
+                                <g>
+                                    <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" strokeLinecap="round" strokeLinejoin="round"/>
+                                    <circle cx="12" cy="13" r="3" strokeLinecap="round" strokeLinejoin="round"/>
+                                    <line x1="1" y1="1" x2="23" y2="23" strokeLinecap="round"/>
+                                </g>
+                            )}
+                            </svg>
+                        </div>
+                        <div className="text-white">摄像头</div>
+                        <div className="text-gray-400">
+                            {room.localParticipant?.isCameraEnabled ? '开启' : '关闭'}
+                        </div>
+                    </div>
+
+                    <div className="text-center">
+                        <div className={`w-8 h-8 mx-auto mb-2 rounded-full flex items-center justify-center ${
+                            room.localParticipant?.isScreenShareEnabled ? 'bg-blue-500' : 'bg-gray-500'
+                        }`}>
+                            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                            </svg>
+                        </div>
+                        <div className="text-white">屏幕共享</div>
+                        <div className="text-gray-400">
+                            {room.localParticipant?.isScreenShareEnabled ? '开启' : '关闭'}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* 统计信息 */}
+            <div className="bg-gray-700 p-4 rounded-lg">
+                <div className="text-sm text-gray-400 mb-3">统计信息</div>
+                <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                        <span className="text-gray-400">房间ID:</span>
+                        <span className="text-white font-mono text-xs">
+                            {room.name || '未知'}
                         </span>
                     </div>
-                </>
-            )}
+                    <div className="flex justify-between">
+                        <span className="text-gray-400">连接质量:</span>
+                        <span className="text-white">
+                            {room.localParticipant?.connectionQuality || '未知'}
+                        </span>
+                    </div>
+                </div>
+            </div>
         </div>
     );
 }

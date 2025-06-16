@@ -1,310 +1,243 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useRoomContext, useConnectionState } from '@livekit/components-react';
-import { ConnectionQuality, ConnectionState } from 'livekit-client';
+import React, { useState, useEffect } from 'react';
+import { useRoomContext } from '@livekit/components-react';
+import { ConnectionQuality } from 'livekit-client';
 
-// Components
-import { LoadingSpinner } from '../ui/LoadingSpinner';
-
-// Types
 interface ConnectionStatusProps {
-    className?: string;
-    showDetails?: boolean;
     compact?: boolean;
+    showDetails?: boolean;
+    className?: string;
 }
 
-interface ConnectionMetrics {
-    quality: ConnectionQuality;
-    state: ConnectionState;
-    latency: number;
-    jitter: number;
-    packetLoss: number;
-    bitrate: {
-        audio: number;
-        video: number;
-    };
-    lastUpdated: Date;
-}
-
-interface QualityConfig {
-    label: string;
-    color: string;
-    bgColor: string;
-    icon: string;
-    description: string;
-}
-
-const QUALITY_CONFIGS: Record<ConnectionQuality, QualityConfig> = {
-    [ConnectionQuality.Excellent]: {
-        label: '优秀',
-        color: 'text-green-400',
-        bgColor: 'bg-green-500',
-        icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z',
-        description: '连接质量优秀'
-    },
-    [ConnectionQuality.Good]: {
-        label: '良好',
-        color: 'text-blue-400',
-        bgColor: 'bg-blue-500',
-        icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z',
-        description: '连接质量良好'
-    },
-    [ConnectionQuality.Poor]: {
-        label: '较差',
-        color: 'text-yellow-400',
-        bgColor: 'bg-yellow-500',
-        icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z',
-        description: '连接质量较差'
-    },
-    [ConnectionQuality.Lost]: {
-        label: '断开',
-        color: 'text-red-400',
-        bgColor: 'bg-red-500',
-        icon: 'M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z',
-        description: '连接已断开'
-    },
-    [ConnectionQuality.Unknown]: {
-        label: '未知',
-        color: 'text-gray-400',
-        bgColor: 'bg-gray-500',
-        icon: 'M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
-        description: '连接状态未知'
-    }
-};
-
-const STATE_CONFIGS: Record<ConnectionState, { label: string; color: string }> = {
-    [ConnectionState.Disconnected]: { label: '已断开', color: 'text-red-400' },
-    [ConnectionState.Connecting]: { label: '连接中', color: 'text-yellow-400' },
-    [ConnectionState.Connected]: { label: '已连接', color: 'text-green-400' },
-    [ConnectionState.Reconnecting]: { label: '重连中', color: 'text-yellow-400' },
-    [ConnectionState.SignalReconnecting]: { label: '信号重连中', color: 'text-yellow-400' }
-};
-
-export function ConnectionStatus({ 
-    className = '', 
-    showDetails = false,
-    compact = false 
+export default function ConnectionStatus({ 
+    compact = false, 
+    showDetails = false, 
+    className = '' 
 }: ConnectionStatusProps) {
-    const room = useRoomContext();
-    const connectionState = useConnectionState();
-    
-    const [metrics, setMetrics] = useState<ConnectionMetrics>({
-        quality: ConnectionQuality.Unknown,
-        state: ConnectionState.Disconnected,
-        latency: 0,
-        jitter: 0,
-        packetLoss: 0,
-        bitrate: { audio: 0, video: 0 },
-        lastUpdated: new Date()
-    });
+    const [connectionQuality, setConnectionQuality] = useState<ConnectionQuality | null>(null);
+    const [isConnected, setIsConnected] = useState(false);
+    const [reconnectAttempts, setReconnectAttempts] = useState(0);
 
-    const [showTooltip, setShowTooltip] = useState(false);
-    const [isExpanded, setIsExpanded] = useState(false);
+    // 安全地获取 room context
+    let room = null;
+    try {
+        room = useRoomContext();
+    } catch (error) {
+        console.warn('无法获取房间上下文');
+    }
 
-    // 更新连接指标
-    const updateMetrics = useCallback(() => {
-        if (!room) return;
-
-        setMetrics(prev => ({
-            ...prev,
-            quality: ConnectionQuality.Unknown, // Will need to implement quality detection logic
-            state: connectionState || ConnectionState.Disconnected,
-            lastUpdated: new Date()
-        }));
-    }, [room, connectionState]);
-
-    // 获取详细统计信息
-    const getDetailedStats = useCallback(async () => {
-        if (!room || room.state !== ConnectionState.Connected) return;
-
-        try {
-            const stats = await room.engine.getConnectedServerAddress();
-            // 这里可以获取更详细的统计信息
-            // 实际实现需要根据 LiveKit 的 API 来获取统计数据
-        } catch (error) {
-            console.warn('获取连接统计失败:', error);
+    // 监听连接状态变化
+    useEffect(() => {
+        if (!room) {
+            setIsConnected(false);
+            return;
         }
+
+        setIsConnected(room.state === 'connected');
+
+        const handleStateChange = () => {
+            setIsConnected(room.state === 'connected');
+        };
+
+        const handleConnectionQualityChanged = (quality: ConnectionQuality) => {
+            setConnectionQuality(quality);
+        };
+
+        const handleReconnecting = () => {
+            setReconnectAttempts(prev => prev + 1);
+        };
+
+        const handleReconnected = () => {
+            setReconnectAttempts(0);
+        };
+
+        room.on('connectionStateChanged', handleStateChange);
+        room.on('connectionQualityChanged', handleConnectionQualityChanged);
+        room.on('reconnecting', handleReconnecting);
+        room.on('reconnected', handleReconnected);
+
+        // 获取初始状态
+        if (room.localParticipant) {
+            setConnectionQuality(room.localParticipant.connectionQuality);
+        }
+
+        return () => {
+            room.off('connectionStateChanged', handleStateChange);
+            room.off('connectionQualityChanged', handleConnectionQualityChanged);
+            room.off('reconnecting', handleReconnecting);
+            room.off('reconnected', handleReconnected);
+        };
     }, [room]);
 
-    // 定期更新指标
-    useEffect(() => {
-        updateMetrics();
-        
-        const interval = setInterval(() => {
-            updateMetrics();
-            if (showDetails) {
-                getDetailedStats();
-            }
-        }, 1000);
-
-        return () => clearInterval(interval);
-    }, [updateMetrics, getDetailedStats, showDetails]);
-
-    // 监听房间状态变化
-    useEffect(() => {
-        if (!room) return;
-
-        const handleStateChanged = () => updateMetrics();
-        
-        room.on('connectionStateChanged', handleStateChanged);
-        
-        return () => {
-            room.off('connectionStateChanged', handleStateChanged);
-        };
-    }, [room, updateMetrics]);
-
-    // 格式化比特率
-    const formatBitrate = (bitrate: number): string => {
-        if (bitrate < 1000) return `${bitrate}bps`;
-        if (bitrate < 1000000) return `${(bitrate / 1000).toFixed(1)}kbps`;
-        return `${(bitrate / 1000000).toFixed(1)}Mbps`;
+    const getQualityColor = (quality: ConnectionQuality | null) => {
+        switch (quality) {
+            case 'excellent':
+                return 'text-green-400';
+            case 'good':
+                return 'text-yellow-400';
+            case 'poor':
+                return 'text-orange-400';
+            case 'lost':
+                return 'text-red-400';
+            default:
+                return 'text-gray-400';
+        }
     };
 
-    // 格式化延迟
-    const formatLatency = (latency: number): string => {
-        return `${latency}ms`;
+    const getQualityText = (quality: ConnectionQuality | null) => {
+        switch (quality) {
+            case 'excellent':
+                return '优秀';
+            case 'good':
+                return '良好';
+            case 'poor':
+                return '较差';
+            case 'lost':
+                return '丢失';
+            default:
+                return '未知';
+        }
     };
 
-    // 格式化丢包率
-    const formatPacketLoss = (loss: number): string => {
-        return `${(loss * 100).toFixed(1)}%`;
+    const getStatusIcon = () => {
+        if (!room) {
+            return (
+                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18.364 5.636M5.636 18.364l12.728-12.728" />
+                </svg>
+            );
+        }
+
+        if (reconnectAttempts > 0) {
+            return (
+                <svg className="w-4 h-4 text-yellow-400 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+            );
+        }
+
+        if (isConnected) {
+            return (
+                <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+            );
+        }
+
+        return (
+            <svg className="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+        );
     };
 
-    // 获取连接质量配置
-    const qualityConfig = QUALITY_CONFIGS[metrics.quality];
-    const stateConfig = STATE_CONFIGS[metrics.state];
+    const getSignalBars = () => {
+        const bars = [];
+        const qualityLevel = connectionQuality === 'excellent' ? 4 : 
+                           connectionQuality === 'good' ? 3 :
+                           connectionQuality === 'poor' ? 2 : 1;
 
-    // 紧凑模式渲染
+        for (let i = 1; i <= 4; i++) {
+            bars.push(
+                <div
+                    key={i}
+                    className={`w-1 rounded-full ${
+                        i <= qualityLevel ? getQualityColor(connectionQuality) : 'bg-gray-600'
+                    }`}
+                    style={{ height: `${i * 3 + 2}px` }}
+                />
+            );
+        }
+
+        return bars;
+    };
+
     if (compact) {
         return (
-            <div 
-                className={`relative ${className}`}
-                onMouseEnter={() => setShowTooltip(true)}
-                onMouseLeave={() => setShowTooltip(false)}
-            >
-                <div className="flex items-center space-x-1">
-                    <div className={`w-3 h-3 rounded-full ${qualityConfig.bgColor}`} />
-                    {metrics.state === ConnectionState.Connecting && (
-                        <LoadingSpinner size="sm" />
-                    )}
+            <div className={`flex items-center space-x-2 ${className}`}>
+                {getStatusIcon()}
+                <div className="flex items-end space-x-0.5">
+                    {getSignalBars()}
                 </div>
-
-                {/* 工具提示 */}
-                {showTooltip && (
-                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg whitespace-nowrap z-50">
-                        <div className="text-center">
-                            <div className={qualityConfig.color}>{qualityConfig.label}</div>
-                            <div className={stateConfig.color}>{stateConfig.label}</div>
-                        </div>
-                        <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900" />
-                    </div>
+                {reconnectAttempts > 0 && (
+                    <span className="text-xs text-yellow-400">
+                        重连中...
+                    </span>
                 )}
             </div>
         );
     }
 
-    // 标准模式渲染
     return (
-        <div className={`bg-gray-800 rounded-lg ${className}`}>
-            {/* 基本状态 */}
-            <div 
-                className="flex items-center space-x-3 p-3 cursor-pointer"
-                onClick={() => setIsExpanded(!isExpanded)}
-            >
-                <div className="flex items-center space-x-2">
-                    <div className={`w-3 h-3 rounded-full ${qualityConfig.bgColor}`} />
-                    <svg className={`w-4 h-4 ${qualityConfig.color}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={qualityConfig.icon} />
-                    </svg>
-                </div>
-
-                <div className="flex-1 min-w-0">
-                    <div className="flex items-center space-x-2">
-                        <span className={`text-sm font-medium ${qualityConfig.color}`}>
-                            {qualityConfig.label}
-                        </span>
-                        <span className={`text-xs ${stateConfig.color}`}>
-                            {stateConfig.label}
-                        </span>
-                        {metrics.state === ConnectionState.Connecting && (
-                            <LoadingSpinner size="sm" />
-                        )}
-                    </div>
-                    <div className="text-xs text-gray-400">
-                        更新于 {metrics.lastUpdated.toLocaleTimeString()}
-                    </div>
-                </div>
-
-                {showDetails && (
-                    <svg 
-                        className={`w-4 h-4 text-gray-400 transform transition-transform ${
-                            isExpanded ? 'rotate-180' : ''
-                        }`} 
-                        fill="none" 
-                        stroke="currentColor" 
-                        viewBox="0 0 24 24"
-                    >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                )}
+        <div className={`p-4 bg-gray-700 rounded-lg ${className}`}>
+            <div className="flex items-center justify-between mb-3">
+                <h4 className="font-medium text-white">连接状态</h4>
+                {getStatusIcon()}
             </div>
 
-            {/* 详细信息 */}
-            {showDetails && isExpanded && (
-                <div className="px-3 pb-3 border-t border-gray-700">
-                    <div className="grid grid-cols-2 gap-3 mt-3 text-xs">
-                        <div className="space-y-2">
-                            <div className="flex justify-between">
-                                <span className="text-gray-400">延迟:</span>
-                                <span className="text-white">{formatLatency(metrics.latency)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-gray-400">抖动:</span>
-                                <span className="text-white">{formatLatency(metrics.jitter)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-gray-400">丢包率:</span>
-                                <span className="text-white">{formatPacketLoss(metrics.packetLoss)}</span>
-                            </div>
-                        </div>
-                        
-                        <div className="space-y-2">
-                            <div className="flex justify-between">
-                                <span className="text-gray-400">音频:</span>
-                                <span className="text-white">{formatBitrate(metrics.bitrate.audio)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-gray-400">视频:</span>
-                                <span className="text-white">{formatBitrate(metrics.bitrate.video)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-gray-400">参与者:</span>
-                                <span className="text-white">{room?.numParticipants || 0}</span>
-                            </div>
-                        </div>
-                    </div>
+            <div className="space-y-3">
+                {/* 连接状态 */}
+                <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-400">状态:</span>
+                    <span className={`text-sm font-medium ${
+                        isConnected ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                        {!room ? '未连接' : 
+                         reconnectAttempts > 0 ? '重连中...' :
+                         isConnected ? '已连接' : '断开连接'}
+                    </span>
+                </div>
 
-                    {/* 连接质量指示器 */}
-                    <div className="mt-3 pt-3 border-t border-gray-700">
-                        <div className="text-xs text-gray-400 mb-2">连接质量</div>
-                        <div className="flex space-x-1">
-                            {[1, 2, 3, 4, 5].map((level) => (
-                                <div
-                                    key={level}
-                                    className={`h-2 flex-1 rounded ${
-                                        level <= (Number(metrics.quality) + 1)
-                                            ? qualityConfig.bgColor
-                                            : 'bg-gray-600'
-                                    }`}
-                                />
-                            ))}
+                {/* 连接质量 */}
+                <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-400">质量:</span>
+                    <div className="flex items-center space-x-2">
+                        <span className={`text-sm font-medium ${getQualityColor(connectionQuality)}`}>
+                            {getQualityText(connectionQuality)}
+                        </span>
+                        <div className="flex items-end space-x-0.5">
+                            {getSignalBars()}
                         </div>
                     </div>
                 </div>
-            )}
+
+                {/* 重连次数 */}
+                {reconnectAttempts > 0 && (
+                    <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-400">重连次数:</span>
+                        <span className="text-sm text-yellow-400">{reconnectAttempts}</span>
+                    </div>
+                )}
+
+                {/* 详细信息 */}
+                {showDetails && room && (
+                    <>
+                        <div className="border-t border-gray-600 pt-3 mt-3">
+                            <div className="space-y-2 text-sm">
+                                <div className="flex justify-between">
+                                    <span className="text-gray-400">房间状态:</span>
+                                    <span className="text-white">{room.state}</span>
+                                </div>
+                                {room.engine && (
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-400">引擎状态:</span>
+                                        <span className="text-white">{room.state}</span>
+                                    </div>
+                                )}
+                                {room.localParticipant && (
+                                    <div className="flex justify-between">
+                                        <span className="text-gray-400">参与者ID:</span>
+                                        <span className="text-white font-mono text-xs">
+                                            {room.localParticipant.sid}
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </>
+                )}
+            </div>
         </div>
     );
 }
-
-export default ConnectionStatus;

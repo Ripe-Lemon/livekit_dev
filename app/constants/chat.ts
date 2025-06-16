@@ -340,14 +340,14 @@ export const NOTIFICATION_TYPES = {
 
 // API 端点
 export const CHAT_API_ENDPOINTS = {
-    SEND_MESSAGE: '/api/chat/send',
-    GET_MESSAGES: '/api/chat/messages',
-    DELETE_MESSAGE: '/api/chat/delete',
-    REACT_MESSAGE: '/api/chat/react',
-    UPLOAD_IMAGE: '/api/chat/upload',
-    GET_HISTORY: '/api/chat/history',
-    SEARCH_MESSAGES: '/api/chat/search',
-    EXPORT_CHAT: '/api/chat/export'
+    SEND_MESSAGE: 'https://livekit-api.2k2.cc/api/chat/send',
+    GET_MESSAGES: 'https://livekit-api.2k2.cc/api/chat/messages',
+    DELETE_MESSAGE: 'https://livekit-api.2k2.cc/api/chat/delete',
+    REACT_MESSAGE: 'https://livekit-api.2k2.cc/api/chat/react',
+    UPLOAD_IMAGE: 'https://livekit-api.2k2.cc/api/chat/upload',
+    GET_HISTORY: 'https://livekit-api.2k2.cc/api/chat/history',
+    SEARCH_MESSAGES: 'https://livekit-api.2k2.cc/api/chat/search',
+    EXPORT_CHAT: 'https://livekit-api.2k2.cc/api/chat/export'
 } as const;
 
 // 本地存储键名

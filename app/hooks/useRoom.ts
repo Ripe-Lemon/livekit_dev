@@ -240,7 +240,7 @@ export function useRoom(options: UseRoomOptions = {}): UseRoomReturn {
             // 获取访问令牌
             let token = params.token;
             if (!token) {
-                const response = await fetch('/api/token', {
+                const response = await fetch('https://livekit-api.2k2.cc/api/token', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

@@ -4,15 +4,19 @@ import { Track } from 'livekit-client';
 
 const audioManager = AudioManager.getInstance();
 
-export function useAudioNotifications(room: any, options: {
-    enableUserJoinLeave?: boolean;
-    enableMessageNotification?: boolean;
-    enableMediaControls?: boolean;
-    enableScreenShare?: boolean;
-    enableConnection?: boolean;
-    messageVolume?: number;
-    controlVolume?: number;
-} = {}) {
+export function useAudioNotifications(
+    room: any, 
+    options: {
+        enableUserJoinLeave?: boolean;
+        enableMessageNotification?: boolean;
+        enableMediaControls?: boolean;
+        enableScreenShare?: boolean;
+        enableConnection?: boolean;
+        messageVolume?: number;
+        controlVolume?: number;
+    } = {},
+    chatState?: { isOpen?: boolean } // 添加聊天状态参数
+) {
     const {
         enableUserJoinLeave = true,
         enableMessageNotification = true,
@@ -41,7 +45,7 @@ export function useAudioNotifications(room: any, options: {
             }
         };
 
-        // 消息通知
+        // 消息通知 - 修改这部分来检查聊天栏状态
         const handleDataReceived = (payload: Uint8Array, participant: any) => {
             if (!enableMessageNotification) return;
 
@@ -52,9 +56,16 @@ export function useAudioNotifications(room: any, options: {
                 if (message.type === 'chat') {
                     if (participant && participant.identity !== room.localParticipant?.identity) {
                         console.log(`收到消息来自: ${participant.identity}`);
-                        audioManager.playSound('message-notification', { 
-                            volume: messageVolume 
-                        });
+                        
+                        // 只有在聊天栏关闭时才播放音效
+                        if (!chatState?.isOpen) {
+                            console.log('🔊 播放新消息音效 (聊天栏关闭)');
+                            audioManager.playSound('message-notification', { 
+                                volume: messageVolume 
+                            });
+                        } else {
+                            console.log('📝 收到新消息 (聊天栏开启，不播放音效)');
+                        }
                     }
                 }
             } catch (error) {
@@ -251,5 +262,5 @@ export function useAudioNotifications(room: any, options: {
             room.off('trackUnpublished', handleTrackUnpublished);
             room.off('connectionStateChanged', handleConnectionStateChanged);
         };
-    }, [room, enableUserJoinLeave, enableMessageNotification, enableMediaControls, enableScreenShare, enableConnection, messageVolume, controlVolume]);
+    }, [room, enableUserJoinLeave, enableMessageNotification, enableMediaControls, enableScreenShare, enableConnection, messageVolume, controlVolume, chatState?.isOpen]); // 添加 chatState?.isOpen 到依赖数组
 }

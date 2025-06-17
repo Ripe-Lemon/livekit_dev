@@ -1,5 +1,5 @@
 # 工作流名称：统一发布流程
-name: 'Publish Release'
+name: 'Unified Publish Release'
 
 # 环境变量，全局统一管理
 env:
@@ -49,16 +49,14 @@ jobs:
             ]
 
   # ===================================================================
-  # 任务 2 (新)：创建草稿 Release
-  # 这是新流程的第一步，它会创建一个空的、不可见的草稿 Release。
-  # 后续所有构建任务都会向这个草稿上传文件。
+  # 任务 2 (新)：创建草稿 Release (保持不变)
   # ===================================================================
   create-release:
     needs: pre-check
     if: needs.pre-check.outputs.should_skip != 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: write # 需要写入权限来创建 Release
+      contents: write
     steps:
       - name: 创建一个草稿版本
         id: create_release
@@ -72,11 +70,10 @@ jobs:
             --prerelease=${{ github.ref_name == 'dev-tauri' }}
 
   # ===================================================================
-  # 任务 3：构建桌面应用 (已修改)
-  # 修改点：不再自己创建 Release，而是构建完成后，将产物上传到已创建的草稿中。
+  # 任务 3：构建桌面应用 (已修正缩进问题)
   # ===================================================================
   build-desktop:
-    needs: create-release # 依赖于 create-release 任务
+    needs: create-release
     environment: LIVEKIT
     strategy:
       fail-fast: false
@@ -92,33 +89,42 @@ jobs:
             target: ''
     runs-on: ${{ matrix.platform }}
     permissions:
-      contents: write # 需要权限来上传产物到 Release
+      contents: write
     steps:
       - uses: actions/checkout@v4
+
       - name: 设置 Node.js
         uses: actions/setup-node@v4
-        with: { node-version: '20', cache: 'npm' }
+        with:
+          node-version: '20'
+          cache: 'npm'
+
       - name: 安装 Rust 工具链
         uses: dtolnay/rust-toolchain@stable
-        with: { targets: ${{ matrix.target }} }
+        with:
+          targets: ${{ matrix.target }}
+
       - name: 安装 Ubuntu 依赖
         if: matrix.platform == 'ubuntu-22.04'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
       - name: 安装前端依赖
         run: npm install
+
       - name: 构建桌面应用
-        run: npm run tauri build -- ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
         env:
           NEXT_PUBLIC_LIVEKIT_URL: ${{ vars.NEXT_PUBLIC_LIVEKIT_URL }}
           NEXT_PUBLIC_LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
           NEXT_PUBLIC_LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+        run: npm run tauri build -- ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
+
       - name: 上传桌面应用产物
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload ${{ env.APP_VERSION }} src-tauri/target/release/bundle/**/* --clobber
 
   # ===================================================================
-  # 任务 4：交叉编译 Linux ARM 应用 (已修改)
+  # 任务 4：交叉编译 Linux ARM 应用 (保持不变)
   # ===================================================================
   build-linux-arm:
     needs: create-release
@@ -159,7 +165,7 @@ jobs:
         run: gh release upload ${{ env.APP_VERSION }} src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb --clobber
 
   # ===================================================================
-  # 任务 5：构建安卓应用 (已修改)
+  # 任务 5：构建安卓应用 (保持不变)
   # ===================================================================
   build-android:
     needs: create-release
@@ -198,9 +204,7 @@ jobs:
         run: gh release upload ${{ env.APP_VERSION }} src-tauri/gen/android/app/build/outputs/apk/release/*.apk --clobber
 
   # ===================================================================
-  # 任务 6 (新)：完成并发布 Release
-  # 这是最后一步。它会等待所有构建和上传任务完成后，
-  # 将草稿 Release 正式发布，使其对所有人可见。
+  # 任务 6 (新)：完成并发布 Release (保持不变)
   # ===================================================================
   complete-release:
     needs: [build-desktop, build-linux-arm, build-android]

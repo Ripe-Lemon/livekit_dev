@@ -204,3 +204,31 @@ export interface ConnectionQuality {
         download: number;
     };
 }
+
+// 添加房间标签类型
+export enum RoomTag {
+    PUBLIC = 'public',
+    PERSISTENT = 'persistent', 
+    TEMPORARY = 'temporary',
+    PRIVATE = 'private'
+}
+
+// 扩展房间信息
+export interface RoomInfo {
+    id: string;
+    name: string;
+    description?: string;
+    tags: RoomTag[];
+    participantCount: number;
+    maxParticipants?: number;
+    createdAt: string;
+    lastActivity: string;
+    isActive: boolean;
+    createdBy: string;
+    isPasswordProtected?: boolean;
+}
+
+export interface RoomListResponse {
+    rooms: RoomInfo[];
+    total: number;
+}

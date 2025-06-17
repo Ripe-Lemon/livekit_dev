@@ -268,6 +268,7 @@ function RoomInnerContent({
                         <Sidebar
                             currentRoomName={roomName}
                             onRoomSwitch={switchRoom}
+                            username={username}
                             className="h-full relative z-20"
                         />
                     </>

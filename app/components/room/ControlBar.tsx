@@ -434,13 +434,15 @@ export function ControlBar({
 
     // 修复麦克风切换逻辑 - 只检查麦克风权限
     const toggleMicrophone = useCallback(async () => {
-        if (!room || isTogglingMic) return;
+        if (!room || !localParticipant || isTogglingMic) return;
 
         setIsTogglingMic(true);
         try {
-            // 检查是否有麦克风权限，如果没有则请求
-            if (!permissions.audio && !permissionRequested.audio) {
-                console.log('🎤 没有麦克风权限，先请求权限...');
+            const currentlyMuted = !localParticipant.isMicrophoneEnabled;
+            
+            // 如果要开启麦克风且没有权限，则请求权限
+            if (currentlyMuted && !permissions.audio) {
+                console.log('🎤 开启麦克风需要权限，正在请求...');
                 const granted = await requestSinglePermission('audio');
                 if (!granted) {
                     console.warn('❌ 麦克风权限被拒绝，无法开启麦克风');
@@ -452,8 +454,6 @@ export function ControlBar({
             }
 
             // 执行麦克风开关操作
-            const currentlyMuted = !localParticipant.isMicrophoneEnabled;
-            
             if (currentlyMuted) {
                 await localParticipant.setMicrophoneEnabled(true);
                 setIsMuted(false);
@@ -471,17 +471,19 @@ export function ControlBar({
         } finally {
             setIsTogglingMic(false);
         }
-    }, [localParticipant, playMuteSound, playUnmuteSound, playErrorSound, isTogglingMic, room, permissions.audio, permissionRequested.audio, requestSinglePermission, refreshDevices]);
+    }, [localParticipant, playMuteSound, playUnmuteSound, playErrorSound, isTogglingMic, room, permissions.audio, requestSinglePermission, refreshDevices]);
 
     // 修复摄像头切换逻辑 - 只检查摄像头权限
     const toggleCamera = useCallback(async () => {
-        if (!room || isTogglingCamera) return;
+        if (!room || !localParticipant || isTogglingCamera) return;
 
         setIsTogglingCamera(true);
         try {
-            // 检查是否有摄像头权限，如果没有则请求
-            if (!permissions.video && !permissionRequested.video) {
-                console.log('📹 没有摄像头权限，先请求权限...');
+            const currentlyOff = !localParticipant.isCameraEnabled;
+            
+            // 如果要开启摄像头且没有权限，则请求权限
+            if (currentlyOff && !permissions.video) {
+                console.log('📹 开启摄像头需要权限，正在请求...');
                 const granted = await requestSinglePermission('video');
                 if (!granted) {
                     console.warn('❌ 摄像头权限被拒绝，无法开启摄像头');
@@ -493,8 +495,6 @@ export function ControlBar({
             }
 
             // 执行摄像头开关操作
-            const currentlyOff = !localParticipant.isCameraEnabled;
-            
             if (currentlyOff) {
                 await localParticipant.setCameraEnabled(true);
                 setIsCameraOff(false);
@@ -512,7 +512,7 @@ export function ControlBar({
         } finally {
             setIsTogglingCamera(false);
         }
-    }, [localParticipant, playCameraOnSound, playCameraOffSound, playErrorSound, isTogglingCamera, room, permissions.video, permissionRequested.video, requestSinglePermission, refreshDevices]);
+    }, [localParticipant, playCameraOnSound, playCameraOffSound, playErrorSound, isTogglingCamera, room, permissions.video, requestSinglePermission, refreshDevices]);
 
     // 切换屏幕共享
     const toggleScreenShare = useCallback(async () => {

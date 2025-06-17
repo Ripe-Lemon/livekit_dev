@@ -67,7 +67,7 @@ jobs:
           args: ${{ matrix.args }}
 
   publish-tauri-linux-arm:
-    needs: publish-tauri-desktop
+    # needs: publish-tauri-desktop
     environment: LIVEKIT
     permissions:
       contents: write
@@ -135,7 +135,7 @@ jobs:
           args: ${{ matrix.args }}
 
   publish-tauri-android:
-    needs: publish-tauri-desktop
+    # needs: publish-tauri-desktop
     environment: LIVEKIT
     permissions:
       contents: write

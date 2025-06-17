@@ -9,6 +9,7 @@ import {
 import { Track as LiveKitTrack } from 'livekit-client';
 import { AudioManager } from '../../lib/audio/AudioManager';
 
+
 interface CustomControlBarProps {
     isNoiseSuppressionEnabled: boolean;
     onToggleNoiseSuppression: () => Promise<void>;
@@ -137,20 +138,23 @@ function CustomDisconnectButton() {
     const [isLeaving, setIsLeaving] = useState(false);
 
     const handleLeave = useCallback(async () => {
-        if (isLeaving) return;
+        // 由于按钮在 isLeaving 为 true 时会被禁用，可以省略 if (isLeaving) return; 检查
 
-        const confirmed = window.confirm('确定要离开房间吗？');
-        if (!confirmed) return;
-
+        // 步骤1：立即将状态设置为“离开中”，禁用按钮
         setIsLeaving(true);
+
         try {
+            // 步骤2：调用 disconnect 方法
             await room.disconnect();
+            // 步骤3：成功离开后，跳转到首页
             router.push('/');
         } catch (error) {
             console.error('离开房间失败:', error);
+            // 步骤4 (出错时)：恢复按钮状态，以便用户可以重试
             setIsLeaving(false);
         }
-    }, [room, router, isLeaving]);
+    }, [room, router]); // 依赖项只包含外部变量 room 和 router
+
 
     return (
         <button

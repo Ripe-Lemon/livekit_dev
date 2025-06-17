@@ -5,8 +5,6 @@ npm run dev
 yarn dev
 # or
 pnpm dev
-# or
-bun dev
 ```
 ## 此分支目的
 - 用作新功能测试

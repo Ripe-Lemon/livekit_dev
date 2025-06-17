@@ -96,6 +96,11 @@ jobs:
           # 使用一个稳定且较新的 NDK 版本
           ndk-version: r25c
 
+      - name: Add NDK to PATH
+        run: |
+          echo "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+        shell: bash
+
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:

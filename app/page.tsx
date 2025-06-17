@@ -96,7 +96,7 @@ export default function HomePage() {
                 }
             }
         } catch (error) {
-            console.error('加载房间列表失败:', error);
+            console.error('加载房间列表失败：', error);
         } finally {
             setIsLoadingRooms(false);
         }

@@ -160,14 +160,28 @@ jobs:
         with:
           ndk-version: r25c
 
-      - name: Add NDK to PATH
-        run: echo "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
-        shell: bash
-
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
+
+      - name: Dynamically Find and Set Linker
+        id: set_linker
+        run: |
+          # 在 NDK 目录中查找实际的 clang 链接器文件
+          # find ... -print -quit 会找到第一个匹配项并立即退出
+          ANDROID_NDK_HOME="${{ steps.setup-ndk.outputs.ndk-path }}"
+          LINKER_PATH=$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin" -name "aarch64-linux-android*-clang" -print -quit)
+          AR_PATH=$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin" -name "aarch64-linux-android-ar" -print -quit)
+
+          echo "Found linker at: $LINKER_PATH"
+          echo "Found ar at: $AR_PATH"
+
+          # 通过环境变量将找到的路径直接告诉 Cargo
+          # 这会覆盖 .cargo/config.toml 中的设置
+          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$LINKER_PATH" >> $GITHUB_ENV
+          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_AR=$AR_PATH" >> $GITHUB_ENV
+        shell: bash
 
       - name: install frontend dependencies
         run: npm install

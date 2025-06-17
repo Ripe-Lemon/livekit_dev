@@ -1,216 +1,215 @@
-# .github/workflows/release.yml
+# 工作流名称：统一发布流程
+name: 'Unified Publish Release'
 
-name: 'Publish Release'
+# 环境变量，全局统一管理
 env:
-
+  CARGO_TERM_COLOR: always
   APP_NAME: 'Livekit'
   APP_VERSION: 'v_0.0.2'
   APP_DESCRIPTION: '构建安卓版本'
+
+# 默认设置
+defaults:
+  run:
+    shell: bash
+
+# 工作流触发条件
 on:
   push:
     branches:
-      - dev-tauri # 当代码推送到 dev-tauri 分支时触发
+      - 'dev-tauri'
+      - 'releases/**'
 
+# --- 任务定义 ---
 jobs:
-  publish-tauri-desktop:
-    environment: LIVEKIT
+  # ===================================================================
+  # 任务 1：预检查 (保持不变)
+  # ===================================================================
+  pre-check:
+    runs-on: ubuntu-latest
+    outputs:
+      should_skip: ${{ steps.skip_check.outputs.should_skip == 'true' && !startsWith(github.ref_name, 'releases/') && github.ref_name != 'dev-tauri' }}
+    steps:
+      - name: 检查是否可以跳过重复的构建
+        id: skip_check
+        uses: fkirc/skip-duplicate-actions@v5
+        with:
+          concurrent_skipping: 'same_content_newer'
+          skip_after_successful_duplicate: 'true'
+          cancel_others: 'true'
+          paths: >-
+            [
+              "**/package.json",
+              "**/npm-lock.json",
+              "**/Cargo.toml",
+              "**/Cargo.lock",
+              "src/**",
+              "src-tauri/**",
+              ".github/workflows/**"
+            ]
+
+  # ===================================================================
+  # 任务 2 (新)：创建草稿 Release
+  # 这是新流程的第一步，它会创建一个空的、不可见的草稿 Release。
+  # 后续所有构建任务都会向这个草稿上传文件。
+  # ===================================================================
+  create-release:
+    needs: pre-check
+    if: needs.pre-check.outputs.should_skip != 'true'
+    runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # 需要写入权限来创建 Release
+    steps:
+      - name: 创建一个草稿版本
+        id: create_release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create ${{ env.APP_VERSION }} \
+            --title "${{ env.APP_NAME }} ${{ env.APP_VERSION }}" \
+            --notes "${{ env.APP_DESCRIPTION }}" \
+            --draft \
+            --prerelease=${{ github.ref_name == 'dev-tauri' }}
+
+  # ===================================================================
+  # 任务 3：构建桌面应用 (已修改)
+  # 修改点：不再自己创建 Release，而是构建完成后，将产物上传到已创建的草稿中。
+  # ===================================================================
+  build-desktop:
+    needs: create-release # 依赖于 create-release 任务
+    environment: LIVEKIT
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: 'macos-latest'
-            args: '--target aarch64-apple-darwin'
+            target: 'aarch64-apple-darwin'
           - platform: 'macos-latest'
-            args: '--target x86_64-apple-darwin'
+            target: 'x86_64-apple-darwin'
           - platform: 'ubuntu-22.04'
-            args: ''
+            target: ''
           - platform: 'windows-latest'
-            args: ''
+            target: ''
     runs-on: ${{ matrix.platform }}
+    permissions:
+      contents: write # 需要权限来上传产物到 Release
     steps:
       - uses: actions/checkout@v4
-
-      - name: setup node
+      - name: 设置 Node.js
         uses: actions/setup-node@v4
-        with:
-          node-version: '20.15.0' # 使用 Node.js 的长期支持版本
-
-      - name: install Rust stable
+        with: { node-version: '20', cache: 'npm' }
+      - name: 安装 Rust 工具链
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
-
-      - name: install dependencies (ubuntu only)
+        with: { targets: ${{ matrix.target }} }
+      - name: 安装 Ubuntu 依赖
         if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.0-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-        # 注意: webkitgtk 4.0 用于 Tauri v1, 4.1 用于 Tauri v2。你可以删除不需要的版本。
-
-      - name: install frontend dependencies
-        # 核心改动：将 yarn 改为 npm
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: 安装前端依赖
         run: npm install
-
-      # 核心改动：更新 tauri-action 版本并简化
-      # 这个 Action 会自动处理打包，它会调用你 tauri.conf.json 中定义的 beforeBuildCommand
-      # 从你的日志看，beforeBuildCommand 是 "npm run build"，这正是我们想要的
-      - uses: tauri-apps/tauri-action@v0.5 # 推荐使用更新的版本
+      - name: 构建桌面应用
+        run: npm run tauri build -- ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
         env:
           NEXT_PUBLIC_LIVEKIT_URL: ${{ vars.NEXT_PUBLIC_LIVEKIT_URL }}
           NEXT_PUBLIC_LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
           NEXT_PUBLIC_LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+      - name: 上传桌面应用产物
+        env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: app-v__VERSION__
-          releaseName: '${{ env.APP_NAME }} ${{ env.APP_VERSION }}'
-          releaseBody: '${{env.APP_DESCRIPTION}}'
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
+        run: gh release upload ${{ env.APP_VERSION }} src-tauri/target/release/bundle/**/* --clobber
 
-  publish-tauri-linux-arm:
-    # needs: publish-tauri-desktop
+  # ===================================================================
+  # 任务 4：交叉编译 Linux ARM 应用 (已修改)
+  # ===================================================================
+  build-linux-arm:
+    needs: create-release
     environment: LIVEKIT
+    runs-on: ubuntu-22.04
     permissions:
       contents: write
-    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
         include:
-          - arch: aarch64
-            cpu: cortex-a72
-            base_image: https://dietpi.com/downloads/images/DietPi_RPi5-ARMv8-Bookworm.img.xz
-          - arch: armv7l
-            cpu: cortex-a53
-            base_image: https://dietpi.com/downloads/images/DietPi_RPi-ARMv7-Bookworm.img.xz
+          - { arch: aarch64, target: aarch64-unknown-linux-gnu, base_image: 'https://dietpi.com/downloads/images/DietPi_RPi5-ARMv8-Bookworm.img.xz' }
+          - { arch: armv7l, target: armv7-unknown-linux-gnueabihf, base_image: 'https://dietpi.com/downloads/images/DietPi_RPi-ARMv7-Bookworm.img.xz' }
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install xz-utils for image decompression
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xz-utils
-
-      - name: Cache rust build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-          cache-on-failure: true
-
-      - name: Build app in ARM emulator
+      - name: 安装解压工具
+        run: sudo apt-get update && sudo apt-get install -y xz-utils
+      - name: 使用 ARM 模拟器构建
         uses: pguyot/arm-runner-action@v2.6.5
         with:
           base_image: ${{ matrix.base_image }}
-          cpu: ${{ matrix.cpu }}
           bind_mount_repository: true
           image_additional_mb: 10240
-          optimize_image: no
           commands: |
             export HOME=/root
-            export CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
-            apt-get update -y --allow-releaseinfo-change
-            apt-get autoremove -y
-            apt-get install -y --no-install-recommends --no-install-suggests curl libwebkit2gtk-4.1-dev build-essential libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 file jq
+            apt-get update -y --allow-releaseinfo-change && apt-get install -y curl libwebkit2gtk-4.1-dev build-essential libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 nodejs npm
             curl https://sh.rustup.rs -sSf | sh -s -- -y
             . "$HOME/.cargo/env"
-            # 根据目标架构安装正确的 Rust target
-            if [ "${{ matrix.arch }}" = "aarch64" ]; then
-              rustup target add aarch64-unknown-linux-gnu
-            elif [ "${{ matrix.arch }}" = "armv7l" ]; then
-              rustup target add armv7-unknown-linux-gnueabihf
-            fi
-            curl -fsSL https://deb.nodesource.com/setup_lts.x | bash
-            apt-get install -y nodejs
+            rustup target add ${{ matrix.target }}
             npm install
-            npm run tauri build -- --verbose
-
-      - name: Upload ARM assets to release
-        uses: tauri-apps/tauri-action@v0.5
+            export NEXT_PUBLIC_LIVEKIT_URL=${{ vars.NEXT_PUBLIC_LIVEKIT_URL }}
+            export NEXT_PUBLIC_LIVEKIT_API_KEY=${{ secrets.LIVEKIT_API_KEY }}
+            export NEXT_PUBLIC_LIVEKIT_API_SECRET=${{ secrets.LIVEKIT_API_SECRET }}
+            npm run tauri build -- --target ${{ matrix.target }}
+      - name: 上传 ARM 构建产物
         env:
-          NEXT_PUBLIC_LIVEKIT_URL: ${{ vars.NEXT_PUBLIC_LIVEKIT_URL }}
-          NEXT_PUBLIC_LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
-          NEXT_PUBLIC_LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: app-v__VERSION__
-          releaseName: '${{ env.APP_NAME }} ${{ env.APP_VERSION }}'
-          releaseBody: '${{env.APP_DESCRIPTION}}'
-          releaseDraft: true
-          prerelease: false
+        run: gh release upload ${{ env.APP_VERSION }} src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb --clobber
 
-          args: ${{ matrix.args }}
-
-  publish-tauri-android:
-    # needs: publish-tauri-desktop
+  # ===================================================================
+  # 任务 5：构建安卓应用 (已修改)
+  # ===================================================================
+  build-android:
+    needs: create-release
     environment: LIVEKIT
+    runs-on: ubuntu-latest
     permissions:
       contents: write
-    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20.15.0'
-          cache: 'npm'
-
-      - name: setup java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      - name: Setup Android NDK
-        uses: nttld/setup-ndk@v1
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'npm' }
+      - uses: actions/setup-java@v4
+        with: { distribution: 'zulu', java-version: '17', cache: 'gradle' }
+      - uses: nttld/setup-ndk@v1
         id: setup-ndk
-        with:
-          ndk-version: r25c
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          # 指定交叉编译的目标平台
-          targets: aarch64-linux-android
-
-      - name: Cache Cargo dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            src-tauri/target/ # 缓存 target 目录
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Add NDK toolchain to PATH
+        with: { ndk-version: r25c }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: aarch64-linux-android }
+      - uses: Swatinem/rust-cache@v2
+      - name: 配置 NDK 环境变量
         run: echo "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
-
-      - name: install frontend dependencies
+      - name: 安装前端依赖
         run: npm install
-
-      - name: Setup Android Signing
+      - name: 配置安卓签名
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android.keystore
           echo "TAURI_PRIVATE_KEY=$(pwd)/android.keystore" >> $GITHUB_ENV
           echo "TAURI_KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
           echo "TAURI_PRIVATE_KEY_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
           echo "TAURI_KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
-
-      - name: Build and Release Android App
-        uses: tauri-apps/tauri-action@v0.5
+      - name: 构建安卓应用
+        run: npm run tauri android build -- --target aarch64-linux-android
+      - name: 上传安卓应用产物
         env:
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: app-v__VERSION__
-          releaseName: '${{ env.APP_NAME }} ${{ env.APP_VERSION }}'
-          releaseBody: '${{env.APP_DESCRIPTION}}'
-          releaseDraft: true
-          prerelease: false
-          # 指定构建目标为 aarch64 (ARM64)，这是目前最主流的安卓架构
-          args: '--target aarch64-linux-android'
+        run: gh release upload ${{ env.APP_VERSION }} src-tauri/gen/android/app/build/outputs/apk/release/*.apk --clobber
+
+  # ===================================================================
+  # 任务 6 (新)：完成并发布 Release
+  # 这是最后一步。它会等待所有构建和上传任务完成后，
+  # 将草稿 Release 正式发布，使其对所有人可见。
+  # ===================================================================
+  complete-release:
+    needs: [build-desktop, build-linux-arm, build-android]
+    if: success() # 仅在所有构建都成功时运行
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 正式发布版本
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit ${{ env.APP_VERSION }} --draft=false

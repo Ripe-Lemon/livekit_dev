@@ -1,7 +1,11 @@
 # .github/workflows/release.yml
 
 name: 'Publish Release'
+env:
 
+  APP_NAME: 'Livekit'
+  APP_VERSION: 'v_0.0.2'
+  APP_DESCRIPTION: '构建安卓版本'
 on:
   push:
     branches:
@@ -60,8 +64,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: app-v__VERSION__
-          releaseName: 'Livekit v_0.0.2'
-          releaseBody: '构建安卓版本'
+          releaseName: '${{ env.APP_NAME }} ${{ env.APP_VERSION }}'
+          releaseBody: '${{env.APP_DESCRIPTION}}'
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
@@ -132,8 +136,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: app-v__VERSION__
-          releaseName: 'Livekit v_0.0.2'
-          releaseBody: '构建安卓版本'
+          releaseName: '${{ env.APP_NAME }} ${{ env.APP_VERSION }}'
+          releaseBody: '${{env.APP_DESCRIPTION}}'
           releaseDraft: true
           prerelease: false
 
@@ -152,6 +156,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20.15.0'
+          cache: 'npm'
 
       - name: setup java
         uses: actions/setup-java@v4
@@ -165,56 +170,28 @@ jobs:
         with:
           ndk-version: r25c
 
-      - name: install Rust stable
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
+          # 指定交叉编译的目标平台
           targets: aarch64-linux-android
 
-      - name: Dynamically Find and Set Linker
-        id: set_linker
-        run: |
-          # 在 NDK 目录中查找实际的 clang 链接器文件
-          # find ... -print -quit 会找到第一个匹配项并立即退出
-          ANDROID_NDK_HOME="${{ steps.setup-ndk.outputs.ndk-path }}"
-          LINKER_PATH=$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin" -name "aarch64-linux-android*-clang" -print -quit)
-          AR_PATH=$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin" -name "aarch64-linux-android-ar" -print -quit)
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-tauri/target/ # 缓存 target 目录
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-          echo "Found linker at: $LINKER_PATH"
-          echo "Found ar at: $AR_PATH"
-
-          # 通过环境变量将找到的路径直接告诉 Cargo
-          # 这会覆盖 .cargo/config.toml 中的设置
-          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$LINKER_PATH" >> $GITHUB_ENV
-          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_AR=$AR_PATH" >> $GITHUB_ENV
-        shell: bash
+      - name: Add NDK toolchain to PATH
+        run: echo "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
 
       - name: install frontend dependencies
         run: npm install
-
-      # ===================================================================
-      # ✅ 新增的调试步骤
-      # ===================================================================
-      - name: 🔍 Debug Environment
-        run: |
-          echo "--- 1. 检查 .cargo/config.toml 文件是否存在且内容正确 ---"
-          # 如果文件不存在，这里会报错，你就知道问题所在了
-          cat .cargo/config.toml
-          
-          echo "--- 2. 检查 NDK 环境变量 ---"
-          echo "ANDROID_NDK_HOME=${ANDROID_NDK_HOME}"
-
-          echo "--- 3. 检查完整的 PATH 环境变量 ---"
-          echo "$PATH"
-
-          echo "--- 4. 尝试直接定位 aarch64-linux-android-clang 链接器 ---"
-          # 如果这个命令能成功输出路径，说明 PATH 设置是有效的
-          which aarch64-linux-android-clang
-
-          echo "--- 5. 验证链接器文件是否真实存在于 NDK 目录中 ---"
-          # 如果这个命令能成功列出文件信息，说明 NDK 下载和路径都是正确的
-          ls -l "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android-clang"
-        env:
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
 
       - name: Setup Android Signing
         run: |
@@ -224,15 +201,15 @@ jobs:
           echo "TAURI_PRIVATE_KEY_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
           echo "TAURI_KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
 
-      - name: Build and release android apps
-        uses: tauri-apps/tauri-action@v0
+      - name: Build and Release Android App
+        uses: tauri-apps/tauri-action@v0.5
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: app-v__VERSION__
-          releaseName: 'Livekit v_0.0.2'
-          releaseBody: '构建安卓版本'
+          releaseName: '${{ env.APP_NAME }} ${{ env.APP_VERSION }}'
+          releaseBody: '${{env.APP_DESCRIPTION}}'
           releaseDraft: true
           prerelease: false
           # 指定构建目标为 aarch64 (ARM64)，这是目前最主流的安卓架构

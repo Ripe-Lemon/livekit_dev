@@ -60,8 +60,70 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: app-v__VERSION__
+          releaseName: 'Livekit v_0.0.2'
+          releaseBody: '构建安卓版本'
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+
+  # --- 新增任务二：构建并签名安卓应用 ---
+  publish-tauri-android:
+    needs: publish-tauri-desktop # 可选：等待桌面版构建成功后再开始，确保版本号一致性
+    environment: LIVEKIT
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest # 安卓构建推荐使用 ubuntu 环境
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.15.0'
+
+      # 为 Tauri 安卓构建设置 Java 环境 (Android SDK 需要)
+      - name: setup java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # 添加安卓构建目标
+          targets: aarch64-linux-android
+
+      - name: install frontend dependencies
+        run: npm install
+
+      # 核心步骤：解码 Keystore 并设置签名环境变量
+      - name: Setup Android Signing
+        # 从 GitHub Secrets 中读取 Base64 编码的 Keystore 文件和密码
+        # 将其解码回文件，并设置 Tauri 构建时需要的环境变量
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android.keystore
+          echo "TAURI_PRIVATE_KEY=$(pwd)/android.keystore" >> $GITHUB_ENV
+          echo "TAURI_KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
+          echo "TAURI_PRIVATE_KEY_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+          echo "TAURI_KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
+        # 确保你的仓库中已设置好以下 Secrets:
+        # 1. KEYSTORE_BASE64: Keystore 文件的 Base64 字符串
+        # 2. KEYSTORE_PASSWORD: Keystore 的存储库密码
+        # 3. KEY_ALIAS: 密钥的别名
+        # 4. KEY_PASSWORD: 密钥本身的密码 (通常与存储库密码相同)
+
+      - uses: tauri-apps/tauri-action@v0.5
+        env:
+          NEXT_PUBLIC_LIVEKIT_URL: ${{ vars.NEXT_PUBLIC_LIVEKIT_URL }}
+          NEXT_PUBLIC_LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+          NEXT_PUBLIC_LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: app-v__VERSION__
           releaseName: 'Livekit v_0.0.1-hotfix'
           releaseBody: '修复了打开聊天框后接收消息仍然有红点的BUG'
           releaseDraft: true
           prerelease: false
-          args: ${{ matrix.args }}
+          # 指定构建目标为 aarch64 (ARM64)，这是目前最主流的安卓架构
+          args: '--target aarch64-linux-android'

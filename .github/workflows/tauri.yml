@@ -1,5 +1,5 @@
 # 工作流名称：统一发布流程
-name: 'Unified Publish Release'
+name: 'Publish Release'
 
 # 环境变量，全局统一管理
 env:

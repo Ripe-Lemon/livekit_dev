@@ -68,7 +68,7 @@ jobs:
 
   # --- 新增任务二：构建并签名安卓应用 ---
   publish-tauri-android:
-    needs: publish-tauri-desktop # 可选：等待桌面版构建成功后再开始，确保版本号一致性
+    # needs: publish-tauri-desktop # 可选：等待桌面版构建成功后再开始，确保版本号一致性
     environment: LIVEKIT
     permissions:
       contents: write
@@ -87,6 +87,14 @@ jobs:
         with:
           distribution: 'zulu'
           java-version: '17'
+
+      # 新增：安装 Android NDK
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          # 使用一个稳定且较新的 NDK 版本
+          ndk-version: r25c
 
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -115,14 +123,15 @@ jobs:
 
       - uses: tauri-apps/tauri-action@v0.5
         env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           NEXT_PUBLIC_LIVEKIT_URL: ${{ vars.NEXT_PUBLIC_LIVEKIT_URL }}
           NEXT_PUBLIC_LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
           NEXT_PUBLIC_LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: app-v__VERSION__
-          releaseName: 'Livekit v_0.0.1-hotfix'
-          releaseBody: '修复了打开聊天框后接收消息仍然有红点的BUG'
+          releaseName: 'Livekit v_0.0.2'
+          releaseBody: '构建安卓版本'
           releaseDraft: true
           prerelease: false
           # 指定构建目标为 aarch64 (ARM64)，这是目前最主流的安卓架构

@@ -241,7 +241,7 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
         return results;
     }, [requestSinglePermission]);
 
-    // 枚举设备
+    // 枚举设备 - 移动到前面声明
     const enumerateDevices = useCallback(async (): Promise<DeviceState> => {
         if (!state.isSupported) {
             throw new Error('浏览器不支持设备枚举');
@@ -257,9 +257,28 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
             };
 
             devices.forEach(device => {
+                // 确保设备有有效的标签，如果没有权限，标签可能为空
+                let deviceLabel = device.label;
+                if (!deviceLabel) {
+                    // 如果没有标签，使用更友好的默认名称
+                    switch (device.kind) {
+                        case 'audioinput':
+                            deviceLabel = `麦克风 ${device.deviceId.slice(0, 8)}`;
+                            break;
+                        case 'videoinput':
+                            deviceLabel = `摄像头 ${device.deviceId.slice(0, 8)}`;
+                            break;
+                        case 'audiooutput':
+                            deviceLabel = `扬声器 ${device.deviceId.slice(0, 8)}`;
+                            break;
+                        default:
+                            deviceLabel = `设备 ${device.deviceId.slice(0, 8)}`;
+                    }
+                }
+
                 const deviceInfo: MediaDeviceInfo = {
                     deviceId: device.deviceId,
-                    label: device.label || `${device.kind} ${device.deviceId.slice(0, 8)}`,
+                    label: deviceLabel,
                     kind: device.kind,
                     groupId: device.groupId
                 };
@@ -275,7 +294,12 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
                 deviceState.audiooutput = [];
             }
 
-            console.log('📱 设备枚举结果:', deviceState);
+            console.log('📱 设备枚举结果:', {
+                audioinput: deviceState.audioinput.map(d => ({ id: d.deviceId.slice(0, 8), label: d.label })),
+                videoinput: deviceState.videoinput.map(d => ({ id: d.deviceId.slice(0, 8), label: d.label })),
+                audiooutput: deviceState.audiooutput.map(d => ({ id: d.deviceId.slice(0, 8), label: d.label }))
+            });
+            
             return deviceState;
         } catch (error) {
             console.error('设备枚举失败:', error);
@@ -283,11 +307,11 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
         }
     }, [state.isSupported, enableAudioOutput]);
 
-    // 刷新设备列表
+    // 刷新设备列表 - 现在可以使用 enumerateDevices
     const refreshDevices = useCallback(async (forcePermissionRequest = false): Promise<void> => {
         // 防止频繁刷新
         const now = Date.now();
-        if (now - lastRefreshRef.current < 1000) {
+        if (now - lastRefreshRef.current < 500) { // 减少到500ms防抖
             console.log('⏸️ 跳过频繁刷新');
             return;
         }
@@ -304,8 +328,8 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
         setState(prev => ({ ...prev, isLoading: true, error: null }));
 
         try {
-            // 请求权限（如果需要）
-            if (forcePermissionRequest || shouldRequestPermissions) {
+            // 如果强制请求权限，则请求权限
+            if (forcePermissionRequest && shouldRequestPermissions) {
                 await requestPermissions();
             }
 
@@ -319,7 +343,11 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
                     isLoading: false,
                     error: null
                 }));
-                console.log('✅ 设备列表刷新成功');
+                console.log('✅ 设备列表刷新成功，设备数量:', {
+                    audio: devices.audioinput.length,
+                    video: devices.videoinput.length,
+                    audioOutput: devices.audiooutput.length
+                });
             }
         } catch (error) {
             console.error('刷新设备失败:', error);

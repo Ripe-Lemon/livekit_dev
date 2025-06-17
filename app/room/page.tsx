@@ -123,7 +123,7 @@ function RoomInnerContent({
         controlVolume: 0.7
     },{ isOpen: uiState.showChat });
 
-    // 在 LiveKit Room 内部使用聊天 Hook
+    // 在 RoomInnerContent 组件中修改 useChat 的调用
     const { 
         chatState, 
         sendTextMessage, 
@@ -136,7 +136,7 @@ function RoomInnerContent({
         maxMessages: 100,
         enableSounds: false, // 关闭 useChat 内置音效，使用 useAudioNotifications
         autoScrollToBottom: true,
-        isChatOpen: uiState.showChat
+        isChatOpen: uiState.showChat // 传递聊天栏状态给 useChat
     });
 
     // 修改聊天切换处理函数
@@ -278,17 +278,17 @@ function RoomInnerContent({
             <div className="relative bg-black w-full h-full">
                 <CustomVideoGrid />
                 
-                {/* 自定义控制栏 - 移动端优化 */}
+                {/* 自定义控制栏 - 修改传递参数 */}
                 <ControlBar
-                    onToggleChat={handleToggleChat}
+                    onToggleChat={handleToggleChat} // 使用新的处理函数
                     onToggleParticipants={() => toggleUIPanel('sidebarCollapsed')}
                     onToggleSettings={() => toggleUIPanel('showSettings')}
                     onToggleFullscreen={toggleFullscreen}
                     onLeaveRoom={leaveRoom}
                     isFullscreen={uiState.isFullscreen}
-                    chatUnreadCount={chatState.unreadCount}
+                    chatUnreadCount={chatState.unreadCount} // 传递正确的未读计数
                     showChat={uiState.showChat}
-                    className="bottom-4 left-1/2 transform -translate-x-1/2" // 移动端居中
+                    className="bottom-4 left-1/2 transform -translate-x-1/2"
                 />
             </div>
 
@@ -435,14 +435,14 @@ function RoomInnerContent({
                     />
                     <FloatingChat 
                         setPreviewImage={(src) => src && openPreview(src)}
-                        onClose={handleToggleChat}
+                        onClose={handleToggleChat} // 使用新的处理函数
                         chatState={chatState}
                         onSendMessage={sendTextMessage}
                         onSendImage={sendImageMessage}
                         onClearMessages={clearMessages}
                         onRetryMessage={retryMessage}
                         onDeleteMessage={deleteMessage}
-                        onMarkAsRead={markAsRead}
+                        onMarkAsRead={markAsRead} // 传递 markAsRead 函数
                         className="relative z-20"
                     />
                 </div>

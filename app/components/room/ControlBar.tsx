@@ -432,18 +432,26 @@ export function ControlBar({
         };
     }, [isFullscreen]);
 
-    // 切换麦克风
+    // 修复麦克风切换逻辑 - 只检查麦克风权限
     const toggleMicrophone = useCallback(async () => {
         if (!room || isTogglingMic) return;
 
-        // 如果没有权限，先请求权限
-        if (!permissions.audio && !permissionRequested.audio) {
-            await handleRequestAudioPermission();
-            return;
-        }
-
         setIsTogglingMic(true);
         try {
+            // 检查是否有麦克风权限，如果没有则请求
+            if (!permissions.audio && !permissionRequested.audio) {
+                console.log('🎤 没有麦克风权限，先请求权限...');
+                const granted = await requestSinglePermission('audio');
+                if (!granted) {
+                    console.warn('❌ 麦克风权限被拒绝，无法开启麦克风');
+                    setIsTogglingMic(false);
+                    return;
+                }
+                // 权限获取后刷新设备列表
+                await refreshDevices();
+            }
+
+            // 执行麦克风开关操作
             const currentlyMuted = !localParticipant.isMicrophoneEnabled;
             
             if (currentlyMuted) {
@@ -463,20 +471,28 @@ export function ControlBar({
         } finally {
             setIsTogglingMic(false);
         }
-    }, [localParticipant, playMuteSound, playUnmuteSound, playErrorSound, isTogglingMic, room, permissions.audio, permissionRequested.audio, handleRequestAudioPermission]);
+    }, [localParticipant, playMuteSound, playUnmuteSound, playErrorSound, isTogglingMic, room, permissions.audio, permissionRequested.audio, requestSinglePermission, refreshDevices]);
 
-    // 切换摄像头
+    // 修复摄像头切换逻辑 - 只检查摄像头权限
     const toggleCamera = useCallback(async () => {
         if (!room || isTogglingCamera) return;
 
-        // 如果没有权限，先请求权限
-        if (!permissions.video && !permissionRequested.video) {
-            await handleRequestVideoPermission();
-            return;
-        }
-
         setIsTogglingCamera(true);
         try {
+            // 检查是否有摄像头权限，如果没有则请求
+            if (!permissions.video && !permissionRequested.video) {
+                console.log('📹 没有摄像头权限，先请求权限...');
+                const granted = await requestSinglePermission('video');
+                if (!granted) {
+                    console.warn('❌ 摄像头权限被拒绝，无法开启摄像头');
+                    setIsTogglingCamera(false);
+                    return;
+                }
+                // 权限获取后刷新设备列表
+                await refreshDevices();
+            }
+
+            // 执行摄像头开关操作
             const currentlyOff = !localParticipant.isCameraEnabled;
             
             if (currentlyOff) {
@@ -496,7 +512,7 @@ export function ControlBar({
         } finally {
             setIsTogglingCamera(false);
         }
-    }, [localParticipant, playCameraOnSound, playCameraOffSound, playErrorSound, isTogglingCamera, room, permissions.video, permissionRequested.video, handleRequestVideoPermission]);
+    }, [localParticipant, playCameraOnSound, playCameraOffSound, playErrorSound, isTogglingCamera, room, permissions.video, permissionRequested.video, requestSinglePermission, refreshDevices]);
 
     // 切换屏幕共享
     const toggleScreenShare = useCallback(async () => {
@@ -577,9 +593,9 @@ export function ControlBar({
     const hasAudioPermission = permissions.audio;
     const hasVideoPermission = permissions.video;
 
-    // 确定加载状态 - 只在正在请求权限时显示加载
-    const audioLoading = devicesLoading && !hasAudioPermission && !permissionRequested.audio;
-    const videoLoading = devicesLoading && !hasVideoPermission && !permissionRequested.video;
+    // 确定加载状态 - 分别判断音频和视频的权限请求状态
+    const audioLoading = isRequestingAudioPermission;
+    const videoLoading = isRequestingVideoPermission;
 
     return (
         <div className={`
@@ -595,7 +611,7 @@ export function ControlBar({
             <ControlButton
                 onClick={toggleMicrophone}
                 isActive={!isMuted}
-                isLoading={isTogglingMic || isRequestingAudioPermission}
+                isLoading={isTogglingMic || audioLoading}
                 title={isMuted ? '开启麦克风' : '关闭麦克风'}
                 activeColor="bg-green-600"
                 inactiveColor="bg-red-600"
@@ -639,7 +655,7 @@ export function ControlBar({
             <ControlButton
                 onClick={toggleCamera}
                 isActive={!isCameraOff}
-                isLoading={isTogglingCamera || isRequestingVideoPermission}
+                isLoading={isTogglingCamera || videoLoading}
                 title={isCameraOff ? '开启摄像头' : '关闭摄像头'}
                 activeColor="bg-green-600"
                 inactiveColor="bg-red-600"

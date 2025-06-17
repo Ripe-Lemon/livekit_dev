@@ -8,7 +8,7 @@
     "build:export": "cross-env IS_STATIC_EXPORT=true next build",
     "start": "next start",
     "lint": "next lint",
-    "deploy": "npx wrangler pages deploy .next"
+    "deploy": "npx wrangler pages deploy .next --project-name=livekit-dev-with-woker"
   },
   "dependencies": {
     "@livekit/components-react": "^2.9.9",

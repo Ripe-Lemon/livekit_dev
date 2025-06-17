@@ -49,7 +49,7 @@ jobs:
             ]
 
   # ===================================================================
-  # 任务 2 (新)：创建草稿 Release (已修正)
+  # 任务 2 (新)：创建草稿 Release (保持不变)
   # ===================================================================
   create-release:
     needs: pre-check
@@ -58,7 +58,6 @@ jobs:
     permissions:
       contents: write
     steps:
-      # --- 修正点：在运行 gh 命令前，先检出代码 ---
       - name: 检出仓库代码
         uses: actions/checkout@v4
 
@@ -74,7 +73,7 @@ jobs:
             --prerelease=${{ github.ref_name == 'dev-tauri' }}
 
   # ===================================================================
-  # 任务 3：构建桌面应用 (已修正缩进问题)
+  # 任务 3：构建桌面应用 (上传步骤已修正)
   # ===================================================================
   build-desktop:
     needs: create-release
@@ -122,10 +121,27 @@ jobs:
           NEXT_PUBLIC_LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
         run: npm run tauri build -- ${{ matrix.target != '' && format('--target {0}', matrix.target) || '' }}
 
+      # --- 修正点：使用更健壮的上传逻辑 ---
       - name: 上传桌面应用产物
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload ${{ env.APP_VERSION }} src-tauri/target/release/bundle/**/* --clobber
+        run: |
+          # 动态确定产物的基础目录
+          if [[ -n "${{ matrix.target }}" ]]; then
+            TARGET_DIR="src-tauri/target/${{ matrix.target }}/release"
+          else
+            TARGET_DIR="src-tauri/target/release"
+          fi
+
+          # 根据操作系统上传对应的文件
+          echo "正在从目录 ${TARGET_DIR}/bundle 上传产物..."
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            gh release upload ${{ env.APP_VERSION }} ${TARGET_DIR}/bundle/macos/*.dmg ${TARGET_DIR}/bundle/macos/*.app.tar.gz --clobber
+          elif [[ "${{ runner.os }}" == "Windows" ]]; then
+            gh release upload ${{ env.APP_VERSION }} ${TARGET_DIR}/bundle/msi/*.msi ${TARGET_DIR}/bundle/nsis/*.exe --clobber
+          elif [[ "${{ runner.os }}" == "Linux" ]]; then
+            gh release upload ${{ env.APP_VERSION }} ${TARGET_DIR}/bundle/appimage/*.AppImage ${TARGET_DIR}/bundle/deb/*.deb --clobber
+          fi
 
   # ===================================================================
   # 任务 4：交叉编译 Linux ARM 应用 (保持不变)

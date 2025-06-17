@@ -49,7 +49,7 @@ jobs:
             ]
 
   # ===================================================================
-  # 任务 2 (新)：创建草稿 Release (保持不变)
+  # 任务 2 (新)：创建草稿 Release (已修正)
   # ===================================================================
   create-release:
     needs: pre-check
@@ -58,6 +58,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      # --- 修正点：在运行 gh 命令前，先检出代码 ---
+      - name: 检出仓库代码
+        uses: actions/checkout@v4
+
       - name: 创建一个草稿版本
         id: create_release
         env:

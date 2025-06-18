@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocalParticipant, useParticipants, useRoomContext } from '@livekit/components-react';
-import { Track, createLocalAudioTrack } from 'livekit-client';
+import { Track } from 'livekit-client';
 import { AudioManager } from '../lib/audio/AudioManager';
 import { LiveKitAudioSettings, ParticipantVolumeSettings } from '../types/audio';
 
@@ -16,6 +16,10 @@ interface AudioCaptureOptions {
     deviceId?: string;
 }
 
+/**
+ * 一个自定义 React 钩子，用于管理 LiveKit 的音频设置和参与者音量。
+ * @returns {object} 返回包含音频设置、音量、更新函数和状态的对象。
+ */
 export function useLiveKitAudioSettings() {
     const { localParticipant } = useLocalParticipant();
     const participants = useParticipants();
@@ -25,7 +29,7 @@ export function useLiveKitAudioSettings() {
     const [liveKitSettings, setLiveKitSettings] = useState<LiveKitAudioSettings>(
         audioManager.getLiveKitAudioSettings()
     );
-    
+
     const [participantVolumes, setParticipantVolumes] = useState<ParticipantVolumeSettings>(
         audioManager.getParticipantVolumes()
     );
@@ -53,7 +57,7 @@ export function useLiveKitAudioSettings() {
                 mutation.addedNodes.forEach((node) => {
                     if (node.nodeType === Node.ELEMENT_NODE) {
                         const element = node as Element;
-                        
+
                         // 检查是否是音频元素
                         if (element.tagName === 'AUDIO') {
                             console.log('🔊 检测到新的音频元素:', {
@@ -62,7 +66,7 @@ export function useLiveKitAudioSettings() {
                                 dataset: { ...(element as HTMLElement).dataset }
                             });
                         }
-                        
+
                         // 检查子元素中是否有音频元素
                         const audioElements = element.querySelectorAll('audio');
                         if (audioElements.length > 0) {
@@ -71,7 +75,7 @@ export function useLiveKitAudioSettings() {
                                 className: element.className,
                                 dataset: { ...(element as HTMLElement).dataset }
                             });
-                            
+
                             // 应用已保存的音量设置
                             setTimeout(() => {
                                 participants.forEach(participant => {
@@ -132,20 +136,20 @@ export function useLiveKitAudioSettings() {
 
         try {
             const newSettings = { [key]: value };
-            
+
             // 立即更新本地状态
             setLiveKitSettings(prev => ({ ...prev, ...newSettings }));
-            
+
             // 保存到 AudioManager
             audioManager.updateLiveKitAudioSettings(newSettings);
 
             // 只对音频处理设置应用到 LiveKit 轨道
             if (localParticipant && (key === 'noiseSuppression' || key === 'echoCancellation' || key === 'autoGainControl')) {
                 console.log(`🔄 开始应用 ${key} 设置: ${value}`);
-                
+
                 // 构建新的音频捕获选项 - 使用更新后的设置
                 const updatedSettings = { ...liveKitSettings, [key]: value };
-                
+
                 // 使用 LiveKit 的 AudioCaptureOptions
                 const audioCaptureOptions: AudioCaptureOptions = {
                     echoCancellation: updatedSettings.echoCancellation,
@@ -159,16 +163,16 @@ export function useLiveKitAudioSettings() {
 
                 // 获取当前的音频轨道发布
                 const audioPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
-                
+
                 if (audioPublication && audioPublication.track) {
                     // 停止当前轨道
                     console.log('🛑 停止当前音频轨道');
                     audioPublication.track.stop();
-                    
+
                     // 取消发布当前轨道
                     await localParticipant.unpublishTrack(audioPublication.track);
                     console.log('📤 已取消发布当前音频轨道');
-                    
+
                     // 等待一下确保轨道完全停止
                     await new Promise(resolve => setTimeout(resolve, 200));
                 }
@@ -176,7 +180,7 @@ export function useLiveKitAudioSettings() {
                 // 使用正确的 LiveKit 方法重新启用麦克风
                 console.log('🎤 使用新设置重新启用麦克风');
                 await localParticipant.setMicrophoneEnabled(true, audioCaptureOptions);
-                
+
                 console.log(`✅ ${key} 设置已通过 AudioCaptureOptions 应用: ${value}`);
 
                 // 验证设置是否真正应用（延迟验证，给轨道时间稳定）
@@ -190,13 +194,13 @@ export function useLiveKitAudioSettings() {
                             autoGainControl: actualSettings.autoGainControl,
                             expected: updatedSettings
                         });
-                        
+
                         // 检查设置是否正确应用
-                        const isCorrect = 
+                        const isCorrect =
                             actualSettings.noiseSuppression === updatedSettings.noiseSuppression &&
                             actualSettings.echoCancellation === updatedSettings.echoCancellation &&
                             actualSettings.autoGainControl === updatedSettings.autoGainControl;
-                            
+
                         if (isCorrect) {
                             console.log('✅ 音频设置验证成功');
                         } else {
@@ -211,7 +215,7 @@ export function useLiveKitAudioSettings() {
 
         } catch (error) {
             console.error(`❌ 应用 ${key} 设置失败:`, error);
-            
+
             // 如果应用失败，尝试恢复麦克风
             if (localParticipant && (key === 'noiseSuppression' || key === 'echoCancellation' || key === 'autoGainControl')) {
                 try {
@@ -222,7 +226,7 @@ export function useLiveKitAudioSettings() {
                     console.error('❌ 恢复麦克风失败:', recoveryError);
                 }
             }
-            
+
             throw error; // 重新抛出错误让调用者处理
         } finally {
             // 移除正在应用的标记
@@ -241,9 +245,9 @@ export function useLiveKitAudioSettings() {
         setParticipantVolumes(audioManager.getParticipantVolumes());
     }, [audioManager]);
 
-    // 获取参与者音量用用户名
+    // 获取参与者音量
     const getParticipantVolume = useCallback((participantId: string) => {
-        return audioManager.getParticipantVolumeUseName(participantId);
+        return audioManager.getParticipantVolume(participantId);
     }, [audioManager]);
 
     return {

@@ -172,15 +172,15 @@ function DeviceDropdown({
     );
 }
 
-// 控制按钮组件
+// 控制按钮组件 - 更新以支持半透明效果
 function ControlButton({ 
     onClick, 
     isActive, 
     isLoading, 
     icon, 
     title, 
-    activeColor = 'bg-green-600',
-    inactiveColor = 'bg-red-600',
+    activeColor = 'bg-green-600/80 hover:bg-green-600',
+    inactiveColor = 'bg-red-600/80 hover:bg-red-600',
     children,
     hasDropdown = false
 }: {
@@ -202,7 +202,7 @@ function ControlButton({
                 className={`
                     flex items-center justify-center w-12 h-10 rounded-lg
                     transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed
-                    text-white hover:opacity-90
+                    text-white/90 hover:text-white
                     ${isActive 
                         ? `${activeColor}` 
                         : `${inactiveColor}`
@@ -211,7 +211,7 @@ function ControlButton({
                 title={title}
             >
                 {isLoading ? (
-                    <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full" />
+                    <div className="animate-spin h-5 w-5 border-2 border-white/70 border-t-transparent rounded-full" />
                 ) : (
                     icon
                 )}
@@ -773,20 +773,22 @@ export function ControlBar({
         <div className={`
             fixed bottom-4 left-1/2 transform -translate-x-1/2
             flex items-center gap-2 px-4 py-3 
-            bg-gray-800/90 backdrop-blur-sm rounded-xl
-            border border-gray-600/50 shadow-lg
+            bg-gray-800/50 backdrop-blur-sm rounded-xl
+            border border-gray-600/30 shadow-lg
             transition-all duration-300 z-50
+            hover:bg-gray-800/90 hover:border-gray-600/50
+            group
             ${isFullscreen && !isControlsVisible ? 'opacity-0 pointer-events-none' : 'opacity-100'}
             ${className}
         `}>
             {/* 麦克风按钮 */}
             <ControlButton
-                onClick={toggleMicrophone} // 使用修复后的函数
+                onClick={toggleMicrophone}
                 isActive={!isMuted}
                 isLoading={isTogglingMic || audioLoading}
                 title={isMuted ? '开启麦克风' : '关闭麦克风'}
-                activeColor="bg-green-600"
-                inactiveColor="bg-red-600"
+                activeColor="bg-green-600/80 hover:bg-green-600"
+                inactiveColor="bg-red-600/80 hover:bg-red-600"
                 hasDropdown={true}
                 icon={
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -802,7 +804,7 @@ export function ControlBar({
                             <g>
                                 <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" strokeLinecap="round" strokeLinejoin="round"/>
                                 <path d="M19 10v2a7 7 0 0 1-14 0v-2" strokeLinecap="round" strokeLinejoin="round"/>
-                                <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round"/>
+                                <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round" strokeLinejoin="round"/>
                                 <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round"/>
                             </g>
                         )}
@@ -818,19 +820,19 @@ export function ControlBar({
                     type="microphone"
                     isLoading={audioLoading}
                     error={devicesError}
-                    hasPermission={hasAudioPermission} // 使用本地权限状态
+                    hasPermission={hasAudioPermission}
                     onRequestPermission={handleRequestAudioPermission}
                 />
             </ControlButton>
 
             {/* 摄像头按钮 */}
             <ControlButton
-                onClick={toggleCamera} // 使用修复后的函数
+                onClick={toggleCamera}
                 isActive={!isCameraOff}
                 isLoading={isTogglingCamera || videoLoading}
                 title={isCameraOff ? '开启摄像头' : '关闭摄像头'}
-                activeColor="bg-green-600"
-                inactiveColor="bg-red-600"
+                activeColor="bg-green-600/80 hover:bg-green-600"
+                inactiveColor="bg-red-600/80 hover:bg-red-600"
                 hasDropdown={true}
                 icon={
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -858,7 +860,7 @@ export function ControlBar({
                     type="camera"
                     isLoading={videoLoading}
                     error={devicesError}
-                    hasPermission={hasVideoPermission} // 使用本地权限状态
+                    hasPermission={hasVideoPermission}
                     onRequestPermission={handleRequestVideoPermission}
                 />
             </ControlButton>
@@ -869,8 +871,8 @@ export function ControlBar({
                 isActive={isScreenSharing}
                 isLoading={isTogglingScreen}
                 title={isScreenSharing ? '停止屏幕共享' : '开始屏幕共享'}
-                activeColor="bg-blue-600"
-                inactiveColor="bg-gray-700"
+                activeColor="bg-blue-600/80 hover:bg-blue-600"
+                inactiveColor="bg-gray-700/80 hover:bg-gray-700"
                 icon={
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <rect x="2" y="3" width="20" height="14" rx="2" ry="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -887,7 +889,7 @@ export function ControlBar({
             />
 
             {/* 分隔线 */}
-            <div className="h-6 w-px bg-gray-600/50" />
+            <div className="h-6 w-px bg-gray-600/30 group-hover:bg-gray-600/50 transition-colors duration-300" />
 
             {/* 聊天按钮 */}
             {onToggleChat && (
@@ -895,10 +897,10 @@ export function ControlBar({
                     onClick={onToggleChat}
                     className={`
                         relative flex items-center justify-center w-12 h-10 rounded-lg
-                        transition-all duration-200 text-white
+                        transition-all duration-200 text-white/90 hover:text-white
                         ${showChat 
-                            ? 'bg-blue-600 hover:bg-blue-700' 
-                            : 'bg-gray-700 hover:bg-gray-600'
+                            ? 'bg-blue-600/80 hover:bg-blue-600' 
+                            : 'bg-gray-700/80 hover:bg-gray-700'
                         }
                     `}
                     title="聊天"
@@ -907,7 +909,7 @@ export function ControlBar({
                         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
                     </svg>
                     {chatUnreadCount > 0 && (
-                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center shadow-lg">
                             {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
                         </span>
                     )}
@@ -918,7 +920,7 @@ export function ControlBar({
             {onToggleParticipants && (
                 <button
                     onClick={onToggleParticipants}
-                    className="flex items-center justify-center w-12 h-10 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-all duration-200"
+                    className="flex items-center justify-center w-12 h-10 rounded-lg bg-gray-700/80 text-white/90 hover:bg-gray-700 hover:text-white transition-all duration-200"
                     title="参与者"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -934,7 +936,7 @@ export function ControlBar({
             {onToggleSettings && (
                 <button
                     onClick={onToggleSettings}
-                    className="flex items-center justify-center w-12 h-10 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-all duration-200"
+                    className="flex items-center justify-center w-12 h-10 rounded-lg bg-gray-700/80 text-white/90 hover:bg-gray-700 hover:text-white transition-all duration-200"
                     title="设置"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -948,7 +950,7 @@ export function ControlBar({
             {onToggleFullscreen && (
                 <button
                     onClick={onToggleFullscreen}
-                    className="flex items-center justify-center w-12 h-10 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-all duration-200"
+                    className="flex items-center justify-center w-12 h-10 rounded-lg bg-gray-700/80 text-white/90 hover:bg-gray-700 hover:text-white transition-all duration-200"
                     title={isFullscreen ? '退出全屏' : '进入全屏'}
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -972,10 +974,32 @@ export function ControlBar({
             )}
 
             {/* 分隔线 */}
-            <div className="h-6 w-px bg-gray-600/50" />
+            <div className="h-6 w-px bg-gray-600/30 group-hover:bg-gray-600/50 transition-colors duration-300" />
 
             {/* 离开房间按钮 */}
-            <LeaveRoomButton onLeaveRoom={onLeaveRoom} />
+            <button
+                onClick={onLeaveRoom ? () => {
+                    if (onLeaveRoom) onLeaveRoom();
+                } : undefined}
+                className="flex items-center justify-center w-12 h-10 bg-red-600/80 text-white/90 hover:bg-red-600 hover:text-white rounded-lg transition-all duration-200"
+                title="离开房间"
+            >
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                >
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                    <polyline points="16,17 21,12 16,7"/>
+                    <line x1="21" y1="12" x2="9" y2="12"/>
+                </svg>
+            </button>
         </div>
     );
 }

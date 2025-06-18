@@ -31,6 +31,43 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* 滑块样式 */
+.slider::-webkit-slider-thumb {
+    appearance: none;
+    height: 16px;
+    width: 16px;
+    border-radius: 50%;
+    background: #3b82f6;
+    cursor: pointer;
+    border: 2px solid #1f2937;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.slider::-webkit-slider-thumb:hover {
+    background: #2563eb;
+    transform: scale(1.1);
+}
+
+.slider::-moz-range-thumb {
+    height: 16px;
+    width: 16px;
+    border-radius: 50%;
+    background: #3b82f6;
+    cursor: pointer;
+    border: 2px solid #1f2937;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.slider-sm::-webkit-slider-thumb {
+    height: 12px;
+    width: 12px;
+}
+
+.slider-sm::-moz-range-thumb {
+    height: 12px;
+    width: 12px;
+}
+
 /* 自定义滚动条样式 */
 .scrollbar-thin {
     scrollbar-width: thin;

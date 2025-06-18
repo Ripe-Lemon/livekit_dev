@@ -1,18 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useLocalParticipant, useRoomContext, useParticipants } from '@livekit/components-react';
-
-// Types
-interface AudioSettings {
-    noiseSuppression: boolean;
-    echoCancellation: boolean;
-    voiceDetectionThreshold: number;
-}
-
-interface ParticipantVolumeSettings {
-    [participantId: string]: number;
-}
+import React, { useState, useEffect } from 'react';
+import { useRoomContext, useParticipants } from '@livekit/components-react';
+import { useLiveKitAudioSettings } from '../../hooks/useLiveKitAudioSettings';
 
 interface SettingsPanelProps {
     onClose: () => void;
@@ -20,95 +10,44 @@ interface SettingsPanelProps {
 }
 
 export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
-    const { localParticipant } = useLocalParticipant();
     const room = useRoomContext();
     const participants = useParticipants();
+    const {
+        liveKitSettings,
+        participantVolumes,
+        updateLiveKitSetting,
+        updateParticipantVolume
+    } = useLiveKitAudioSettings();
 
-    // 状态管理
-    const [audioSettings, setAudioSettings] = useState<AudioSettings>({
-        noiseSuppression: true,
-        echoCancellation: true,
-        voiceDetectionThreshold: 0.3
-    });
-    
-    const [participantVolumes, setParticipantVolumes] = useState<ParticipantVolumeSettings>({});
     const [isVolumeControlExpanded, setIsVolumeControlExpanded] = useState(false);
-    const [hasChanges, setHasChanges] = useState(false);
+    const [isApplying, setIsApplying] = useState<string | null>(null);
 
-    // 从本地存储加载设置
-    useEffect(() => {
+    // 处理音频设置更新
+    const handleAudioSettingChange = async (key: keyof typeof liveKitSettings, value: boolean | number) => {
+        setIsApplying(key);
         try {
-            const savedAudioSettings = localStorage.getItem('audioSettings');
-            if (savedAudioSettings) {
-                setAudioSettings(JSON.parse(savedAudioSettings));
-            }
-
-            const savedParticipantVolumes = localStorage.getItem('participantVolumes');
-            if (savedParticipantVolumes) {
-                setParticipantVolumes(JSON.parse(savedParticipantVolumes));
-            }
+            await updateLiveKitSetting(key, value);
         } catch (error) {
-            console.error('加载设置失败:', error);
+            console.error('应用设置失败:', error);
+        } finally {
+            // 延迟重置状态，让用户看到应用过程
+            setTimeout(() => setIsApplying(null), 500);
         }
-    }, []);
+    };
 
-    // 初始化参与者音量设置
-    useEffect(() => {
-        const newVolumes = { ...participantVolumes };
-        let hasNewParticipants = false;
-
-        participants.forEach(participant => {
-            if (!participant.isLocal && !(participant.identity in newVolumes)) {
-                newVolumes[participant.identity] = 100; // 默认音量 100%
-                hasNewParticipants = true;
-            }
-        });
-
-        if (hasNewParticipants) {
-            setParticipantVolumes(newVolumes);
-        }
-    }, [participants, participantVolumes]);
-
-    // 保存设置
-    const saveSettings = useCallback(() => {
-        try {
-            localStorage.setItem('audioSettings', JSON.stringify(audioSettings));
-            localStorage.setItem('participantVolumes', JSON.stringify(participantVolumes));
-            setHasChanges(false);
-            
-            // TODO: 实际应用音频设置到媒体轨道
-            console.log('设置已保存:', { audioSettings, participantVolumes });
-        } catch (error) {
-            console.error('保存设置失败:', error);
-        }
-    }, [audioSettings, participantVolumes]);
-
-    // 更新音频设置
-    const updateAudioSetting = useCallback((key: keyof AudioSettings, value: boolean | number) => {
-        setAudioSettings(prev => ({
-            ...prev,
-            [key]: value
-        }));
-        setHasChanges(true);
-    }, []);
-
-    // 更新参与者音量
-    const updateParticipantVolume = useCallback((participantId: string, volume: number) => {
-        setParticipantVolumes(prev => ({
-            ...prev,
-            [participantId]: volume
-        }));
-        setHasChanges(true);
-    }, []);
+    // 处理参与者音量更新
+    const handleParticipantVolumeChange = (participantId: string, volume: number) => {
+        updateParticipantVolume(participantId, volume);
+    };
 
     // 处理点击背景关闭
-    const handleBackdropClick = useCallback((e: React.MouseEvent) => {
+    const handleBackdropClick = (e: React.MouseEvent) => {
         if (e.target === e.currentTarget) {
             onClose();
         }
-    }, [onClose]);
+    };
 
-    // 获取连接状态显示文本和颜色
+    // 获取连接状态
     const getConnectionStatus = () => {
         const state = room?.state;
         switch (state) {
@@ -174,18 +113,26 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
                                         <span className="text-sm text-white">噪声抑制</span>
                                         <p className="text-xs text-gray-400">过滤背景噪音</p>
                                     </div>
-                                    <button
-                                        onClick={() => updateAudioSetting('noiseSuppression', !audioSettings.noiseSuppression)}
-                                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                                            audioSettings.noiseSuppression ? 'bg-blue-600' : 'bg-gray-600'
-                                        }`}
-                                    >
-                                        <span
-                                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
-                                                audioSettings.noiseSuppression ? 'translate-x-6' : 'translate-x-1'
+                                    <div className="flex items-center space-x-2">
+                                        {isApplying === 'noiseSuppression' && (
+                                            <svg className="w-4 h-4 text-yellow-400 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                            </svg>
+                                        )}
+                                        <button
+                                            onClick={() => handleAudioSettingChange('noiseSuppression', !liveKitSettings.noiseSuppression)}
+                                            disabled={isApplying === 'noiseSuppression'}
+                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+                                                liveKitSettings.noiseSuppression ? 'bg-blue-600' : 'bg-gray-600'
                                             }`}
-                                        />
-                                    </button>
+                                        >
+                                            <span
+                                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                                                    liveKitSettings.noiseSuppression ? 'translate-x-6' : 'translate-x-1'
+                                                }`}
+                                            />
+                                        </button>
+                                    </div>
                                 </div>
 
                                 {/* 回声消除开关 */}
@@ -194,25 +141,33 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
                                         <span className="text-sm text-white">回声消除</span>
                                         <p className="text-xs text-gray-400">消除声音回馈</p>
                                     </div>
-                                    <button
-                                        onClick={() => updateAudioSetting('echoCancellation', !audioSettings.echoCancellation)}
-                                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                                            audioSettings.echoCancellation ? 'bg-blue-600' : 'bg-gray-600'
-                                        }`}
-                                    >
-                                        <span
-                                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
-                                                audioSettings.echoCancellation ? 'translate-x-6' : 'translate-x-1'
+                                    <div className="flex items-center space-x-2">
+                                        {isApplying === 'echoCancellation' && (
+                                            <svg className="w-4 h-4 text-yellow-400 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                            </svg>
+                                        )}
+                                        <button
+                                            onClick={() => handleAudioSettingChange('echoCancellation', !liveKitSettings.echoCancellation)}
+                                            disabled={isApplying === 'echoCancellation'}
+                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+                                                liveKitSettings.echoCancellation ? 'bg-blue-600' : 'bg-gray-600'
                                             }`}
-                                        />
-                                    </button>
+                                        >
+                                            <span
+                                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                                                    liveKitSettings.echoCancellation ? 'translate-x-6' : 'translate-x-1'
+                                                }`}
+                                            />
+                                        </button>
+                                    </div>
                                 </div>
 
                                 {/* 语音检测阈值滑块 */}
                                 <div>
                                     <div className="flex items-center justify-between mb-2">
                                         <span className="text-sm text-white">语音检测阈值</span>
-                                        <span className="text-xs text-gray-400">{Math.round(audioSettings.voiceDetectionThreshold * 100)}%</span>
+                                        <span className="text-xs text-gray-400">{Math.round(liveKitSettings.voiceDetectionThreshold * 100)}%</span>
                                     </div>
                                     <div className="relative">
                                         <input
@@ -220,8 +175,8 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
                                             min="0"
                                             max="1"
                                             step="0.01"
-                                            value={audioSettings.voiceDetectionThreshold}
-                                            onChange={(e) => updateAudioSetting('voiceDetectionThreshold', parseFloat(e.target.value))}
+                                            value={liveKitSettings.voiceDetectionThreshold}
+                                            onChange={(e) => handleAudioSettingChange('voiceDetectionThreshold', parseFloat(e.target.value))}
                                             className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
                                         />
                                     </div>
@@ -284,7 +239,7 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
                                                         max="200"
                                                         step="5"
                                                         value={participantVolumes[participant.identity] || 100}
-                                                        onChange={(e) => updateParticipantVolume(participant.identity, parseInt(e.target.value))}
+                                                        onChange={(e) => handleParticipantVolumeChange(participant.identity, parseInt(e.target.value))}
                                                         className="w-full h-1.5 bg-gray-600 rounded-lg appearance-none cursor-pointer slider-sm"
                                                     />
                                                 </div>
@@ -330,17 +285,23 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
                     {/* 操作按钮 */}
                     <div className="p-4">
                         <div className="flex space-x-2">
-                            <button
-                                onClick={saveSettings}
-                                disabled={!hasChanges}
-                                className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                                    hasChanges 
-                                        ? 'bg-blue-600 text-white hover:bg-blue-700' 
-                                        : 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                                }`}
-                            >
-                                {hasChanges ? '保存设置' : '已保存'}
-                            </button>
+                            <div className="flex-1 text-center">
+                                {isApplying ? (
+                                    <div className="text-xs text-yellow-400 flex items-center justify-center">
+                                        <svg className="w-3 h-3 mr-1 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                        </svg>
+                                        正在应用设置...
+                                    </div>
+                                ) : (
+                                    <div className="text-xs text-green-400 flex items-center justify-center">
+                                        <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                        设置已实时生效
+                                    </div>
+                                )}
+                            </div>
                             
                             <button
                                 onClick={onClose}

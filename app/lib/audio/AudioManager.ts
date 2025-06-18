@@ -6,6 +6,7 @@ import {
     AUDIO_ERROR_CODES,
     AUDIO_MONITORING
 } from '../../constants/audio';
+import { ParticipantVolumeSettings, LiveKitAudioSettings } from '../../types/audio';
 
 // 音效配置接口（从constants导入的类型）
 interface SoundConfig {
@@ -47,6 +48,14 @@ export class AudioManager {
     private masterGainNode: GainNode | null = null;
     private initialized: boolean = false;
 
+    private participantVolumes: ParticipantVolumeSettings = {};
+    private liveKitSettings: LiveKitAudioSettings = {
+        noiseSuppression: true,
+        echoCancellation: true,
+        autoGainControl: true,
+        voiceDetectionThreshold: 0.3
+    };
+
     private constructor(config: Partial<AudioManagerConfig> = {}) {
         this.config = {
             globalVolume: 0.7,
@@ -70,7 +79,7 @@ export class AudioManager {
         return AudioManager.instance;
     }
 
-    // 初始化音频管理器
+    // 初始化音频管理器 - 合并重复的实现
     async initialize(): Promise<void> {
         if (this.initialized) {
             console.log('AudioManager 已初始化');
@@ -79,6 +88,10 @@ export class AudioManager {
 
         try {
             console.log('🎵 正在初始化 AudioManager...');
+
+            // 加载设置
+            this.loadParticipantVolumes();
+            this.loadLiveKitSettings();
 
             // 检查音频文件路径配置
             console.log('📁 音频文件配置:', SOUND_PATHS);
@@ -489,16 +502,8 @@ export class AudioManager {
         console.log('音频管理器已销毁');
     }
 
-    // 获取音频统计信息
-    getStats(): {
-        initialized: boolean;
-        enabled: boolean;
-        globalVolume: number;
-        loadedSounds: number;
-        totalSounds: number;
-        audioContextState: string;
-        soundStates: Record<string, SoundState | null>;
-    } {
+    // 获取音频统计信息 - 合并重复的实现
+    getStats(): any {
         const loadedCount = Array.from(this.sounds.values())
             .filter(instance => instance.state === AUDIO_STATES.ACTIVE).length;
         
@@ -509,7 +514,10 @@ export class AudioManager {
             loadedSounds: loadedCount,
             totalSounds: Object.keys(DEFAULT_SOUND_CONFIG).length,
             audioContextState: this.audioContext?.state || 'not-initialized',
-            soundStates: this.getAllSoundStates()
+            soundStates: this.getAllSoundStates(),
+            participantVolumes: this.participantVolumes,
+            liveKitSettings: this.liveKitSettings,
+            participantCount: Object.keys(this.participantVolumes).length
         };
     }
 
@@ -531,8 +539,141 @@ export class AudioManager {
             availablePaths: SOUND_PATHS
         };
     }
+
+    // 参与者音量控制方法
+    setParticipantVolume(participantId: string, volume: number): void {
+        const clampedVolume = Math.max(0, Math.min(200, volume));
+        this.participantVolumes[participantId] = clampedVolume;
+        
+        try {
+            // 查找对应的音频元素
+            const audioElements = document.querySelectorAll(`audio[data-lk-participant="${participantId}"]`);
+            const volumeValue = clampedVolume / 100;
+
+            audioElements.forEach((audioElement) => {
+                if (audioElement instanceof HTMLAudioElement) {
+                    if (volumeValue <= 1) {
+                        audioElement.volume = volumeValue;
+                    } else {
+                        // 使用 Web Audio API 进行音量增强
+                        this.enhanceAudioVolume(audioElement, volumeValue, participantId);
+                    }
+                }
+            });
+
+            // 保存到本地存储
+            this.saveParticipantVolumes();
+            console.log(`🔊 参与者 ${participantId} 音量设置为 ${clampedVolume}%`);
+        } catch (error) {
+            console.error('❌ 设置参与者音量失败:', error);
+        }
+    }
+
+    // 使用 Web Audio API 增强音量
+    private enhanceAudioVolume(audioElement: HTMLAudioElement, gain: number, participantId: string): void {
+        try {
+            if (!this.audioContext) {
+                this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+            }
+
+            // 检查是否已经有增益节点
+            const existingNodeId = `gain-${participantId}`;
+            let gainNode = (this as any)[existingNodeId];
+
+            if (!gainNode) {
+                // 创建新的增益节点
+                const source = this.audioContext.createMediaElementSource(audioElement);
+                gainNode = this.audioContext.createGain();
+                
+                source.connect(gainNode);
+                gainNode.connect(this.audioContext.destination);
+                
+                // 存储引用
+                (this as any)[existingNodeId] = gainNode;
+            }
+
+            // 设置增益值
+            gainNode.gain.value = gain;
+            audioElement.volume = 1; // 设置为最大，通过增益节点控制
+        } catch (error) {
+            console.error('❌ 创建音频增益节点失败:', error);
+            // 降级到普通音量控制
+            audioElement.volume = Math.min(gain, 1);
+        }
+    }
+
+    // 获取参与者音量
+    getParticipantVolume(participantId: string): number {
+        return this.participantVolumes[participantId] || 100;
+    }
+
+    // 初始化参与者音量
+    initializeParticipantVolume(participantId: string): number {
+        if (!(participantId in this.participantVolumes)) {
+            this.participantVolumes[participantId] = 100;
+            this.saveParticipantVolumes();
+        }
+        return this.participantVolumes[participantId];
+    }
+
+    // 获取所有参与者音量设置
+    getParticipantVolumes(): ParticipantVolumeSettings {
+        return { ...this.participantVolumes };
+    }
+
+    // LiveKit 音频设置相关方法
+    updateLiveKitAudioSettings(settings: Partial<LiveKitAudioSettings>): void {
+        this.liveKitSettings = { ...this.liveKitSettings, ...settings };
+        this.saveLiveKitSettings();
+        console.log('📻 LiveKit 音频设置已更新:', this.liveKitSettings);
+    }
+
+    getLiveKitAudioSettings(): LiveKitAudioSettings {
+        return { ...this.liveKitSettings };
+    }
+
+    // 保存方法
+    private saveParticipantVolumes(): void {
+        try {
+            localStorage.setItem('participantVolumes', JSON.stringify(this.participantVolumes));
+        } catch (error) {
+            console.error('❌ 保存参与者音量设置失败:', error);
+        }
+    }
+
+    private saveLiveKitSettings(): void {
+        try {
+            localStorage.setItem('liveKitAudioSettings', JSON.stringify(this.liveKitSettings));
+        } catch (error) {
+            console.error('❌ 保存 LiveKit 音频设置失败:', error);
+        }
+    }
+
+    // 加载方法
+    private loadParticipantVolumes(): void {
+        try {
+            const saved = localStorage.getItem('participantVolumes');
+            if (saved) {
+                this.participantVolumes = JSON.parse(saved);
+            }
+        } catch (error) {
+            console.error('❌ 加载参与者音量设置失败:', error);
+        }
+    }
+
+    private loadLiveKitSettings(): void {
+        try {
+            const saved = localStorage.getItem('liveKitAudioSettings');
+            if (saved) {
+                this.liveKitSettings = { ...this.liveKitSettings, ...JSON.parse(saved) };
+            }
+        } catch (error) {
+            console.error('❌ 加载 LiveKit 音频设置失败:', error);
+        }
+    }
 }
 
+// 其余导出函数保持不变...
 export async function checkAudioPermissions(): Promise<boolean> {
     try {
         // 检查是否需要用户交互

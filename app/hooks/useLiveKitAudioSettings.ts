@@ -236,14 +236,14 @@ export function useLiveKitAudioSettings() {
     }, []);
 
     // 更新参与者音量
-    const updateParticipantVolume = useCallback((identity: string, volume: number) => {
-        audioManager.setParticipantVolume(identity, volume);
+    const updateParticipantVolume = useCallback((participantId: string, volume: number) => {
+        audioManager.setParticipantVolume(participantId, volume);
         setParticipantVolumes(audioManager.getParticipantVolumes());
     }, [audioManager]);
 
     // 获取参与者音量用用户名
-    const getParticipantVolume = useCallback((identity: string) => {
-        return audioManager.getParticipantVolume(identity);
+    const getParticipantVolume = useCallback((participantName: string) => {
+        return audioManager.getParticipantVolumeUseName(participantName);
     }, [audioManager]);
 
     return {

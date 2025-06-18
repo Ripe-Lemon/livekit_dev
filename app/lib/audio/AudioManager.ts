@@ -783,6 +783,9 @@ export class AudioManager {
         return this.participantVolumes[participantId];
     }
 
+    getParticipantVolumeUseName(participantName: string): number {
+        return this.participantVolumes[participantName] || 100;
+    }
 
     // 初始化参与者音量
     initializeParticipantVolume(participantId: string): number {

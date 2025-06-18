@@ -241,9 +241,9 @@ export function useLiveKitAudioSettings() {
         setParticipantVolumes(audioManager.getParticipantVolumes());
     }, [audioManager]);
 
-    // 获取参与者音量
-    const getParticipantVolume = useCallback((participantId: string) => {
-        return audioManager.getParticipantVolume(participantId);
+    // 获取参与者音量用用户名
+    const getParticipantVolume = useCallback((participantName: string) => {
+        return audioManager.getParticipantVolumeUseName(participantName);
     }, [audioManager]);
 
     return {

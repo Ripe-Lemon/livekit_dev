@@ -15,10 +15,20 @@ interface SidebarProps {
 export function Sidebar({ currentRoomName, onRoomSwitch, className = '', username }: SidebarProps) {
     const [expandedRoom, setExpandedRoom] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'participants' | 'rooms'>('participants');
-    const [publicRooms, setPublicRooms] = useState<RoomInfo[]>([]);
+    const [activeRooms, setActiveRooms] = useState<RoomInfo[]>([]);
     const [isLoadingRooms, setIsLoadingRooms] = useState(false);
     const [roomsError, setRoomsError] = useState<string | null>(null);
     
+    // 常驻房间配置（与主页保持一致）
+    const PERMANENT_ROOMS = [
+        { name: '大厅聊天室', description: '欢迎来到公共聊天大厅', icon: '💬', color: 'bg-blue-600' },
+        { name: '游戏讨论区', description: '游戏爱好者的聚集地', icon: '🎮', color: 'bg-purple-600' },
+        { name: '技术交流室', description: '程序员和技术爱好者的讨论空间', icon: '💻', color: 'bg-green-600' },
+        { name: '音乐分享厅', description: '分享音乐、讨论音乐的地方', icon: '🎵', color: 'bg-pink-600' },
+        { name: '学习讨论组', description: '一起学习、互相监督的学习空间', icon: '📚', color: 'bg-orange-600' },
+        { name: '随机聊天室', description: '随便聊聊，放松心情的地方', icon: '🎲', color: 'bg-yellow-600' }
+    ];
+
     // 安全地获取当前房间信息
     let room = null;
     let currentParticipants: any[] = [];
@@ -30,8 +40,8 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
         console.warn('无法获取房间上下文');
     }
 
-    // 加载公开房间列表
-    const loadPublicRooms = useCallback(async () => {
+    // 加载活跃房间列表
+    const loadActiveRooms = useCallback(async () => {
         setIsLoadingRooms(true);
         setRoomsError(null);
         
@@ -45,21 +55,17 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
             const roomList = responseData.rooms;
 
             if (Array.isArray(roomList)) {
-                // 过滤出公开或持久的房间
+                // 只显示有人的房间
                 const filteredRooms = roomList
-                    .filter((room: any) => 
-                        room.tags?.includes(RoomTag.PUBLIC) || 
-                        room.tags?.includes(RoomTag.PERSISTENT) ||
-                        room.participantCount > 0
-                    )
+                    .filter((room: any) => room.participantCount > 0)
                     .map((room: any) => ({
                         ...room,
                         createdAt: room.createdAt || new Date().toISOString(),
-                        tags: room.tags || [RoomTag.PUBLIC]
-                    }));
+                    }))
+                    .sort((a: any, b: any) => b.participantCount - a.participantCount);
                 
-                setPublicRooms(filteredRooms);
-                console.log('✅ 公开房间列表加载成功:', filteredRooms.length, '个房间');
+                setActiveRooms(filteredRooms);
+                console.log('✅ 活跃房间列表加载成功:', filteredRooms.length, '个房间');
             } else {
                 throw new Error('API响应格式错误');
             }
@@ -73,12 +79,12 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
 
     // 初始加载和定时刷新
     useEffect(() => {
-        loadPublicRooms();
+        loadActiveRooms();
         
-        // 每30秒刷新一次房间列表
-        const interval = setInterval(loadPublicRooms, 30000);
+        // 每20秒刷新一次房间列表
+        const interval = setInterval(loadActiveRooms, 20000);
         return () => clearInterval(interval);
-    }, [loadPublicRooms]);
+    }, [loadActiveRooms]);
 
     // 跳转到房间
     const handleJoinRoom = useCallback((roomName: string) => {
@@ -120,15 +126,16 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
     };
 
     // 房间卡片组件
-    const RoomCard = ({ room }: { room: RoomInfo }) => {
+    const RoomCard = ({ room, type }: { room: any, type: 'permanent' | 'active' }) => {
         const isCurrentRoom = room.name === currentRoomName;
-        const isPersistent = room.tags?.includes(RoomTag.PERSISTENT);
-        const isPublic = room.tags?.includes(RoomTag.PUBLIC);
+        const participantCount = type === 'active' ? room.participantCount : 
+            (activeRooms.find(active => active.name === room.name)?.participantCount || 0);
+        const isActive = participantCount > 0;
 
         return (
             <div 
                 className={`
-                    p-3 rounded-lg border transition-all duration-200 cursor-pointer
+                    p-3 rounded-lg border transition-all duration-200 cursor-pointer group
                     ${isCurrentRoom 
                         ? 'bg-blue-900/30 border-blue-500' 
                         : 'bg-gray-800/50 border-gray-600 hover:bg-gray-700/50 hover:border-gray-500'
@@ -138,8 +145,13 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
             >
                 <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center space-x-2">
-                        <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-                        <h4 className={`font-medium text-sm ${isCurrentRoom ? 'text-blue-300' : 'text-white'}`}>
+                        {type === 'permanent' && (
+                            <span className="text-lg">{room.icon}</span>
+                        )}
+                        {isActive && (
+                            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                        )}
+                        <h4 className={`font-medium text-sm ${isCurrentRoom ? 'text-blue-300' : 'text-white'} truncate`}>
                             {room.name}
                         </h4>
                         {isCurrentRoom && (
@@ -149,45 +161,32 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
                         )}
                     </div>
                     
-                    <div className="flex items-center gap-2">
-                        {/* 参与者数量 */}
-                        <span className={`text-xs px-2 py-1 rounded-full ${
-                            room.participantCount > 0 
-                                ? 'bg-green-900 text-green-300' 
-                                : 'bg-gray-700 text-gray-400'
-                        }`}>
-                            {room.participantCount}人
-                        </span>
-                        
-                        {/* 密码保护图标 */}
-                        {room.isPasswordProtected && (
-                            <svg className="w-3 h-3 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                            </svg>
-                        )}
-                    </div>
+                    <span className={`text-xs px-2 py-1 rounded-full ${
+                        participantCount > 0 
+                            ? 'bg-green-900 text-green-300' 
+                            : 'bg-gray-700 text-gray-400'
+                    }`}>
+                        {participantCount}人
+                    </span>
                 </div>
                 
-                {/* 房间描述 */}
                 {room.description && (
                     <p className="text-xs text-gray-400 mb-2 line-clamp-2">
                         {room.description}
                     </p>
                 )}
                 
-                {/* 房间标签 */}
                 <div className="flex items-center justify-between text-xs">
-                    <div className="flex gap-1">
-                        {isPersistent && (
-                            <span className="px-2 py-0.5 bg-blue-800 text-blue-300 rounded">
-                                持久
-                            </span>
-                        )}
-                        {isPublic && (
-                            <span className="px-2 py-0.5 bg-green-800 text-green-300 rounded">
-                                公开
-                            </span>
-                        )}
+                    <span className={`px-2 py-0.5 rounded ${
+                        type === 'permanent' 
+                            ? 'bg-blue-800 text-blue-300' 
+                            : 'bg-gray-700 text-gray-300'
+                    }`}>
+                        {type === 'permanent' ? '常驻' : '活跃'}
+                    </span>
+                    
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400">
+                        点击加入 →
                     </div>
                 </div>
             </div>
@@ -259,100 +258,90 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
                                 : 'bg-gray-700 text-gray-400'
                             }
                         `}>
-                            {publicRooms.length}
+                            {PERMANENT_ROOMS.length + activeRooms.length}
                         </span>
                     </button>
                 </nav>
             </div>
 
-            {/* 标签页内容 */}
+            {/* 内容区域 */}
             <div className="flex-1 overflow-hidden">
                 {activeTab === 'participants' && (
-                    <div className="h-full overflow-y-auto p-4">
-                        <h3 className="text-sm font-medium text-white mb-3 flex items-center">
-                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
-                            </svg>
-                            当前参与者 ({currentParticipants.length})
-                        </h3>
+                    <div className="h-full overflow-y-auto p-3">
+                        {/* 参与者列表 */}
                         <div className="space-y-2">
-                            {getCurrentRoomParticipants().map((participant, index) => (
-                                <div
-                                    key={index}
-                                    className={`flex items-center justify-between p-2 rounded-lg ${
-                                        participant.isLocal ? 'bg-blue-900/30' : 'bg-gray-800'
-                                    }`}
-                                >
-                                    <div className="flex items-center space-x-2">
-                                        <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-semibold">
-                                            {participant.identity.charAt(0).toUpperCase()}
-                                        </div>
-                                        <div className="flex flex-col">
-                                            <span className="text-sm text-white">
-                                                {participant.identity}
-                                                {participant.isLocal && <span className="text-blue-400 ml-1">(你)</span>}
-                                            </span>
-                                            <div className="flex items-center space-x-1">
-                                                <div className={`w-2 h-2 rounded-full ${
-                                                    participant.connectionQuality === 'excellent' ? 'bg-green-400' :
-                                                    participant.connectionQuality === 'good' ? 'bg-yellow-400' :
-                                                    participant.connectionQuality === 'poor' ? 'bg-orange-400' : 'bg-red-400'
-                                                }`} />
+                            {currentParticipants.length > 0 ? (
+                                currentParticipants.map((participant, index) => (
+                                    <div key={index} className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
+                                        <div className="flex items-center space-x-3">
+                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                                                participant.isLocal ? 'bg-blue-600 text-white' : 'bg-gray-600 text-gray-200'
+                                            }`}>
+                                                {participant.identity.charAt(0).toUpperCase()}
+                                            </div>
+                                            <div>
+                                                <div className={`text-sm font-medium ${participant.isLocal ? 'text-blue-400' : 'text-white'}`}>
+                                                    {participant.identity}
+                                                    {participant.isLocal && <span className="text-xs ml-1">(你)</span>}
+                                                </div>
+                                                <div className="flex items-center space-x-1">
+                                                    {/* 麦克风状态 */}
+                                                    <div className={`w-4 h-4 ${participant.isMicEnabled ? 'text-green-400' : 'text-gray-500'}`}>
+                                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            {participant.isMicEnabled ? (
+                                                                <>
+                                                                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                    <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                    <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <line x1="1" y1="1" x2="23" y2="23" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                    <path d="M9 9v3a3 3 0 0 0 5.12 2.12" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                    <path d="M12 1a3 3 0 0 0-3 3v3" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                    <path d="M19 10v2a7 7 0 0 1-7 7" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                    <path d="M5 10v2a7 7 0 0 0 7 7" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                    <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                    <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                </>
+                                                            )}
+                                                        </svg>
+                                                    </div>
+
+                                                    {/* 摄像头状态 */}
+                                                    <div className={`w-4 h-4 ${participant.isCameraEnabled ? 'text-green-400' : 'text-gray-500'}`}>
+                                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            {participant.isCameraEnabled ? (
+                                                                <>
+                                                                    <path d="M23 7l-7 5 7 5V7z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                    <rect x="1" y="5" width="15" height="14" rx="2" ry="2" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <line x1="1" y1="1" x2="23" y2="23" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                    <path d="M21 21H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3m3-3h6l2 3h4a2 2 0 0 1 2 2v9.34m-7.72-2.06a4 4 0 1 1-5.56-5.56" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                </>
+                                                            )}
+                                                        </svg>
+                                                    </div>
+
+                                                    {/* 连接质量 */}
+                                                    <div className={`w-4 h-4 ${
+                                                        participant.connectionQuality === 'excellent' ? 'text-green-400' :
+                                                        participant.connectionQuality === 'good' ? 'text-yellow-400' :
+                                                        participant.connectionQuality === 'poor' ? 'text-red-400' : 'text-gray-500'
+                                                    }`}>
+                                                        <svg fill="currentColor" viewBox="0 0 20 20">
+                                                            <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/>
+                                                        </svg>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="flex items-center space-x-1">
-                                        {/* 麦克风状态 */}
-                                        <div className={`w-4 h-4 ${participant.isMicEnabled ? 'text-green-400' : 'text-gray-500'}`}>
-                                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                {participant.isMicEnabled ? (
-                                                    <>
-                                                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                        <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round" strokeWidth={2}/>
-                                                        <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round" strokeWidth={2}/>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                        <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round" strokeWidth={2}/>
-                                                        <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round" strokeWidth={2}/>
-                                                        <line x1="1" y1="1" x2="23" y2="23" strokeLinecap="round" strokeWidth={2}/>
-                                                    </>
-                                                )}
-                                            </svg>
-                                        </div>
-                                        {/* 摄像头状态 */}
-                                        <div className={`w-4 h-4 ${participant.isCameraEnabled ? 'text-green-400' : 'text-gray-500'}`}>
-                                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                {participant.isCameraEnabled ? (
-                                                    <>
-                                                        <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                        <circle cx="12" cy="13" r="3" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                        <circle cx="12" cy="13" r="3" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                        <line x1="1" y1="1" x2="23" y2="23" strokeLinecap="round" strokeWidth={2}/>
-                                                    </>
-                                                )}
-                                            </svg>
-                                        </div>
-                                        {/* 屏幕共享状态 */}
-                                        {participant.isScreenSharing && (
-                                            <div className="w-4 h-4 text-blue-400">
-                                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                                </svg>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
-                            
-                            {currentParticipants.length === 0 && (
+                                ))
+                            ) : (
                                 <div className="text-center py-8 text-gray-400">
                                     <svg className="w-8 h-8 mx-auto mb-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
@@ -368,9 +357,9 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
                     <div className="h-full flex flex-col">
                         {/* 房间列表头部 */}
                         <div className="flex items-center justify-between p-4 border-b border-gray-700">
-                            <h3 className="text-sm font-medium text-white">公开房间</h3>
+                            <h3 className="text-sm font-medium text-white">可用房间</h3>
                             <button
-                                onClick={loadPublicRooms}
+                                onClick={loadActiveRooms}
                                 disabled={isLoadingRooms}
                                 className="p-1.5 rounded-md hover:bg-gray-700 transition-colors disabled:opacity-50"
                                 title="刷新房间列表"
@@ -394,14 +383,14 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
                                         <p className="text-red-400 text-sm">加载房间列表失败</p>
                                         <p className="text-red-300 text-xs mt-1">{roomsError}</p>
                                         <button 
-                                            onClick={loadPublicRooms}
+                                            onClick={loadActiveRooms}
                                             className="mt-2 text-red-400 text-xs underline hover:no-underline"
                                         >
                                             重试
                                         </button>
                                     </div>
                                 </div>
-                            ) : isLoadingRooms && publicRooms.length === 0 ? (
+                            ) : isLoadingRooms && activeRooms.length === 0 ? (
                                 <div className="flex items-center justify-center h-32">
                                     <div className="flex items-center gap-2 text-gray-400">
                                         <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -410,34 +399,52 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
                                         <span className="text-sm">加载中...</span>
                                     </div>
                                 </div>
-                            ) : publicRooms.length === 0 ? (
-                                <div className="text-center py-8 text-gray-400">
-                                    <svg className="w-8 h-8 mx-auto mb-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                                    </svg>
-                                    <p className="text-sm">暂无公开房间</p>
-                                    <p className="text-xs mt-1">创建一个新房间开始聊天吧！</p>
-                                </div>
                             ) : (
-                                <div className="space-y-3">
-                                    {publicRooms.map((room) => (
-                                        <RoomCard key={room.id} room={room} />
-                                    ))}
+                                <div className="space-y-4">
+                                    {/* 常驻房间 */}
+                                    <div>
+                                        <h4 className="text-xs font-medium text-gray-400 mb-2">常驻房间</h4>
+                                        <div className="space-y-2">
+                                            {PERMANENT_ROOMS.map((room, index) => (
+                                                <RoomCard key={index} room={room} type="permanent" />
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* 活跃房间 */}
+                                    {activeRooms.length > 0 && (
+                                        <div>
+                                            <h4 className="text-xs font-medium text-gray-400 mb-2">活跃房间</h4>
+                                            <div className="space-y-2">
+                                                {activeRooms.map((room) => (
+                                                    <RoomCard key={room.id} room={room} type="active" />
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {activeRooms.length === 0 && !isLoadingRooms && (
+                                        <div className="text-center py-4 text-gray-400">
+                                            <svg className="w-8 h-8 mx-auto mb-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                            </svg>
+                                            <p className="text-sm">暂无其他活跃房间</p>
+                                            <p className="text-xs mt-1">试试常驻房间或创建新房间</p>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
 
                         {/* 房间统计 */}
-                        {publicRooms.length > 0 && (
-                            <div className="p-3 border-t border-gray-700 bg-gray-800/50">
-                                <div className="flex items-center justify-between text-xs text-gray-400">
-                                    <span>共 {publicRooms.length} 个房间</span>
-                                    <span>
-                                        {publicRooms.reduce((sum, room) => sum + room.participantCount, 0)} 人在线
-                                    </span>
-                                </div>
+                        <div className="p-3 border-t border-gray-700 bg-gray-800/50">
+                            <div className="flex items-center justify-between text-xs text-gray-400">
+                                <span>共 {PERMANENT_ROOMS.length + activeRooms.length} 个房间</span>
+                                <span>
+                                    {activeRooms.reduce((sum, room) => sum + room.participantCount, 0)} 人在线
+                                </span>
                             </div>
-                        )}
+                        </div>
                     </div>
                 )}
             </div>

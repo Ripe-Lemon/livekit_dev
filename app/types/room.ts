@@ -205,27 +205,32 @@ export interface ConnectionQuality {
     };
 }
 
-// 添加房间标签类型
-export enum RoomTag {
-    PUBLIC = 'public',
-    PERSISTENT = 'persistent', 
-    TEMPORARY = 'temporary',
-    PRIVATE = 'private'
-}
-
-// 扩展房间信息
+// 简化房间类型，移除持久化相关字段
 export interface RoomInfo {
     id: string;
     name: string;
     description?: string;
-    tags: RoomTag[];
     participantCount: number;
-    maxParticipants?: number;
     createdAt: string;
     lastActivity: string;
     isActive: boolean;
     createdBy: string;
-    isPasswordProtected?: boolean;
+}
+
+// 常驻房间配置
+export interface PermanentRoom {
+    id: string;
+    name: string;
+    description: string;
+    category: string;
+    icon?: string;
+    color?: string;
+}
+
+// 移除不必要的房间标签
+export enum RoomTag {
+    PUBLIC = 'public',
+    PRIVATE = 'private'
 }
 
 export interface RoomListResponse {

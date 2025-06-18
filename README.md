@@ -22,6 +22,7 @@ bun dev
 - [ ] 图片预览缩放与鼠标的绝对位置相关
 - [ ] 图片预览与手机的适配
 - [ ] 图片预览与触控板的适配
+- [ ] 图片预览滚轮缩放时报错 Unable to preventDefault inside passive event listener invocation.
 
 ## 备忘录
 - 音量平衡 https://docs.livekit.io/reference/components/react/hook/useismuted/

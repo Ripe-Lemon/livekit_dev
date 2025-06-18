@@ -52,7 +52,6 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
             }
             
             const responseData = await response.json();
-            console.log('API 响应数据:', responseData); // 临时调试日志
             
             const roomList = responseData.rooms;
 
@@ -77,8 +76,6 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
                     .sort((a: any, b: any) => b.participantCount - a.participantCount);
                 
                 setActiveRooms(filteredRooms);
-                console.log('✅ 活跃房间列表加载成功:', filteredRooms.length, '个房间，详情:', 
-                    filteredRooms.map(room => ({ name: room.name, count: room.participantCount })));
             } else {
                 throw new Error('API响应格式错误');
             }
@@ -125,18 +122,6 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
             onRoomSwitch(roomName);
         }
     }, [currentRoomName, onRoomSwitch]);
-
-    // 获取当前房间的参与者信息
-    const getCurrentRoomParticipants = () => {
-        return currentParticipants.map(p => ({
-            identity: p.identity,
-            isMicEnabled: p.isMicrophoneEnabled,
-            isCameraEnabled: p.isCameraEnabled,
-            isScreenSharing: p.isScreenShareEnabled,
-            isLocal: p.isLocal,
-            connectionQuality: p.connectionQuality as 'excellent' | 'good' | 'poor' | 'unknown'
-        }));
-    };
 
     // 房间卡片组件
     const RoomCard = ({ room, type }: { room: any, type: 'permanent' | 'active' }) => {
@@ -293,76 +278,100 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
                         {/* 参与者列表 */}
                         <div className="space-y-2">
                             {currentParticipants.length > 0 ? (
-                                currentParticipants.map((participant, index) => (
-                                    <div key={index} className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
-                                        <div className="flex items-center space-x-3">
-                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
-                                                participant.isLocal ? 'bg-blue-600 text-white' : 'bg-gray-600 text-gray-200'
-                                            }`}>
-                                                {participant.identity.charAt(0).toUpperCase()}
-                                            </div>
-                                            <div>
-                                                <div className={`text-sm font-medium ${participant.isLocal ? 'text-blue-400' : 'text-white'}`}>
-                                                    {participant.identity}
-                                                    {participant.isLocal && <span className="text-xs ml-1">(你)</span>}
+                                currentParticipants.map((participant, index) => {
+                                    // 正确获取参与者状态
+                                    const isMicEnabled = participant.isMicrophoneEnabled || false;
+                                    const isCameraEnabled = participant.isCameraEnabled || false;
+                                    const isScreenSharing = participant.isScreenShareEnabled || false;
+                                    const connectionQuality = participant.connectionQuality || 'unknown';
+                                    
+                                    return (
+                                        <div key={participant.identity || index} className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
+                                            <div className="flex items-center space-x-3">
+                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                                                    participant.isLocal ? 'bg-blue-600 text-white' : 'bg-gray-600 text-gray-200'
+                                                }`}>
+                                                    {participant.identity?.charAt(0)?.toUpperCase() || '?'}
                                                 </div>
-                                                <div className="flex items-center space-x-1">
-                                                    {/* 麦克风状态 */}
-                                                    <div className={`w-4 h-4 ${participant.isMicEnabled ? 'text-green-400' : 'text-gray-500'}`}>
-                                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            {participant.isMicEnabled ? (
-                                                                <>
-                                                                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                                    <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                                    <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <line x1="1" y1="1" x2="23" y2="23" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                                    <path d="M9 9v3a3 3 0 0 0 5.12 2.12" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                                    <path d="M12 1a3 3 0 0 0-3 3v3" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                                    <path d="M19 10v2a7 7 0 0 1-7 7" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                                    <path d="M5 10v2a7 7 0 0 0 7 7" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                                    <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                                    <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                                </>
-                                                            )}
-                                                        </svg>
+                                                <div>
+                                                    <div className={`text-sm font-medium ${participant.isLocal ? 'text-blue-400' : 'text-white'}`}>
+                                                        {participant.identity || '未知用户'}
+                                                        {participant.isLocal && <span className="text-xs ml-1">(你)</span>}
                                                     </div>
+                                                    <div className="flex items-center space-x-1">
+                                                        {/* 麦克风状态 */}
+                                                        <div className={`w-4 h-4 ${isMicEnabled ? 'text-green-400' : 'text-gray-500'}`} title={isMicEnabled ? '麦克风已开启' : '麦克风已关闭'}>
+                                                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                {isMicEnabled ? (
+                                                                    <>
+                                                                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                        <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                        <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        <line x1="1" y1="1" x2="23" y2="23" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                        <path d="M9 9v3a3 3 0 0 0 5.12 2.12" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                        <path d="M12 1a3 3 0 0 0-3 3v3" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                        <path d="M19 10v2a7 7 0 0 1-7 7" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                        <path d="M5 10v2a7 7 0 0 0 7 7" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                        <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                        <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                    </>
+                                                                )}
+                                                            </svg>
+                                                        </div>
 
-                                                    {/* 摄像头状态 */}
-                                                    <div className={`w-4 h-4 ${participant.isCameraEnabled ? 'text-green-400' : 'text-gray-500'}`}>
-                                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            {participant.isCameraEnabled ? (
-                                                                <>
-                                                                    <path d="M23 7l-7 5 7 5V7z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                                    <rect x="1" y="5" width="15" height="14" rx="2" ry="2" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <line x1="1" y1="1" x2="23" y2="23" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                                    <path d="M21 21H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3m3-3h6l2 3h4a2 2 0 0 1 2 2v9.34m-7.72-2.06a4 4 0 1 1-5.56-5.56" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
-                                                                </>
-                                                            )}
-                                                        </svg>
-                                                    </div>
+                                                        {/* 摄像头状态 */}
+                                                        <div className={`w-4 h-4 ${isCameraEnabled ? 'text-green-400' : 'text-gray-500'}`} title={isCameraEnabled ? '摄像头已开启' : '摄像头已关闭'}>
+                                                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                {isCameraEnabled ? (
+                                                                    <>
+                                                                        <path d="M23 7l-7 5 7 5V7z" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                        <rect x="1" y="5" width="15" height="14" rx="2" ry="2" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        <line x1="1" y1="1" x2="23" y2="23" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                        <path d="M21 21H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3m3-3h6l2 3h4a2 2 0 0 1 2 2v9.34m-7.72-2.06a4 4 0 1 1-5.56-5.56" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}/>
+                                                                    </>
+                                                                )}
+                                                            </svg>
+                                                        </div>
 
-                                                    {/* 连接质量 */}
-                                                    <div className={`w-4 h-4 ${
-                                                        participant.connectionQuality === 'excellent' ? 'text-green-400' :
-                                                        participant.connectionQuality === 'good' ? 'text-yellow-400' :
-                                                        participant.connectionQuality === 'poor' ? 'text-red-400' : 'text-gray-500'
-                                                    }`}>
-                                                        <svg fill="currentColor" viewBox="0 0 20 20">
-                                                            <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/>
-                                                        </svg>
+                                                        {/* 屏幕共享状态 */}
+                                                        {isScreenSharing && (
+                                                            <div className="w-4 h-4 text-blue-400" title="正在共享屏幕">
+                                                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                                                </svg>
+                                                            </div>
+                                                        )}
+
+                                                        {/* 连接质量 */}
+                                                        <div className={`w-4 h-4 ${
+                                                            connectionQuality === 'excellent' ? 'text-green-400' :
+                                                            connectionQuality === 'good' ? 'text-yellow-400' :
+                                                            connectionQuality === 'poor' ? 'text-red-400' : 'text-gray-500'
+                                                        }`} title={`连接质量: ${connectionQuality}`}>
+                                                            <svg fill="currentColor" viewBox="0 0 20 20">
+                                                                <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/>
+                                                            </svg>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
+
+                                            {/* 参与者操作按钮（可选） */}
+                                            {!participant.isLocal && (
+                                                <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    {/* 这里可以添加一些操作按钮，比如静音等 */}
+                                                </div>
+                                            )}
                                         </div>
-                                    </div>
-                                ))
+                                    );
+                                })
                             ) : (
                                 <div className="text-center py-8 text-gray-400">
                                     <svg className="w-8 h-8 mx-auto mb-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">

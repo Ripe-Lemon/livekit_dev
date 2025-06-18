@@ -214,29 +214,32 @@ export class VADProcessor {
         // 3. 频谱分析
         const spectralFeatures = this.analyzeSpectrum();
 
-        // 4. 语音概率计算
-        const probability = this.calculateSpeechProbability(this.smoothedVolume, spectralFeatures);
+        // 4. 修复：使用显示的音量值（smoothedVolume）直接与阈值比较
+        // 确保阈值判断与显示的电平条一致
+        const volumeBasedProbability = this.smoothedVolume >= this.config.threshold ? 1.0 : 0.0;
+        
+        // 5. 频谱增强（可选，增加准确性）
+        const spectralBonus = this.calculateSpectralBonus(spectralFeatures);
+        
+        // 6. 最终概率：主要基于音量阈值，频谱作为辅助
+        const probability = Math.min(volumeBasedProbability + spectralBonus * 0.2, 1.0);
 
-        // 5. 状态机逻辑
-        const wasSpeaking = this.isSpeaking;
+        // 7. 状态机逻辑 - 使用严格的阈值判断
         this.updateSpeechState(probability);
 
-        // 6. 更新历史数据
+        // 8. 更新历史数据
         this.updateHistory(volume);
 
-        // 7. 调试日志（限制频率）
+        // 9. 调试日志
         const now = Date.now();
         if (this.debugMode && volume > 0.01 && now - this.lastVolumeUpdate > 1000) {
-            console.log('🔍 VAD 活跃分析:', {
-                volume: volume.toFixed(3),
-                smoothed: this.smoothedVolume.toFixed(3),
+            console.log('🔍 VAD 阈值对比:', {
+                smoothedVolume: this.smoothedVolume.toFixed(3),
+                threshold: this.config.threshold.toFixed(3),
+                volumeExceedsThreshold: this.smoothedVolume >= this.config.threshold,
                 probability: probability.toFixed(3),
                 isSpeaking: this.isSpeaking,
-                spectral: {
-                    speechEnergy: spectralFeatures.speechEnergy.toFixed(3),
-                    totalEnergy: spectralFeatures.totalEnergy.toFixed(3),
-                    centroid: spectralFeatures.spectralCentroid.toFixed(1)
-                }
+                spectralBonus: spectralBonus.toFixed(3)
             });
             this.lastVolumeUpdate = now;
         }
@@ -244,8 +247,21 @@ export class VADProcessor {
         return {
             probability,
             isSpeaking: this.isSpeaking,
-            volume: this.smoothedVolume
+            volume: this.smoothedVolume // 确保返回与显示一致的音量值
         };
+    }
+
+    // 新增：计算频谱加成
+    private calculateSpectralBonus(spectral: any): number {
+        if (spectral.totalEnergy === 0) return 0;
+        
+        // 语音频段能量比例
+        const speechRatio = spectral.speechEnergy / spectral.totalEnergy;
+        
+        // 频谱重心在语音范围内的加成
+        const centroidBonus = spectral.spectralCentroid > 300 && spectral.spectralCentroid < 3000 ? 0.1 : 0;
+        
+        return Math.min(speechRatio * 0.3 + centroidBonus, 0.3); // 最大30%加成
     }
 
     private calculateVolume(): number {
@@ -351,13 +367,16 @@ export class VADProcessor {
     }
 
     private updateSpeechState(probability: number) {
-        if (probability > this.config.threshold) {
+        // 使用更严格的阈值判断，确保与电平条显示一致
+        const isAboveThreshold = this.smoothedVolume >= this.config.threshold;
+        
+        if (isAboveThreshold) {
             this.speechFrameCount++;
             this.silenceFrameCount = 0;
             
             if (!this.isSpeaking && this.speechFrameCount >= this.config.minSpeechFrames) {
                 this.isSpeaking = true;
-                console.log('🗣️ 检测到语音开始');
+                console.log(`🗣️ 检测到语音开始 (音量: ${this.smoothedVolume.toFixed(3)}, 阈值: ${this.config.threshold.toFixed(3)})`);
             }
         } else {
             this.silenceFrameCount++;
@@ -365,7 +384,7 @@ export class VADProcessor {
             
             if (this.isSpeaking && this.silenceFrameCount >= this.config.minSilenceFrames) {
                 this.isSpeaking = false;
-                console.log('🤫 检测到语音结束');
+                console.log(`🤫 检测到语音结束 (音量: ${this.smoothedVolume.toFixed(3)}, 阈值: ${this.config.threshold.toFixed(3)})`);
             }
         }
     }

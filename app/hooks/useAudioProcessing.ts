@@ -74,7 +74,7 @@ const DEFAULT_SETTINGS: AudioProcessingSettings = {
     microphoneThreshold: 0.3,
     
     // VAD设置
-    vadEnabled: false,
+    vadEnabled: true,
     vadThreshold: 0.3,
     vadSmoothingFactor: 0.8,
     vadMinSpeechFrames: 3,
@@ -199,35 +199,22 @@ export function useAudioProcessing(): AudioProcessingControls {
 
             await new Promise(resolve => setTimeout(resolve, 300));
 
-            const audioConstraints: MediaTrackConstraints = {
+            // 构建音频约束
+            const audioCaptureOptions: any = {
                 echoCancellation: newSettings.echoCancellation,
                 noiseSuppression: newSettings.noiseSuppression,
                 autoGainControl: newSettings.autoGainControl,
-                sampleRate: { ideal: 48000 },
-                channelCount: { ideal: 1 },
+                sampleRate: 48000,
+                channelCount: 1,
             };
 
-            console.log('🎛️ 应用音频约束:', audioConstraints);
+            console.log('🎛️ 应用音频捕获选项:', audioCaptureOptions);
 
-            const newAudioTrack = await createLocalAudioTrack({
-                ...audioConstraints,
-                deviceId: 'default'
-            });
+            // 重新启用麦克风
+            await localParticipant.setMicrophoneEnabled(true, audioCaptureOptions);
 
-            console.log('✅ 新音频轨道已创建');
-
-            const appliedSettings = newAudioTrack.mediaStreamTrack.getSettings();
-            console.log('🔍 验证新轨道设置:', {
-                requested: audioConstraints,
-                applied: appliedSettings
-            });
-
-            currentTrackRef.current = newAudioTrack;
-
-            await localParticipant.publishTrack(newAudioTrack, {
-                name: 'microphone',
-                source: Track.Source.Microphone
-            });
+            // 等待新轨道就绪
+            await new Promise(resolve => setTimeout(resolve, 500));
 
             console.log('📤 新音频轨道已发布');
 
@@ -235,6 +222,11 @@ export function useAudioProcessing(): AudioProcessingControls {
                 await localParticipant.setMicrophoneEnabled(true);
                 console.log('🎤 麦克风已重新启用');
             }
+
+            // 🔧 关键修复：通知VAD重新连接到新的音频轨道
+            window.dispatchEvent(new CustomEvent('audioTrackRecreated', {
+                detail: { settings: newSettings }
+            }));
 
             setTimeout(() => {
                 const finalPublication = localParticipant.getTrackPublication(Track.Source.Microphone);

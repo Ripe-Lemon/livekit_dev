@@ -575,89 +575,67 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
                                             {settings.vadEnabled && (
                                                 <>
                                                     {/* 实时音量电平条和VAD状态 */}
-                                                    <div className="bg-gray-700/30 rounded-lg p-4">
-                                                        <h5 className="text-sm font-medium text-white mb-3">实时音量监控</h5>
-                                                        
-                                                        {/* 音量电平条 */}
-                                                        <div className="space-y-3">
-                                                            <div className="relative">
-                                                                {/* 背景电平条 */}
-                                                                <div className="w-full h-6 bg-gray-600 rounded-lg overflow-hidden">
-                                                                    {/* 当前音量 */}
+                                                    {vadResult && (
+                                                        <div className="bg-gray-700/30 rounded-lg p-3 space-y-3">
+                                                            <h5 className="text-sm font-medium text-gray-300">实时VAD监控</h5>
+                                                            
+                                                            {/* 阈值对比显示 */}
+                                                            <div className="space-y-2">
+                                                                <div className="flex justify-between text-xs">
+                                                                    <span className="text-gray-400">当前音量</span>
+                                                                    <span className="text-white font-mono">
+                                                                        {Math.round(vadResult.volume * 100)}%
+                                                                    </span>
+                                                                </div>
+                                                                <div className="flex justify-between text-xs">
+                                                                    <span className="text-gray-400">设定阈值</span>
+                                                                    <span className="text-yellow-400 font-mono">
+                                                                        {Math.round(settings.vadThreshold * 100)}%
+                                                                    </span>
+                                                                </div>
+                                                                
+                                                                {/* 可视化音量条 */}
+                                                                <div className="relative w-full h-4 bg-gray-600 rounded-lg overflow-hidden">
+                                                                    {/* 音量条 */}
                                                                     <div 
                                                                         className={`h-full transition-all duration-100 ${
-                                                                            vadResult?.isSpeaking ? 'bg-green-400' : 'bg-blue-400'
+                                                                            vadResult.volume >= settings.vadThreshold 
+                                                                                ? 'bg-green-400' 
+                                                                                : 'bg-gray-400'
                                                                         }`}
-                                                                        style={{ 
-                                                                            width: `${(vadResult?.volume || 0) * 100}%`,
-                                                                            transition: 'width 100ms ease-out'
-                                                                        }}
+                                                                        style={{ width: `${Math.min(vadResult.volume * 100, 100)}%` }}
                                                                     />
                                                                     
-                                                                    {/* 阈值指示线 */}
+                                                                    {/* 阈值线 */}
                                                                     <div 
-                                                                        className="absolute top-0 h-full w-0.5 bg-yellow-400 shadow-lg"
+                                                                        className="absolute top-0 bottom-0 w-0.5 bg-red-400"
                                                                         style={{ left: `${settings.vadThreshold * 100}%` }}
                                                                     />
                                                                     
                                                                     {/* 阈值标签 */}
                                                                     <div 
-                                                                        className="absolute -top-6 transform -translate-x-1/2 text-xs text-yellow-400 font-mono"
+                                                                        className="absolute -top-6 text-xs text-red-400 transform -translate-x-1/2"
                                                                         style={{ left: `${settings.vadThreshold * 100}%` }}
                                                                     >
-                                                                        {Math.round(settings.vadThreshold * 100)}%
+                                                                        阈值
                                                                     </div>
                                                                 </div>
                                                                 
-                                                                {/* 刻度线 */}
-                                                                <div className="flex justify-between text-xs text-gray-500 mt-1">
-                                                                    <span>0%</span>
-                                                                    <span>25%</span>
-                                                                    <span>50%</span>
-                                                                    <span>75%</span>
-                                                                    <span>100%</span>
-                                                                </div>
-                                                            </div>
-
-                                                            {/* 状态信息 */}
-                                                            <div className="grid grid-cols-3 gap-3 text-xs">
-                                                                <div className="text-center">
-                                                                    <div className="text-gray-400">当前音量</div>
-                                                                    <div className="text-white font-mono text-sm">
-                                                                        {vadResult ? Math.round(vadResult.volume * 100) : 0}%
-                                                                    </div>
-                                                                </div>
-                                                                <div className="text-center">
-                                                                    <div className="text-gray-400">检测阈值</div>
-                                                                    <div className="text-yellow-400 font-mono text-sm">
-                                                                        {Math.round(settings.vadThreshold * 100)}%
-                                                                    </div>
-                                                                </div>
-                                                                <div className="text-center">
-                                                                    <div className="text-gray-400">语音状态</div>
-                                                                    <div className={`font-medium text-sm ${vadResult?.isSpeaking ? 'text-green-400' : 'text-gray-400'}`}>
-                                                                        {vadResult?.isSpeaking ? '🗣️ 说话' : '🤫 静音'}
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-
-                                                            {/* 语音概率条 */}
-                                                            <div className="space-y-1">
-                                                                <div className="flex justify-between text-xs">
-                                                                    <span className="text-gray-400">语音概率</span>
-                                                                    <span className="text-white font-mono">
-                                                                        {vadResult ? (vadResult.probability * 100).toFixed(1) : 0}%
+                                                                {/* 状态显示 */}
+                                                                <div className="flex justify-between items-center">
+                                                                    <span className="text-xs text-gray-400">检测状态:</span>
+                                                                    <span className={`text-sm font-medium ${
+                                                                        vadResult.isSpeaking ? 'text-green-400' : 'text-gray-400'
+                                                                    }`}>
+                                                                        {vadResult.isSpeaking ? '🗣️ 语音中' : '🤫 静音'}
+                                                                        {vadResult.volume >= settings.vadThreshold && !vadResult.isSpeaking && (
+                                                                            <span className="text-yellow-400 ml-1">(缓冲中)</span>
+                                                                        )}
                                                                     </span>
-                                                                </div>
-                                                                <div className="w-full h-2 bg-gray-600 rounded-full overflow-hidden">
-                                                                    <div 
-                                                                        className="h-full bg-gradient-to-r from-blue-500 to-green-400 transition-all duration-200"
-                                                                        style={{ width: `${(vadResult?.probability || 0) * 100}%` }}
-                                                                    />
                                                                 </div>
                                                             </div>
                                                         </div>
-                                                    </div>
+                                                    )}
 
                                                     {/* VAD阈值调节 */}
                                                     <div>

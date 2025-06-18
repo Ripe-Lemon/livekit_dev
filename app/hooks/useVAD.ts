@@ -235,6 +235,41 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
         };
     }, [localParticipant, isActive]); // 移除startVAD依赖避免循环
 
+    // 🔧 新增：监听音频轨道重新创建事件
+    useEffect(() => {
+    const handleAudioTrackRecreated = async (event: Event) => {
+        // 类型保护，确保是 CustomEvent
+        if (!(event instanceof CustomEvent)) return;
+        
+        console.log('🔄 检测到音频轨道重新创建，重启VAD');
+        
+        // 如果VAD之前是活跃的，重新启动
+        if (isActive) {
+            try {
+                // 先停止VAD
+                stopVAD();
+                
+                // 等待轨道稳定
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // 重新启动VAD
+                await startVAD();
+                
+                console.log('✅ VAD已重新连接到新音频轨道');
+            } catch (error) {
+                console.error('❌ VAD重新连接失败:', error);
+            }
+        }
+    };
+
+    // 监听音频轨道重新创建事件 - 修复类型转换
+    window.addEventListener('audioTrackRecreated', handleAudioTrackRecreated);
+
+    return () => {
+        window.removeEventListener('audioTrackRecreated', handleAudioTrackRecreated);
+    };
+}, [isActive, startVAD, stopVAD]);
+
     // 清理函数
     useEffect(() => {
         return () => {

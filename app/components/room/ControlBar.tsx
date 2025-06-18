@@ -225,7 +225,7 @@ function ControlButton({
     );
 }
 
-// 离开房间按钮组件
+// 离开房间按钮组件 - 移除确认对话框
 function LeaveRoomButton({ onLeaveRoom }: { onLeaveRoom?: () => void }) {
     const router = useRouter();
     const room = useRoomContext();
@@ -234,9 +234,7 @@ function LeaveRoomButton({ onLeaveRoom }: { onLeaveRoom?: () => void }) {
     const handleLeave = useCallback(async () => {
         if (isLeaving) return;
 
-        const confirmed = window.confirm('确定要离开房间吗？');
-        if (!confirmed) return;
-
+        // 移除确认对话框，直接离开
         setIsLeaving(true);
         try {
             if (onLeaveRoom) {

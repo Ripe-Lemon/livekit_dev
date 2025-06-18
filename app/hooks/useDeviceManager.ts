@@ -110,6 +110,24 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
     const isMountedRef = useRef(true);
     const lastRefreshRef = useRef<number>(0);
 
+    // 添加日志控制
+    const lastLogTimeRef = useRef<{ [key: string]: number }>({});
+    
+    // 节流日志函数
+    const throttleLog = useCallback((key: string, message: string, data?: any, interval = 5000) => {
+        const now = Date.now();
+        const lastLogTime = lastLogTimeRef.current[key] || 0;
+        
+        if (now - lastLogTime > interval) {
+            if (data !== undefined) {
+                console.log(message, data);
+            } else {
+                console.log(message);
+            }
+            lastLogTimeRef.current[key] = now;
+        }
+    }, []);
+
     // 检查浏览器支持
     const checkSupport = useCallback((): boolean => {
         if (typeof window === 'undefined') return false;
@@ -307,12 +325,61 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
         }
     }, [state.isSupported, enableAudioOutput]);
 
-    // 刷新设备列表 - 现在可以使用 enumerateDevices
+    // 实时检查权限状态 - 优化权限检查逻辑
+    const checkPermissions = useCallback(async () => {
+        try {
+            const audioPermission = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+            const audioGranted = audioPermission.state === 'granted';
+            
+            const videoPermission = await navigator.permissions.query({ name: 'camera' as PermissionName });
+            const videoGranted = videoPermission.state === 'granted';
+            
+            const prevPermissions = state.permissions;
+            const newPermissions = {
+                audio: audioGranted,
+                video: videoGranted
+            };
+            
+            // 只有在权限状态真正发生变化时才更新和刷新
+            if (prevPermissions.audio !== audioGranted || prevPermissions.video !== videoGranted) {
+                throttleLog('permission-change', '权限状态变化，刷新设备列表:', { 
+                    audio: { prev: prevPermissions.audio, new: audioGranted },
+                    video: { prev: prevPermissions.video, new: videoGranted }
+                });
+                
+                setState(prev => ({
+                    ...prev,
+                    permissions: newPermissions
+                }));
+                
+                // 延迟刷新，确保权限状态已更新
+                setTimeout(async () => {
+                    try {
+                        await refreshDevices(false);
+                        throttleLog('device-refresh', '🔄 权限变化后设备列表已刷新');
+                    } catch (error) {
+                        console.warn('权限变化后刷新设备列表失败:', error);
+                    }
+                }, 500);
+            } else {
+                // 静默更新权限状态，不触发刷新
+                setState(prev => ({
+                    ...prev,
+                    permissions: newPermissions
+                }));
+            }
+        } catch (error) {
+            // 如果 permissions API 不可用，回退到当前权限状态
+            throttleLog('permission-fallback', '使用当前权限状态:', state.permissions, 10000);
+        }
+    }, [state.permissions, throttleLog]);
+
+    // 刷新设备列表 - 优化防抖逻辑
     const refreshDevices = useCallback(async (forcePermissionRequest = false): Promise<void> => {
-        // 防止频繁刷新
+        // 更严格的防抖控制
         const now = Date.now();
-        if (now - lastRefreshRef.current < 500) { // 减少到500ms防抖
-            console.log('⏸️ 跳过频繁刷新');
+        if (now - lastRefreshRef.current < 1000) { // 增加到1秒防抖
+            throttleLog('refresh-skip', '⏸️ 跳过频繁刷新', undefined, 3000);
             return;
         }
         lastRefreshRef.current = now;
@@ -343,11 +410,12 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
                     isLoading: false,
                     error: null
                 }));
-                console.log('✅ 设备列表刷新成功，设备数量:', {
+                
+                throttleLog('device-refresh-success', '✅ 设备列表刷新成功，设备数量:', {
                     audio: devices.audioinput.length,
                     video: devices.videoinput.length,
                     audioOutput: devices.audiooutput.length
-                });
+                }, 2000);
             }
         } catch (error) {
             console.error('刷新设备失败:', error);
@@ -360,7 +428,7 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
                 }));
             }
         }
-    }, [state.isSupported, requestPermissions, enumerateDevices, shouldRequestPermissions]);
+    }, [state.isSupported, requestPermissions, enumerateDevices, shouldRequestPermissions, throttleLog]);
 
     // 选择设备
     const selectDevice = useCallback((
@@ -514,7 +582,7 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
         if (!state.isSupported) return;
 
         const handleDeviceChange = () => {
-            console.log('🔄 检测到设备变化');
+            throttleLog('device-change', '🔄 检测到设备变化', undefined, 2000);
             
             // 防抖刷新
             if (debounceTimeoutRef.current) {
@@ -523,7 +591,7 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
 
             debounceTimeoutRef.current = setTimeout(() => {
                 refreshDevices(false);
-            }, DEVICE_CHANGE_DEBOUNCE);
+            }, 1000); // 增加防抖时间
         };
 
         navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
@@ -531,7 +599,7 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
         return () => {
             navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
         };
-    }, [state.isSupported, refreshDevices]);
+    }, [state.isSupported, refreshDevices, throttleLog]);
 
     // 自动刷新
     useEffect(() => {
@@ -575,7 +643,9 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
         }));
 
         // 初始枚举设备（不请求权限）
-        refreshDevices(false);
+        setTimeout(() => {
+            refreshDevices(false);
+        }, 500); // 延迟初始加载
 
         return () => {
             isMountedRef.current = false;
@@ -588,7 +658,7 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
                 clearTimeout(debounceTimeoutRef.current);
             }
         };
-    }, [checkSupport, loadSelectedDevices, refreshDevices]);
+    }, [checkSupport, loadSelectedDevices]);
 
     return {
         // 状态

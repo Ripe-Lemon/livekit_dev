@@ -19,6 +19,10 @@ bun dev
 - [ ] 目前的图标是在代码里面的路径，之后改成SVG
 - [ ] 移动端UI重新适配
 - [ ] 控制栏半透明
+- [ ] 图片预览缩放与鼠标的绝对位置相关
+- [ ] 图片预览与手机的适配
+- [ ] 图片预览与触控板的适配
+- [ ] 图片预览滚轮缩放时报错 Unable to preventDefault inside passive event listener invocation.
 
 ## 备忘录
 - 音量平衡 https://docs.livekit.io/reference/components/react/hook/useismuted/

@@ -70,10 +70,54 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
     // 调试音频设置
     const handleDebugAudio = useCallback(() => {
         console.log('🔧 开始音频调试...');
-        AudioDebugger.logCurrentAudioSettings(room?.localParticipant);
+        console.log('='.repeat(50));
+        
+        // 1. 检查当前音频设置
+        AudioDebugger.logCurrentAudioSettings(room.localParticipant);
+        
+        // 2. 查找所有音频元素
         AudioDebugger.findAllAudioElements();
+        
+        // 3. 测试音频约束支持
         AudioDebugger.testAudioConstraints();
-    }, [room?.localParticipant]);
+        
+        console.log('='.repeat(50));
+        console.log('🔧 音频调试完成');
+    }, [room.localParticipant]);
+
+    const handleTestParticipantVolume = useCallback(() => {
+        console.log('🔊 测试参与者音量控制...');
+        
+        // 找到所有非本地参与者
+        const remoteParticipants = participants.filter(p => !p.isLocal);
+        
+        if (remoteParticipants.length === 0) {
+            console.log('❌ 没有远程参与者可以测试');
+            return;
+        }
+
+        // 对第一个参与者进行音量测试
+        const testParticipant = remoteParticipants[0];
+        console.log(`🎯 测试参与者: ${testParticipant.identity}`);
+        
+        // 设置不同音量并观察
+        const testVolumes = [50, 150, 100];
+        testVolumes.forEach((volume, index) => {
+            setTimeout(() => {
+                console.log(`🔊 设置音量为 ${volume}%`);
+                updateParticipantVolume(testParticipant.identity, volume);
+                
+                // 检查是否生效
+                setTimeout(() => {
+                    const audioElements = document.querySelectorAll('audio');
+                    audioElements.forEach((audio, i) => {
+                        const htmlAudio = audio as HTMLAudioElement;
+                        console.log(`音频元素 ${i} 当前音量: ${htmlAudio.volume * 100}%`);
+                    });
+                }, 200);
+            }, index * 2000);
+        });
+    }, [participants, updateParticipantVolume]);
 
     return (
         <div 
@@ -340,22 +384,32 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
                                 )}
                             </div>
                             
+                            {/* 开发环境调试按钮 */}
+                            {process.env.NODE_ENV === 'development' && (
+                                <>
+                                    <button
+                                        onClick={handleDebugAudio}
+                                        className="px-3 py-2 bg-yellow-600 text-white rounded-lg text-sm font-medium hover:bg-yellow-500 transition-colors"
+                                        title="音频调试"
+                                    >
+                                        🔧
+                                    </button>
+                                    <button
+                                        onClick={handleTestParticipantVolume}
+                                        className="px-3 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-500 transition-colors"
+                                        title="测试音量"
+                                    >
+                                        🔊
+                                    </button>
+                                </>
+                            )}
+                            
                             <button
                                 onClick={onClose}
                                 className="px-4 py-2 bg-gray-600 text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-500 transition-colors"
                             >
                                 关闭
                             </button>
-
-                            {/* 调试按钮 - 仅在开发环境中显示 */}
-                            {process.env.NODE_ENV === 'development' && (
-                                <button
-                                    onClick={handleDebugAudio}
-                                    className="px-3 py-2 bg-yellow-600 text-white rounded-lg text-sm font-medium hover:bg-yellow-500 transition-colors"
-                                >
-                                    调试
-                                </button>
-                            )}
                         </div>
                     </div>
                 </div>

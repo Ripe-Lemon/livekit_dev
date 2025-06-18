@@ -1,14 +1,15 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useLocalParticipant, useParticipants } from '@livekit/components-react';
-import { Track, createLocalAudioTrack } from 'livekit-client';
+import { useLocalParticipant, useParticipants, useRoomContext } from '@livekit/components-react';
+import { Track, createLocalAudioTrack, AudioCaptureOptions } from 'livekit-client';
 import { AudioManager } from '../lib/audio/AudioManager';
 import { LiveKitAudioSettings, ParticipantVolumeSettings } from '../types/audio';
 
 export function useLiveKitAudioSettings() {
     const { localParticipant } = useLocalParticipant();
     const participants = useParticipants();
+    const room = useRoomContext();
     const [audioManager] = useState(() => AudioManager.getInstance());
 
     const [liveKitSettings, setLiveKitSettings] = useState<LiveKitAudioSettings>(
@@ -44,77 +45,42 @@ export function useLiveKitAudioSettings() {
             try {
                 console.log(`🔄 正在应用 ${key} 设置: ${value}`);
                 
-                // 获取当前麦克风设备
-                const currentDevices = await navigator.mediaDevices.enumerateDevices();
-                const audioInputDevices = currentDevices.filter(device => device.kind === 'audioinput');
-                console.log('📱 可用音频输入设备:', audioInputDevices);
-
-                // 构建新的音频约束 - 使用更新后的设置，移除不支持的属性
+                // 构建新的音频捕获选项 - 使用更新后的设置
                 const updatedSettings = { ...liveKitSettings, [key]: value };
-                const audioConstraints: MediaTrackConstraints = {
-                    deviceId: undefined, // 使用默认设备
-                    noiseSuppression: updatedSettings.noiseSuppression,
+                
+                // 使用 LiveKit 的 AudioCaptureOptions
+                const audioCaptureOptions: AudioCaptureOptions = {
                     echoCancellation: updatedSettings.echoCancellation,
+                    noiseSuppression: updatedSettings.noiseSuppression,
                     autoGainControl: updatedSettings.autoGainControl,
+                    // 添加其他音频选项
                     sampleRate: 48000,
-                    channelCount: 1
-                    // 移除 latency 和 volume，这些不是标准 MediaTrackConstraints 属性
+                    channelCount: 1,
                 };
 
-                console.log('🎛️ 应用音频约束:', audioConstraints);
+                console.log('🎛️ 应用音频捕获选项:', audioCaptureOptions);
 
-                // 方法1: 直接替换轨道
-                try {
-                    // 创建新的音频轨道 - 修复 audio 选项类型
-                    const newAudioTrack = await createLocalAudioTrack({
-                        deviceId: audioConstraints.deviceId,
-                        noiseSuppression: audioConstraints.noiseSuppression,
-                        echoCancellation: audioConstraints.echoCancellation,
-                        autoGainControl: audioConstraints.autoGainControl,
-                        sampleRate: audioConstraints.sampleRate,
-                        channelCount: audioConstraints.channelCount
-                    });
+                // 获取当前的音频轨道发布
+                const audioPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
+                
+                if (audioPublication && audioPublication.track) {
+                    // 停止当前轨道
+                    console.log('🛑 停止当前音频轨道');
+                    audioPublication.track.stop();
                     
-                    console.log('🎤 新音频轨道创建成功:', newAudioTrack);
-                    console.log('🔧 轨道设置:', {
-                        noiseSuppression: newAudioTrack.mediaStreamTrack.getSettings().noiseSuppression,
-                        echoCancellation: newAudioTrack.mediaStreamTrack.getSettings().echoCancellation,
-                        autoGainControl: newAudioTrack.mediaStreamTrack.getSettings().autoGainControl
-                    });
-
-                    // 获取当前的音频轨道发布
-                    const audioPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
+                    // 取消发布当前轨道
+                    await localParticipant.unpublishTrack(audioPublication.track);
+                    console.log('📤 已取消发布当前音频轨道');
                     
-                    if (audioPublication && audioPublication.track) {
-                        // 停止当前轨道
-                        audioPublication.track.stop();
-                        
-                        // 替换为新轨道
-                        await localParticipant.publishTrack(newAudioTrack, {
-                            source: Track.Source.Microphone,
-                            name: 'microphone'
-                        });
-                        
-                        console.log(`✅ ${key} 设置已通过轨道替换应用: ${value}`);
-                    } else {
-                        // 如果没有现有轨道，直接发布新轨道
-                        await localParticipant.publishTrack(newAudioTrack, {
-                            source: Track.Source.Microphone,
-                            name: 'microphone'
-                        });
-                        
-                        console.log(`✅ ${key} 设置已通过新轨道发布应用: ${value}`);
-                    }
-                } catch (trackError) {
-                    console.warn('轨道替换方法失败，尝试传统方法:', trackError);
-                    
-                    // 方法2: 传统的禁用/启用方法
-                    await localParticipant.setMicrophoneEnabled(false);
-                    await new Promise(resolve => setTimeout(resolve, 200));
-                    await localParticipant.setMicrophoneEnabled(true, audioConstraints);
-                    
-                    console.log(`✅ ${key} 设置已通过传统方法应用: ${value}`);
+                    // 等待一下确保轨道完全停止
+                    await new Promise(resolve => setTimeout(resolve, 100));
                 }
+
+                // 使用正确的 LiveKit 方法重新启用麦克风
+                console.log('🎤 使用新设置重新启用麦克风');
+                await localParticipant.setMicrophoneEnabled(true, audioCaptureOptions);
+                
+                console.log(`✅ ${key} 设置已通过 AudioCaptureOptions 应用: ${value}`);
 
                 // 验证设置是否真正应用
                 setTimeout(() => {
@@ -127,14 +93,27 @@ export function useLiveKitAudioSettings() {
                             autoGainControl: actualSettings.autoGainControl,
                             expected: updatedSettings
                         });
+                        
+                        // 检查设置是否正确应用
+                        const isCorrect = 
+                            actualSettings.noiseSuppression === updatedSettings.noiseSuppression &&
+                            actualSettings.echoCancellation === updatedSettings.echoCancellation &&
+                            actualSettings.autoGainControl === updatedSettings.autoGainControl;
+                            
+                        if (isCorrect) {
+                            console.log('✅ 音频设置验证成功');
+                        } else {
+                            console.warn('⚠️ 音频设置可能未完全应用，但这在某些浏览器中是正常的');
+                        }
                     }
-                }, 500);
+                }, 1000);
 
             } catch (error) {
                 console.error(`❌ 应用 ${key} 设置失败:`, error);
                 
                 // 如果应用失败，尝试恢复麦克风
                 try {
+                    console.log('🔄 尝试恢复麦克风...');
                     await localParticipant.setMicrophoneEnabled(true);
                     console.log('🔄 已恢复麦克风');
                 } catch (recoveryError) {

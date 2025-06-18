@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Room, RoomEvent, ConnectionState, ParticipantEvent, DataPacket_Kind, DisconnectReason, Track } from 'livekit-client';
+import { AudioManager } from '../lib/audio/AudioManager'; // 添加 AudioManager 导入
 import { 
     RoomConnectionState, 
     RoomState, 
@@ -9,6 +10,16 @@ import {
     AudioProcessingOptions,
     RoomEvents 
 } from '../types/room';
+
+// 定义 AudioCaptureOptions 接口（如果 livekit-client 没有导出）
+interface AudioCaptureOptions {
+    echoCancellation?: boolean;
+    noiseSuppression?: boolean;
+    autoGainControl?: boolean;
+    sampleRate?: number;
+    channelCount?: number;
+    deviceId?: string;
+}
 
 interface UseRoomOptions {
     autoConnect?: boolean;
@@ -271,8 +282,27 @@ export function useRoom(options: UseRoomOptions = {}): UseRoomReturn {
 
             await room.connect(serverUrl, token);
 
-            // 启用音频和视频
-            await room.localParticipant.enableCameraAndMicrophone();
+            // 获取音频设置
+            const audioManager = AudioManager.getInstance();
+            const audioSettings = audioManager.getLiveKitAudioSettings();
+            
+            // 使用正确的 AudioCaptureOptions 启用音频和视频
+            const audioCaptureOptions: AudioCaptureOptions = {
+                echoCancellation: audioSettings.echoCancellation,
+                noiseSuppression: audioSettings.noiseSuppression,
+                autoGainControl: audioSettings.autoGainControl,
+                sampleRate: 48000,
+                channelCount: 1,
+            };
+
+            console.log('🎤 使用音频捕获选项启用麦克风:', audioCaptureOptions);
+            
+            // 启用音频和视频 - 使用正确的 LiveKit API
+            // enableCameraAndMicrophone 不接受参数，我们需要分别启用
+            await room.localParticipant.setCameraEnabled(true);
+            
+            // 使用音频约束启用麦克风
+            await room.localParticipant.setMicrophoneEnabled(true, audioCaptureOptions);
 
             updateRoomState({
                 connectionState: RoomConnectionState.CONNECTED,

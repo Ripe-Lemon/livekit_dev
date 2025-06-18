@@ -50,9 +50,9 @@ export class AudioManager {
 
     private participantVolumes: ParticipantVolumeSettings = {};
     private liveKitSettings: LiveKitAudioSettings = {
-        noiseSuppression: false,     // 默认关闭
-        echoCancellation: false,     // 默认关闭
-        autoGainControl: true,       // 默认开启
+        noiseSuppression: false,      // 默认关闭噪声抑制
+        echoCancellation: false,      // 默认关闭回声消除
+        autoGainControl: true,       // 默认开启自动增益控制
         voiceDetectionThreshold: 0.3
     };
 
@@ -691,6 +691,17 @@ export class AudioManager {
             // 降级到普通音量控制
             audioElement.volume = Math.min(gain, 1);
         }
+    }
+
+    // 获取 LiveKit 连接时的音频捕获选项
+    getAudioCaptureOptions(): any {
+        return {
+            echoCancellation: this.liveKitSettings.echoCancellation,
+            noiseSuppression: this.liveKitSettings.noiseSuppression,
+            autoGainControl: this.liveKitSettings.autoGainControl,
+            sampleRate: 48000,
+            channelCount: 1,
+        };
     }
 
     // 获取参与者音量

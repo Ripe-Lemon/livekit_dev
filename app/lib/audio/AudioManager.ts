@@ -546,24 +546,115 @@ export class AudioManager {
         this.participantVolumes[participantId] = clampedVolume;
         
         try {
-            // 查找对应的音频元素
-            const audioElements = document.querySelectorAll(`audio[data-lk-participant="${participantId}"]`);
-            const volumeValue = clampedVolume / 100;
+            console.log(`🎯 设置参与者 ${participantId} 音量为 ${clampedVolume}%`);
+            
+            // 更全面的音频元素查找策略
+            const findAndSetVolume = () => {
+                const selectors = [
+                    // LiveKit 标准选择器
+                    `audio[data-lk-participant="${participantId}"]`,
+                    `audio[data-participant-id="${participantId}"]`,
+                    `audio[data-participant="${participantId}"]`,
+                    // 嵌套查找
+                    `[data-lk-participant-id="${participantId}"] audio`,
+                    `[data-participant-identity="${participantId}"] audio`,
+                    `[data-testid="participant-${participantId}"] audio`,
+                    // LiveKit 组件类名
+                    `.lk-participant-tile[data-lk-participant-id="${participantId}"] audio`,
+                    `.lk-audio-track[data-lk-participant="${participantId}"]`,
+                    // 通用 participant 容器
+                    `[class*="participant"][data-participant*="${participantId}"] audio`,
+                    `[class*="Participant"][data-participant*="${participantId}"] audio`
+                ];
 
-            audioElements.forEach((audioElement) => {
-                if (audioElement instanceof HTMLAudioElement) {
-                    if (volumeValue <= 1) {
-                        audioElement.volume = volumeValue;
-                    } else {
-                        // 使用 Web Audio API 进行音量增强
-                        this.enhanceAudioVolume(audioElement, volumeValue, participantId);
+                let foundAny = false;
+                const volumeValue = clampedVolume / 100;
+
+                selectors.forEach(selector => {
+                    const elements = document.querySelectorAll(selector);
+                    if (elements.length > 0) {
+                        console.log(`📍 找到 ${elements.length} 个匹配元素: ${selector}`);
+                        foundAny = true;
                     }
+                    
+                    elements.forEach((element, index) => {
+                        if (element instanceof HTMLAudioElement) {
+                            // 设置基础音量
+                            if (volumeValue <= 1) {
+                                element.volume = volumeValue;
+                                console.log(`🔊 设置音频元素 ${index} 音量: ${clampedVolume}%`);
+                            } else {
+                                // 超过 100% 使用 Web Audio API
+                                element.volume = 1;
+                                this.enhanceAudioVolume(element, volumeValue, participantId);
+                                console.log(`🔊 使用增益设置音频元素 ${index} 音量: ${clampedVolume}%`);
+                            }
+
+                            // 添加标识以便后续识别
+                            element.setAttribute('data-volume-controlled', 'true');
+                            element.setAttribute('data-participant-volume', participantId);
+                        }
+                    });
+                });
+
+                // 如果没找到特定的，打印调试信息
+                if (!foundAny) {
+                    console.warn(`❌ 未找到参与者 ${participantId} 的音频元素`);
+                    
+                    // 列出所有音频元素进行调试
+                    const allAudio = document.querySelectorAll('audio');
+                    console.log(`🔍 当前页面所有音频元素 (${allAudio.length} 个):`);
+                    allAudio.forEach((audio, i) => {
+                        // 修复类型错误：将 Element 转换为 HTMLElement
+                        const htmlElement = audio as HTMLElement;
+                        console.log(`音频 ${i}:`, {
+                            src: (audio as HTMLAudioElement).src,
+                            dataset: htmlElement.dataset,
+                            className: htmlElement.className,
+                            attributes: Array.from(audio.attributes).reduce((acc, attr) => {
+                                acc[attr.name] = attr.value;
+                                return acc;
+                            }, {} as Record<string, string>)
+                        });
+                    });
+
+                    // 列出所有可能的参与者容器
+                    const participantContainers = document.querySelectorAll('[data-lk-participant], [data-participant], [class*="participant" i], [class*="Participant"]');
+                    console.log(`🔍 找到 ${participantContainers.length} 个参与者容器:`);
+                    participantContainers.forEach((container, i) => {
+                        // 修复类型错误：将 Element 转换为 HTMLElement
+                        const htmlContainer = container as HTMLElement;
+                        console.log(`容器 ${i}:`, {
+                            tagName: container.tagName,
+                            dataset: htmlContainer.dataset,
+                            className: htmlContainer.className,
+                            childAudioCount: container.querySelectorAll('audio').length
+                        });
+                    });
                 }
-            });
+
+                return foundAny;
+            };
+
+            // 立即尝试
+            const found = findAndSetVolume();
+            
+            // 如果没找到，延迟重试
+            if (!found) {
+                setTimeout(() => {
+                    console.log(`🔄 重试设置参与者 ${participantId} 音量...`);
+                    findAndSetVolume();
+                }, 500);
+                
+                setTimeout(() => {
+                    console.log(`🔄 最后重试设置参与者 ${participantId} 音量...`);
+                    findAndSetVolume();
+                }, 1500);
+            }
 
             // 保存到本地存储
             this.saveParticipantVolumes();
-            console.log(`🔊 参与者 ${participantId} 音量设置为 ${clampedVolume}%`);
+            
         } catch (error) {
             console.error('❌ 设置参与者音量失败:', error);
         }

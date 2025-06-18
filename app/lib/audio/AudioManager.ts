@@ -771,8 +771,8 @@ export class AudioManager {
     }
 
     // 获取参与者音量
-    getParticipantVolume(identity: string): number {
-        return this.participantVolumes[identity] || 100;
+    getParticipantVolume(participantId: string): number {
+        return this.participantVolumes[participantId] || 100;
     }
 
     getParticipantVolumeUseName(participantName: string): number {
@@ -780,12 +780,12 @@ export class AudioManager {
     }
 
     // 初始化参与者音量
-    initializeParticipantVolume(identity: string): number {
-        if (!(identity in this.participantVolumes)) {
-            this.participantVolumes[identity] = 100;
+    initializeParticipantVolume(participantId: string): number {
+        if (!(participantId in this.participantVolumes)) {
+            this.participantVolumes[participantId] = 100;
             this.saveParticipantVolumes();
         }
-        return this.participantVolumes[identity];
+        return this.participantVolumes[participantId];
     }
 
     // 获取所有参与者音量设置

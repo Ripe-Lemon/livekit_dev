@@ -771,17 +771,17 @@ export class AudioManager {
     }
 
     // 获取参与者音量
-    getParticipantVolume(participantId: string): number {
-        return this.participantVolumes[participantId] || 100;
+    getParticipantVolume(identity: string): number {
+        return this.participantVolumes[identity] || 100;
     }
 
     // 初始化参与者音量
-    initializeParticipantVolume(participantId: string): number {
-        if (!(participantId in this.participantVolumes)) {
-            this.participantVolumes[participantId] = 100;
+    initializeParticipantVolume(identity: string): number {
+        if (!(identity in this.participantVolumes)) {
+            this.participantVolumes[identity] = 100;
             this.saveParticipantVolumes();
         }
-        return this.participantVolumes[participantId];
+        return this.participantVolumes[identity];
     }
 
     // 获取所有参与者音量设置

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { useParticipants, useRoomContext } from '@livekit/components-react';
+import { useParticipants, useRoomContext, useIsSpeaking } from '@livekit/components-react';
 import { Button } from '../ui/Button';
 import { RoomInfo, RoomTag } from '../../types/room';
 
@@ -10,6 +10,34 @@ interface SidebarProps {
     onRoomSwitch: (roomName: string) => void;
     className?: string;
     username?: string;
+}
+
+// 参与者头像组件 - 单独提取以便使用 useIsSpeaking hook
+function ParticipantAvatar({ participant }: { participant: any }) {
+    const isSpeaking = useIsSpeaking(participant);
+    
+    return (
+        <div className="relative">
+            {/* 说话时的光环效果 */}
+            {isSpeaking && (
+                <div className="absolute -inset-1 bg-green-400 rounded-full animate-pulse opacity-75"></div>
+            )}
+            {/* 更强的光环效果 */}
+            {isSpeaking && (
+                <div className="absolute -inset-0.5 bg-green-400 rounded-full animate-ping opacity-50"></div>
+            )}
+            
+            {/* 头像本体 */}
+            <div className={`
+                relative w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold
+                ${participant.isLocal ? 'bg-blue-600 text-white' : 'bg-gray-600 text-gray-200'}
+                ${isSpeaking ? 'ring-2 ring-green-400 ring-offset-2 ring-offset-gray-800' : ''}
+                transition-all duration-200
+            `}>
+                {participant.identity?.charAt(0)?.toUpperCase() || '?'}
+            </div>
+        </div>
+    );
 }
 
 export function Sidebar({ currentRoomName, onRoomSwitch, className = '', username }: SidebarProps) {
@@ -315,13 +343,11 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
                                     const connectionQuality = participant.connectionQuality || 'unknown';
                                     
                                     return (
-                                        <div key={participant.identity || index} className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg">
+                                        <div key={participant.identity || index} className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg group">
                                             <div className="flex items-center space-x-3">
-                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
-                                                    participant.isLocal ? 'bg-blue-600 text-white' : 'bg-gray-600 text-gray-200'
-                                                }`}>
-                                                    {participant.identity?.charAt(0)?.toUpperCase() || '?'}
-                                                </div>
+                                                {/* 使用新的头像组件，包含说话检测 */}
+                                                <ParticipantAvatar participant={participant} />
+                                                
                                                 <div>
                                                     <div className={`text-sm font-medium ${participant.isLocal ? 'text-blue-400' : 'text-white'}`}>
                                                         {participant.identity || '未知用户'}

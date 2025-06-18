@@ -204,3 +204,36 @@ export interface ConnectionQuality {
         download: number;
     };
 }
+
+// 简化房间类型，移除持久化相关字段
+export interface RoomInfo {
+    id: string;
+    name: string;
+    description?: string;
+    participantCount: number;
+    createdAt: string;
+    lastActivity: string;
+    isActive: boolean;
+    createdBy: string;
+}
+
+// 常驻房间配置
+export interface PermanentRoom {
+    id: string;
+    name: string;
+    description: string;
+    category: string;
+    icon?: string;
+    color?: string;
+}
+
+// 移除不必要的房间标签
+export enum RoomTag {
+    PUBLIC = 'public',
+    PRIVATE = 'private'
+}
+
+export interface RoomListResponse {
+    rooms: RoomInfo[];
+    total: number;
+}

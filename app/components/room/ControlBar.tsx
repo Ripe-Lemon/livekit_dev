@@ -172,15 +172,15 @@ function DeviceDropdown({
     );
 }
 
-// 控制按钮组件
+// 控制按钮组件 - 更新以支持半透明效果
 function ControlButton({ 
     onClick, 
     isActive, 
     isLoading, 
     icon, 
     title, 
-    activeColor = 'bg-green-600',
-    inactiveColor = 'bg-red-600',
+    activeColor = 'bg-green-600/80 hover:bg-green-600',
+    inactiveColor = 'bg-red-600/80 hover:bg-red-600',
     children,
     hasDropdown = false
 }: {
@@ -202,7 +202,7 @@ function ControlButton({
                 className={`
                     flex items-center justify-center w-12 h-10 rounded-lg
                     transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed
-                    text-white hover:opacity-90
+                    text-white/90 hover:text-white
                     ${isActive 
                         ? `${activeColor}` 
                         : `${inactiveColor}`
@@ -211,7 +211,7 @@ function ControlButton({
                 title={title}
             >
                 {isLoading ? (
-                    <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full" />
+                    <div className="animate-spin h-5 w-5 border-2 border-white/70 border-t-transparent rounded-full" />
                 ) : (
                     icon
                 )}
@@ -225,7 +225,7 @@ function ControlButton({
     );
 }
 
-// 离开房间按钮组件
+// 离开房间按钮组件 - 移除确认对话框
 function LeaveRoomButton({ onLeaveRoom }: { onLeaveRoom?: () => void }) {
     const router = useRouter();
     const room = useRoomContext();
@@ -234,9 +234,7 @@ function LeaveRoomButton({ onLeaveRoom }: { onLeaveRoom?: () => void }) {
     const handleLeave = useCallback(async () => {
         if (isLeaving) return;
 
-        const confirmed = window.confirm('确定要离开房间吗？');
-        if (!confirmed) return;
-
+        // 移除确认对话框，直接离开
         setIsLeaving(true);
         try {
             if (onLeaveRoom) {
@@ -333,6 +331,12 @@ export function ControlBar({
     const [isRequestingAudioPermission, setIsRequestingAudioPermission] = useState(false);
     const [isRequestingVideoPermission, setIsRequestingVideoPermission] = useState(false);
 
+    // 添加本地权限状态管理，用于实时检查权限
+    const [localPermissions, setLocalPermissions] = useState({
+        audio: false,
+        video: false
+    });
+
     // 音效控制
     const {
         playMuteSound,
@@ -346,6 +350,80 @@ export function ControlBar({
         enabled: true,
         volume: 0.6
     });
+
+    // 添加日志节流
+    const lastLogTimeRef = useRef<{ [key: string]: number }>({});
+    
+    const throttleLog = useCallback((key: string, message: string, data?: any, interval = 5000) => {
+        const now = Date.now();
+        const lastLogTime = lastLogTimeRef.current[key] || 0;
+        
+        if (now - lastLogTime > interval) {
+            if (data !== undefined) {
+                console.log(message, data);
+            } else {
+                console.log(message);
+            }
+            lastLogTimeRef.current[key] = now;
+        }
+    }, []);
+
+    // 实时检查权限状态 - 优化权限检查逻辑
+    const checkPermissions = useCallback(async () => {
+        try {
+            const audioPermission = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+            const audioGranted = audioPermission.state === 'granted';
+            
+            const videoPermission = await navigator.permissions.query({ name: 'camera' as PermissionName });
+            const videoGranted = videoPermission.state === 'granted';
+            
+            const prevPermissions = localPermissions;
+            const newPermissions = {
+                audio: audioGranted,
+                video: videoGranted
+            };
+            
+            // 只有在权限状态真正发生变化时才更新和刷新
+            if (prevPermissions.audio !== audioGranted || prevPermissions.video !== videoGranted) {
+                throttleLog('control-permission-change', '控制栏权限状态变化:', { 
+                    audio: { prev: prevPermissions.audio, new: audioGranted },
+                    video: { prev: prevPermissions.video, new: videoGranted }
+                });
+                
+                setLocalPermissions(newPermissions);
+                
+                // 延迟刷新，确保权限状态已更新
+                setTimeout(async () => {
+                    try {
+                        await refreshDevices();
+                        throttleLog('control-device-refresh', '🔄 控制栏权限变化后设备列表已刷新');
+                    } catch (error) {
+                        console.warn('控制栏权限变化后刷新设备列表失败:', error);
+                    }
+                }, 500);
+            } else {
+                // 静默更新权限状态
+                setLocalPermissions(newPermissions);
+            }
+        } catch (error) {
+            // 如果 permissions API 不可用，回退到 useDeviceManager 的权限状态
+            throttleLog('control-permission-fallback', '控制栏使用 useDeviceManager 权限状态:', permissions, 10000);
+            setLocalPermissions({
+                audio: permissions.audio,
+                video: permissions.video
+            });
+        }
+    }, [permissions, localPermissions, refreshDevices, throttleLog]);
+
+    // 定期检查权限状态 - 减少检查频率
+    useEffect(() => {
+        checkPermissions();
+        
+        // 每10秒检查一次权限状态（减少频率）
+        const interval = setInterval(checkPermissions, 10000);
+        
+        return () => clearInterval(interval);
+    }, [checkPermissions]);
 
     // 同步设备状态
     useEffect(() => {
@@ -362,27 +440,171 @@ export function ControlBar({
         }
     }, [localParticipant?.isMicrophoneEnabled, localParticipant?.isCameraEnabled, localParticipant?.isScreenShareEnabled]);
 
-    // 请求权限的处理函数
+    // 修复麦克风切换逻辑 - 权限获取后刷新设备列表
+    const toggleMicrophone = useCallback(async () => {
+        if (!room || !localParticipant || isTogglingMic) return;
+
+        setIsTogglingMic(true);
+        try {
+            const currentlyMuted = !localParticipant.isMicrophoneEnabled;
+            
+            if (currentlyMuted) {
+                // 要开启麦克风，首先检查是否已有权限
+                if (!localPermissions.audio) {
+                    console.log('🎤 开启麦克风需要权限，正在请求麦克风权限...');
+                    
+                    try {
+                        const stream = await navigator.mediaDevices.getUserMedia({ 
+                            audio: true,
+                            video: false // 明确指定不要视频
+                        });
+                        
+                        // 立即关闭流，我们只是为了获取权限
+                        stream.getTracks().forEach(track => track.stop());
+                        
+                        console.log('✅ 麦克风权限已获取');
+                        
+                        // 权限获取后，立即更新权限状态
+                        await checkPermissions();
+                        
+                        // 权限获取后，手动刷新设备列表以获取真实设备名称
+                        setTimeout(async () => {
+                            try {
+                                await refreshDevices();
+                                console.log('🔄 设备列表已刷新');
+                            } catch (error) {
+                                console.warn('刷新设备列表失败:', error);
+                            }
+                        }, 100);
+                        
+                    } catch (permissionError) {
+                        console.warn('❌ 麦克风权限被拒绝:', permissionError);
+                        setIsTogglingMic(false);
+                        return;
+                    }
+                }
+                
+                // 开启麦克风
+                await localParticipant.setMicrophoneEnabled(true);
+                setIsMuted(false);
+                playUnmuteSound();
+                console.log('🔊 麦克风已开启');
+            } else {
+                // 关闭麦克风不需要权限
+                await localParticipant.setMicrophoneEnabled(false);
+                setIsMuted(true);
+                playMuteSound();
+                console.log('🔇 麦克风已关闭');
+            }
+        } catch (error) {
+            console.error('切换麦克风失败:', error);
+            playErrorSound();
+        } finally {
+            setIsTogglingMic(false);
+        }
+    }, [localParticipant, playMuteSound, playUnmuteSound, playErrorSound, isTogglingMic, room, localPermissions.audio, refreshDevices, checkPermissions]);
+
+    // 修复摄像头切换逻辑 - 权限获取后刷新设备列表
+    const toggleCamera = useCallback(async () => {
+        if (!room || !localParticipant || isTogglingCamera) return;
+
+        setIsTogglingCamera(true);
+        try {
+            const currentlyOff = !localParticipant.isCameraEnabled;
+            
+            if (currentlyOff) {
+                // 要开启摄像头，首先检查是否已有权限
+                if (!localPermissions.video) {
+                    console.log('📹 开启摄像头需要权限，正在请求摄像头权限...');
+                    
+                    try {
+                        const stream = await navigator.mediaDevices.getUserMedia({ 
+                            video: true,
+                            audio: false // 明确指定不要音频
+                        });
+                        
+                        // 立即关闭流，我们只是为了获取权限
+                        stream.getTracks().forEach(track => track.stop());
+                        
+                        console.log('✅ 摄像头权限已获取');
+                        
+                        // 权限获取后，立即更新权限状态
+                        await checkPermissions();
+                        
+                        // 权限获取后，手动刷新设备列表以获取真实设备名称
+                        setTimeout(async () => {
+                            try {
+                                await refreshDevices();
+                                console.log('🔄 设备列表已刷新');
+                            } catch (error) {
+                                console.warn('刷新设备列表失败:', error);
+                            }
+                        }, 100);
+                        
+                    } catch (permissionError) {
+                        console.warn('❌ 摄像头权限被拒绝:', permissionError);
+                        setIsTogglingCamera(false);
+                        return;
+                    }
+                }
+                
+                // 开启摄像头
+                await localParticipant.setCameraEnabled(true);
+                setIsCameraOff(false);
+                playCameraOnSound();
+                console.log('📹 摄像头已开启');
+            } else {
+                // 关闭摄像头不需要权限
+                await localParticipant.setCameraEnabled(false);
+                setIsCameraOff(true);
+                playCameraOffSound();
+                console.log('📹❌ 摄像头已关闭');
+            }
+        } catch (error) {
+            console.error('切换摄像头失败:', error);
+            playErrorSound();
+        } finally {
+            setIsTogglingCamera(false);
+        }
+    }, [localParticipant, playCameraOnSound, playCameraOffSound, playErrorSound, isTogglingCamera, room, localPermissions.video, refreshDevices, checkPermissions]);
+
+    // 更新权限请求处理函数 - 权限获取后刷新设备列表
     const handleRequestAudioPermission = useCallback(async () => {
         if (isRequestingAudioPermission) return;
         
         setIsRequestingAudioPermission(true);
         try {
             console.log('🎤 请求麦克风权限...');
-            const granted = await requestSinglePermission('audio');
-            if (granted) {
-                console.log('✅ 麦克风权限已获取');
-                // 权限获取后刷新设备列表
-                await refreshDevices();
-            } else {
-                console.warn('❌ 麦克风权限被拒绝');
-            }
+            
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                audio: true,
+                video: false // 明确指定不要视频
+            });
+            
+            // 立即关闭流
+            stream.getTracks().forEach(track => track.stop());
+            
+            console.log('✅ 麦克风权限已获取');
+            
+            // 立即检查权限状态
+            await checkPermissions();
+            
+            // 权限获取后，刷新设备列表以获取真实设备名称
+            setTimeout(async () => {
+                try {
+                    await refreshDevices();
+                    console.log('🔄 麦克风设备列表已刷新');
+                } catch (error) {
+                    console.warn('刷新麦克风设备列表失败:', error);
+                }
+            }, 100);
+            
         } catch (error) {
             console.error('❌ 请求麦克风权限失败:', error);
         } finally {
             setIsRequestingAudioPermission(false);
         }
-    }, [requestSinglePermission, refreshDevices, isRequestingAudioPermission]);
+    }, [isRequestingAudioPermission, checkPermissions, refreshDevices]);
 
     const handleRequestVideoPermission = useCallback(async () => {
         if (isRequestingVideoPermission) return;
@@ -390,20 +612,52 @@ export function ControlBar({
         setIsRequestingVideoPermission(true);
         try {
             console.log('📹 请求摄像头权限...');
-            const granted = await requestSinglePermission('video');
-            if (granted) {
-                console.log('✅ 摄像头权限已获取');
-                // 权限获取后刷新设备列表
-                await refreshDevices();
-            } else {
-                console.warn('❌ 摄像头权限被拒绝');
-            }
+            
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: true,
+                audio: false // 明确指定不要音频
+            });
+            
+            // 立即关闭流
+            stream.getTracks().forEach(track => track.stop());
+            
+            console.log('✅ 摄像头权限已获取');
+            
+            // 立即检查权限状态
+            await checkPermissions();
+            
+            // 权限获取后，刷新设备列表以获取真实设备名称
+            setTimeout(async () => {
+                try {
+                    await refreshDevices();
+                    console.log('🔄 摄像头设备列表已刷新');
+                } catch (error) {
+                    console.warn('刷新摄像头设备列表失败:', error);
+                }
+            }, 100);
+            
         } catch (error) {
             console.error('❌ 请求摄像头权限失败:', error);
         } finally {
             setIsRequestingVideoPermission(false);
         }
-    }, [requestSinglePermission, refreshDevices, isRequestingVideoPermission]);
+    }, [isRequestingVideoPermission, checkPermissions, refreshDevices]);
+
+    // 初始化时刷新设备列表
+    useEffect(() => {
+        // 页面加载时延迟刷新一次设备列表
+        const initializeDevices = async () => {
+            try {
+                await refreshDevices();
+                throttleLog('control-init-devices', '🚀 控制栏初始设备列表加载完成');
+            } catch (error) {
+                console.warn('控制栏初始设备列表加载失败:', error);
+            }
+        };
+        
+        // 延迟初始化
+        setTimeout(initializeDevices, 1000);
+    }, []);
 
     // 自动隐藏控制栏（全屏模式）
     useEffect(() => {
@@ -432,75 +686,9 @@ export function ControlBar({
         };
     }, [isFullscreen]);
 
-    // 切换麦克风
-    const toggleMicrophone = useCallback(async () => {
-        if (!room || isTogglingMic) return;
-
-        // 如果没有权限，先请求权限
-        if (!permissions.audio && !permissionRequested.audio) {
-            await handleRequestAudioPermission();
-            return;
-        }
-
-        setIsTogglingMic(true);
-        try {
-            const currentlyMuted = !localParticipant.isMicrophoneEnabled;
-            
-            if (currentlyMuted) {
-                await localParticipant.setMicrophoneEnabled(true);
-                setIsMuted(false);
-                playUnmuteSound();
-                console.log('🔊 麦克风已开启');
-            } else {
-                await localParticipant.setMicrophoneEnabled(false);
-                setIsMuted(true);
-                playMuteSound();
-                console.log('🔇 麦克风已关闭');
-            }
-        } catch (error) {
-            console.error('切换麦克风失败:', error);
-            playErrorSound();
-        } finally {
-            setIsTogglingMic(false);
-        }
-    }, [localParticipant, playMuteSound, playUnmuteSound, playErrorSound, isTogglingMic, room, permissions.audio, permissionRequested.audio, handleRequestAudioPermission]);
-
-    // 切换摄像头
-    const toggleCamera = useCallback(async () => {
-        if (!room || isTogglingCamera) return;
-
-        // 如果没有权限，先请求权限
-        if (!permissions.video && !permissionRequested.video) {
-            await handleRequestVideoPermission();
-            return;
-        }
-
-        setIsTogglingCamera(true);
-        try {
-            const currentlyOff = !localParticipant.isCameraEnabled;
-            
-            if (currentlyOff) {
-                await localParticipant.setCameraEnabled(true);
-                setIsCameraOff(false);
-                playCameraOnSound();
-                console.log('📹 摄像头已开启');
-            } else {
-                await localParticipant.setCameraEnabled(false);
-                setIsCameraOff(true);
-                playCameraOffSound();
-                console.log('📹❌ 摄像头已关闭');
-            }
-        } catch (error) {
-            console.error('切换摄像头失败:', error);
-            playErrorSound();
-        } finally {
-            setIsTogglingCamera(false);
-        }
-    }, [localParticipant, playCameraOnSound, playCameraOffSound, playErrorSound, isTogglingCamera, room, permissions.video, permissionRequested.video, handleRequestVideoPermission]);
-
     // 切换屏幕共享
     const toggleScreenShare = useCallback(async () => {
-        if (!room || isTogglingScreen) return;
+        if (!room || !localParticipant || isTogglingScreen) return;
 
         setIsTogglingScreen(true);
         try {
@@ -573,21 +761,23 @@ export function ControlBar({
     const currentAudioDevice = getSelectedDeviceInfo('audioinput');
     const currentVideoDevice = getSelectedDeviceInfo('videoinput');
 
-    // 检查是否有设备权限
-    const hasAudioPermission = permissions.audio;
-    const hasVideoPermission = permissions.video;
+    // 使用本地权限状态而不是 useDeviceManager 的权限状态
+    const hasAudioPermission = localPermissions.audio;
+    const hasVideoPermission = localPermissions.video;
 
-    // 确定加载状态 - 只在正在请求权限时显示加载
-    const audioLoading = devicesLoading && !hasAudioPermission && !permissionRequested.audio;
-    const videoLoading = devicesLoading && !hasVideoPermission && !permissionRequested.video;
+    // 确定加载状态 - 分别判断音频和视频的权限请求状态
+    const audioLoading = isRequestingAudioPermission;
+    const videoLoading = isRequestingVideoPermission;
 
     return (
         <div className={`
             fixed bottom-4 left-1/2 transform -translate-x-1/2
             flex items-center gap-2 px-4 py-3 
-            bg-gray-800/90 backdrop-blur-sm rounded-xl
-            border border-gray-600/50 shadow-lg
+            bg-gray-800/50 backdrop-blur-sm rounded-xl
+            border border-gray-600/30 shadow-lg
             transition-all duration-300 z-50
+            hover:bg-gray-800/90 hover:border-gray-600/50
+            group
             ${isFullscreen && !isControlsVisible ? 'opacity-0 pointer-events-none' : 'opacity-100'}
             ${className}
         `}>
@@ -595,10 +785,10 @@ export function ControlBar({
             <ControlButton
                 onClick={toggleMicrophone}
                 isActive={!isMuted}
-                isLoading={isTogglingMic || isRequestingAudioPermission}
+                isLoading={isTogglingMic || audioLoading}
                 title={isMuted ? '开启麦克风' : '关闭麦克风'}
-                activeColor="bg-green-600"
-                inactiveColor="bg-red-600"
+                activeColor="bg-green-600/80 hover:bg-green-600"
+                inactiveColor="bg-red-600/80 hover:bg-red-600"
                 hasDropdown={true}
                 icon={
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -614,7 +804,7 @@ export function ControlBar({
                             <g>
                                 <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" strokeLinecap="round" strokeLinejoin="round"/>
                                 <path d="M19 10v2a7 7 0 0 1-14 0v-2" strokeLinecap="round" strokeLinejoin="round"/>
-                                <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round"/>
+                                <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round" strokeLinejoin="round"/>
                                 <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round"/>
                             </g>
                         )}
@@ -639,10 +829,10 @@ export function ControlBar({
             <ControlButton
                 onClick={toggleCamera}
                 isActive={!isCameraOff}
-                isLoading={isTogglingCamera || isRequestingVideoPermission}
+                isLoading={isTogglingCamera || videoLoading}
                 title={isCameraOff ? '开启摄像头' : '关闭摄像头'}
-                activeColor="bg-green-600"
-                inactiveColor="bg-red-600"
+                activeColor="bg-green-600/80 hover:bg-green-600"
+                inactiveColor="bg-red-600/80 hover:bg-red-600"
                 hasDropdown={true}
                 icon={
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -681,8 +871,8 @@ export function ControlBar({
                 isActive={isScreenSharing}
                 isLoading={isTogglingScreen}
                 title={isScreenSharing ? '停止屏幕共享' : '开始屏幕共享'}
-                activeColor="bg-blue-600"
-                inactiveColor="bg-gray-700"
+                activeColor="bg-blue-600/80 hover:bg-blue-600"
+                inactiveColor="bg-gray-700/80 hover:bg-gray-700"
                 icon={
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <rect x="2" y="3" width="20" height="14" rx="2" ry="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -699,7 +889,7 @@ export function ControlBar({
             />
 
             {/* 分隔线 */}
-            <div className="h-6 w-px bg-gray-600/50" />
+            <div className="h-6 w-px bg-gray-600/30 group-hover:bg-gray-600/50 transition-colors duration-300" />
 
             {/* 聊天按钮 */}
             {onToggleChat && (
@@ -707,10 +897,10 @@ export function ControlBar({
                     onClick={onToggleChat}
                     className={`
                         relative flex items-center justify-center w-12 h-10 rounded-lg
-                        transition-all duration-200 text-white
+                        transition-all duration-200 text-white/90 hover:text-white
                         ${showChat 
-                            ? 'bg-blue-600 hover:bg-blue-700' 
-                            : 'bg-gray-700 hover:bg-gray-600'
+                            ? 'bg-blue-600/80 hover:bg-blue-600' 
+                            : 'bg-gray-700/80 hover:bg-gray-700'
                         }
                     `}
                     title="聊天"
@@ -719,7 +909,7 @@ export function ControlBar({
                         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
                     </svg>
                     {chatUnreadCount > 0 && (
-                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center shadow-lg">
                             {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
                         </span>
                     )}
@@ -730,7 +920,7 @@ export function ControlBar({
             {onToggleParticipants && (
                 <button
                     onClick={onToggleParticipants}
-                    className="flex items-center justify-center w-12 h-10 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-all duration-200"
+                    className="flex items-center justify-center w-12 h-10 rounded-lg bg-gray-700/80 text-white/90 hover:bg-gray-700 hover:text-white transition-all duration-200"
                     title="参与者"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -746,7 +936,7 @@ export function ControlBar({
             {onToggleSettings && (
                 <button
                     onClick={onToggleSettings}
-                    className="flex items-center justify-center w-12 h-10 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-all duration-200"
+                    className="flex items-center justify-center w-12 h-10 rounded-lg bg-gray-700/80 text-white/90 hover:bg-gray-700 hover:text-white transition-all duration-200"
                     title="设置"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -760,7 +950,7 @@ export function ControlBar({
             {onToggleFullscreen && (
                 <button
                     onClick={onToggleFullscreen}
-                    className="flex items-center justify-center w-12 h-10 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-all duration-200"
+                    className="flex items-center justify-center w-12 h-10 rounded-lg bg-gray-700/80 text-white/90 hover:bg-gray-700 hover:text-white transition-all duration-200"
                     title={isFullscreen ? '退出全屏' : '进入全屏'}
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -784,10 +974,32 @@ export function ControlBar({
             )}
 
             {/* 分隔线 */}
-            <div className="h-6 w-px bg-gray-600/50" />
+            <div className="h-6 w-px bg-gray-600/30 group-hover:bg-gray-600/50 transition-colors duration-300" />
 
             {/* 离开房间按钮 */}
-            <LeaveRoomButton onLeaveRoom={onLeaveRoom} />
+            <button
+                onClick={onLeaveRoom ? () => {
+                    if (onLeaveRoom) onLeaveRoom();
+                } : undefined}
+                className="flex items-center justify-center w-12 h-10 bg-red-600/80 text-white/90 hover:bg-red-600 hover:text-white rounded-lg transition-all duration-200"
+                title="离开房间"
+            >
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                >
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                    <polyline points="16,17 21,12 16,7"/>
+                    <line x1="21" y1="12" x2="9" y2="12"/>
+                </svg>
+            </button>
         </div>
     );
 }

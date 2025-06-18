@@ -24,12 +24,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-     <head>
-        <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#000000" />
-         <title>Livekit</title>
-     </head>
+    <html lang="zh-CN">
+      <head>
+        <meta httpEquiv="Content-Language" content="zh-CN" />
+        <meta name="google" content="notranslate" />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

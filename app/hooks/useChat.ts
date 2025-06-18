@@ -26,6 +26,7 @@ interface UseChatOptions {
     maxImageSizeMB?: number;
     enableSounds?: boolean;
     autoScrollToBottom?: boolean;
+    isChatOpen?: boolean; // 新增：聊天栏是否开启状态
 }
 
 interface UseChatReturn {
@@ -45,7 +46,8 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         maxMessages = 100,
         maxImageSizeMB = 10,
         enableSounds = true,
-        autoScrollToBottom = true
+        autoScrollToBottom = true,
+        isChatOpen = false // 新增默认值
     } = options;
 
     // 状态
@@ -79,14 +81,19 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         setChatState(prev => ({ ...prev, ...updates }));
     }, []);
 
-    // 添加消息到状态
+    // 添加消息到状态 - 修改这里来处理聊天栏状态
     const addMessage = useCallback((message: DisplayMessage) => {
-        setChatState((prev: ChatState) => ({
-            ...prev,
-            messages: limitMessages([...prev.messages, message], maxMessages),
-            unreadCount: prev.isOpen ? prev.unreadCount : prev.unreadCount + 1
-        }));
-    }, [maxMessages]);
+        setChatState((prev: ChatState) => {
+            // 只有在聊天栏关闭时才增加未读计数
+            const shouldIncreaseUnread = !isChatOpen && !message.user?.includes('你'); // 不给自己的消息增加未读
+            
+            return {
+                ...prev,
+                messages: limitMessages([...prev.messages, message], maxMessages),
+                unreadCount: shouldIncreaseUnread ? prev.unreadCount + 1 : prev.unreadCount
+            };
+        });
+    }, [maxMessages, isChatOpen]);
 
     // 更新消息状态
     const updateMessage = useCallback((messageId: string, updates: Partial<DisplayMessage>) => {
@@ -149,15 +156,22 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
 
                 const user = participant?.identity || '未知用户';
 
+                // 忽略自己发送的消息（避免重复显示）
+                if (participant?.identity === room.localParticipant?.identity) {
+                    return;
+                }
+
                 switch (chatMessage.type) {
                     case 'chat':
                         const textMessage = convertToDisplayMessage(chatMessage, user);
                         addMessage(textMessage);
+                        console.log('收到文本消息:', textMessage.text, '聊天栏状态:', isChatOpen ? '开启' : '关闭');
                         break;
 
                     case 'image':
                         const imageMessage = convertToDisplayMessage(chatMessage, user);
                         addMessage(imageMessage);
+                        console.log('收到图片消息，聊天栏状态:', isChatOpen ? '开启' : '关闭');
                         break;
 
                     case 'image_chunk':
@@ -179,7 +193,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         return () => {
             room.off('dataReceived', handleDataReceived);
         };
-    }, [room, addMessage]);
+    }, [room, addMessage, isChatOpen]); // 添加 isChatOpen 到依赖数组
 
     // 发送文本消息
     const sendTextMessage = useCallback(async (messageText: string) => {
@@ -204,7 +218,13 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
             sending: true
         };
 
-        addMessage(displayMessage);
+        // 自己的消息立即显示，不增加未读计数
+        setChatState((prev: ChatState) => ({
+            ...prev,
+            messages: limitMessages([...prev.messages, displayMessage], maxMessages)
+            // 不增加 unreadCount，因为是自己发送的消息
+        }));
+        
         pendingMessagesRef.current.set(messageId, displayMessage);
 
         try {
@@ -229,7 +249,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
 
             throw error;
         }
-    }, [room, addMessage, updateMessage]);
+    }, [room, updateMessage, maxMessages]);
 
     // 发送图片消息
     const sendImageMessage = useCallback(async (file: File) => {
@@ -259,7 +279,13 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
                 progress: 0
             };
 
-            addMessage(displayMessage);
+            // 自己的消息立即显示，不增加未读计数
+            setChatState((prev: ChatState) => ({
+                ...prev,
+                messages: limitMessages([...prev.messages, displayMessage], maxMessages)
+                // 不增加 unreadCount，因为是自己发送的消息
+            }));
+            
             pendingMessagesRef.current.set(messageId, displayMessage);
 
             // 发送图片分片
@@ -291,7 +317,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
 
             throw error;
         }
-    }, [room, maxImageSizeMB, addMessage, updateMessage]);
+    }, [room, maxImageSizeMB, updateMessage, maxMessages]);
 
     // 重试发送消息
     const retryMessage = useCallback(async (messageId: string) => {
@@ -341,7 +367,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         setChatState((prev: ChatState) => ({
             ...prev,
             isOpen: !prev.isOpen,
-            unreadCount: !prev.isOpen ? 0 : prev.unreadCount
+            unreadCount: !prev.isOpen ? 0 : prev.unreadCount // 打开时清除未读计数
         }));
     }, []);
 
@@ -358,6 +384,13 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         });
         pendingMessagesRef.current.clear();
     }, [updateChatState]);
+
+    // 当聊天栏状态变化时，如果从关闭变为开启，立即清除未读计数
+    useEffect(() => {
+        if (isChatOpen) {
+            markAsRead();
+        }
+    }, [isChatOpen, markAsRead]);
 
     // 清理
     useEffect(() => {

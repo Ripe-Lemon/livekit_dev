@@ -353,7 +353,24 @@ export function ControlBar({
         volume: 0.6
     });
 
-    // 实时检查权限状态 - 权限变化时刷新设备列表
+    // 添加日志节流
+    const lastLogTimeRef = useRef<{ [key: string]: number }>({});
+    
+    const throttleLog = useCallback((key: string, message: string, data?: any, interval = 5000) => {
+        const now = Date.now();
+        const lastLogTime = lastLogTimeRef.current[key] || 0;
+        
+        if (now - lastLogTime > interval) {
+            if (data !== undefined) {
+                console.log(message, data);
+            } else {
+                console.log(message);
+            }
+            lastLogTimeRef.current[key] = now;
+        }
+    }, []);
+
+    // 实时检查权限状态 - 优化权限检查逻辑
     const checkPermissions = useCallback(async () => {
         try {
             const audioPermission = await navigator.permissions.query({ name: 'microphone' as PermissionName });
@@ -368,43 +385,44 @@ export function ControlBar({
                 video: videoGranted
             };
             
-            setLocalPermissions(newPermissions);
-            
-            // 如果权限状态发生变化，刷新设备列表
+            // 只有在权限状态真正发生变化时才更新和刷新
             if (prevPermissions.audio !== audioGranted || prevPermissions.video !== videoGranted) {
-                console.log('权限状态变化，刷新设备列表:', { 
+                throttleLog('control-permission-change', '控制栏权限状态变化:', { 
                     audio: { prev: prevPermissions.audio, new: audioGranted },
                     video: { prev: prevPermissions.video, new: videoGranted }
                 });
+                
+                setLocalPermissions(newPermissions);
                 
                 // 延迟刷新，确保权限状态已更新
                 setTimeout(async () => {
                     try {
                         await refreshDevices();
-                        console.log('🔄 权限变化后设备列表已刷新');
+                        throttleLog('control-device-refresh', '🔄 控制栏权限变化后设备列表已刷新');
                     } catch (error) {
-                        console.warn('权限变化后刷新设备列表失败:', error);
+                        console.warn('控制栏权限变化后刷新设备列表失败:', error);
                     }
-                }, 200);
+                }, 500);
+            } else {
+                // 静默更新权限状态
+                setLocalPermissions(newPermissions);
             }
-            
-            console.log('权限状态检查:', newPermissions);
         } catch (error) {
             // 如果 permissions API 不可用，回退到 useDeviceManager 的权限状态
-            console.log('使用 useDeviceManager 权限状态:', permissions);
+            throttleLog('control-permission-fallback', '控制栏使用 useDeviceManager 权限状态:', permissions, 10000);
             setLocalPermissions({
                 audio: permissions.audio,
                 video: permissions.video
             });
         }
-    }, [permissions, localPermissions, refreshDevices]);
+    }, [permissions, localPermissions, refreshDevices, throttleLog]);
 
-    // 定期检查权限状态
+    // 定期检查权限状态 - 减少检查频率
     useEffect(() => {
         checkPermissions();
         
-        // 每5秒检查一次权限状态
-        const interval = setInterval(checkPermissions, 5000);
+        // 每10秒检查一次权限状态（减少频率）
+        const interval = setInterval(checkPermissions, 10000);
         
         return () => clearInterval(interval);
     }, [checkPermissions]);
@@ -629,18 +647,19 @@ export function ControlBar({
 
     // 初始化时刷新设备列表
     useEffect(() => {
-        // 页面加载时立即刷新一次设备列表
+        // 页面加载时延迟刷新一次设备列表
         const initializeDevices = async () => {
             try {
                 await refreshDevices();
-                console.log('🚀 初始设备列表加载完成');
+                throttleLog('control-init-devices', '🚀 控制栏初始设备列表加载完成');
             } catch (error) {
-                console.warn('初始设备列表加载失败:', error);
+                console.warn('控制栏初始设备列表加载失败:', error);
             }
         };
         
-        initializeDevices();
-    }, [refreshDevices]);
+        // 延迟初始化
+        setTimeout(initializeDevices, 1000);
+    }, []);
 
     // 自动隐藏控制栏（全屏模式）
     useEffect(() => {

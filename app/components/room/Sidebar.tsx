@@ -9,7 +9,7 @@ interface SidebarProps {
     currentRoomName: string;
     onRoomSwitch: (roomName: string) => void;
     className?: string;
-    username?: string; // 添加用户名属性
+    username?: string;
 }
 
 export function Sidebar({ currentRoomName, onRoomSwitch, className = '', username }: SidebarProps) {
@@ -52,20 +52,33 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
             }
             
             const responseData = await response.json();
+            console.log('API 响应数据:', responseData); // 临时调试日志
+            
             const roomList = responseData.rooms;
 
             if (Array.isArray(roomList)) {
-                // 只显示有人的房间
+                // 修复字段名匹配问题
                 const filteredRooms = roomList
-                    .filter((room: any) => room.participantCount > 0)
+                    .filter((room: any) => {
+                        // 尝试多个可能的字段名
+                        const participantCount = room.numParticipants || room.participantCount || room.participants || 0;
+                        return participantCount > 0;
+                    })
                     .map((room: any) => ({
-                        ...room,
-                        createdAt: room.createdAt || new Date().toISOString(),
+                        id: room.sid || room.id || room.name, // 使用 sid 作为 id
+                        name: room.name,
+                        description: room.metadata || room.description || '',
+                        participantCount: room.numParticipants || room.participantCount || room.participants || 0,
+                        createdAt: room.creationTime || room.createdAt || new Date().toISOString(),
+                        lastActivity: room.creationTime || room.lastActivity || new Date().toISOString(),
+                        isActive: true,
+                        createdBy: room.createdBy || 'unknown'
                     }))
                     .sort((a: any, b: any) => b.participantCount - a.participantCount);
                 
                 setActiveRooms(filteredRooms);
-                console.log('✅ 活跃房间列表加载成功:', filteredRooms.length, '个房间');
+                console.log('✅ 活跃房间列表加载成功:', filteredRooms.length, '个房间，详情:', 
+                    filteredRooms.map(room => ({ name: room.name, count: room.participantCount })));
             } else {
                 throw new Error('API响应格式错误');
             }
@@ -81,8 +94,8 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
     useEffect(() => {
         loadActiveRooms();
         
-        // 每20秒刷新一次房间列表
-        const interval = setInterval(loadActiveRooms, 20000);
+        // 每30秒刷新一次房间列表（增加间隔）
+        const interval = setInterval(loadActiveRooms, 30000);
         return () => clearInterval(interval);
     }, [loadActiveRooms]);
 
@@ -128,8 +141,17 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
     // 房间卡片组件
     const RoomCard = ({ room, type }: { room: any, type: 'permanent' | 'active' }) => {
         const isCurrentRoom = room.name === currentRoomName;
-        const participantCount = type === 'active' ? room.participantCount : 
-            (activeRooms.find(active => active.name === room.name)?.participantCount || 0);
+        
+        // 获取参与者数量的逻辑
+        let participantCount = 0;
+        if (type === 'active') {
+            participantCount = room.participantCount || 0;
+        } else {
+            // 对于常驻房间，查找是否在活跃房间列表中
+            const activeRoom = activeRooms.find(active => active.name === room.name);
+            participantCount = activeRoom?.participantCount || 0;
+        }
+        
         const isActive = participantCount > 0;
 
         return (
@@ -414,16 +436,19 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
                                     {/* 活跃房间 */}
                                     {activeRooms.length > 0 && (
                                         <div>
-                                            <h4 className="text-xs font-medium text-gray-400 mb-2">活跃房间</h4>
+                                            <h4 className="text-xs font-medium text-gray-400 mb-2">其他活跃房间</h4>
                                             <div className="space-y-2">
-                                                {activeRooms.map((room) => (
-                                                    <RoomCard key={room.id} room={room} type="active" />
-                                                ))}
+                                                {activeRooms
+                                                    .filter(room => !PERMANENT_ROOMS.some(pr => pr.name === room.name))
+                                                    .map((room) => (
+                                                        <RoomCard key={room.id} room={room} type="active" />
+                                                    ))
+                                                }
                                             </div>
                                         </div>
                                     )}
 
-                                    {activeRooms.length === 0 && !isLoadingRooms && (
+                                    {activeRooms.filter(room => !PERMANENT_ROOMS.some(pr => pr.name === room.name)).length === 0 && !isLoadingRooms && (
                                         <div className="text-center py-4 text-gray-400">
                                             <svg className="w-8 h-8 mx-auto mb-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
@@ -441,7 +466,10 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
                             <div className="flex items-center justify-between text-xs text-gray-400">
                                 <span>共 {PERMANENT_ROOMS.length + activeRooms.length} 个房间</span>
                                 <span>
-                                    {activeRooms.reduce((sum, room) => sum + room.participantCount, 0)} 人在线
+                                    {PERMANENT_ROOMS.reduce((sum, room) => {
+                                        const activeRoom = activeRooms.find(ar => ar.name === room.name);
+                                        return sum + (activeRoom?.participantCount || 0);
+                                    }, 0) + activeRooms.filter(room => !PERMANENT_ROOMS.some(pr => pr.name === room.name)).reduce((sum, room) => sum + room.participantCount, 0)} 人在线
                                 </span>
                             </div>
                         </div>

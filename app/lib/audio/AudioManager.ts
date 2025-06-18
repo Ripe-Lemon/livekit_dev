@@ -772,7 +772,15 @@ export class AudioManager {
 
     // 获取参与者音量
     getParticipantVolume(participantId: string): number {
-        return this.participantVolumes[participantId] || 100;
+        // 检查参与者音量是否已在记录中
+        if (!(participantId in this.participantVolumes)) {
+            // 如果不存在，则设置默认音量为 100
+            this.participantVolumes[participantId] = 100;
+            // 调用方法以持久化保存音量设置（假设存在此方法）
+            this.saveParticipantVolumes();
+        }
+        // 返回该参与者的音量
+        return this.participantVolumes[participantId];
     }
 
 

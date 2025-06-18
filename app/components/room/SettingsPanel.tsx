@@ -29,7 +29,7 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
     } = useAudioProcessing();
     
     // VAD Hook
-    const { vadResult, isActive: vadActive, startVAD, stopVAD, updateThreshold } = useVAD({
+    const { vadResult, isActive: vadActive, startVAD, stopVAD, updateThreshold, vadProcessor } = useVAD({
         threshold: settings.vadThreshold,
         smoothingFactor: settings.vadSmoothingFactor,
         minSpeechFrames: settings.vadMinSpeechFrames,
@@ -1185,15 +1185,13 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
                                 )}
 
                                 {/* 开发环境调试按钮 */}
-                                {process.env.NODE_ENV === 'development' && (
-                                    <button
-                                        onClick={handleDebugAudio}
-                                        className="px-3 py-2 bg-yellow-600 text-white rounded-lg text-sm font-medium hover:bg-yellow-500 transition-colors"
-                                        title="音频调试"
-                                    >
-                                        🔧
-                                    </button>
-                                )}
+                                <button
+                                    onClick={handleDebugAudio}
+                                    className="px-3 py-2 bg-yellow-600 text-white rounded-lg text-sm font-medium hover:bg-yellow-500 transition-colors"
+                                    title="音频调试"
+                                >
+                                    🔧
+                                </button>
                                 
                                 <button
                                     onClick={onClose}
@@ -1214,6 +1212,74 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
                             </div>
                         )}
                     </div>
+                </div>
+
+                {/* VAD调试工具 - 始终显示 */}
+                <div className="bg-yellow-900/20 border border-yellow-800 rounded-lg p-3 mt-4">
+                    <h5 className="text-sm font-medium text-yellow-300 mb-3">🧪 VAD调试工具</h5>
+                    <div className="grid grid-cols-2 gap-2">
+                        <button
+                            onClick={() => {
+                                if (vadProcessor) {
+                                    console.log('🧪 开始VAD音频输入测试...');
+                                    vadProcessor.testAudioInput();
+                                } else {
+                                    console.error('❌ VAD处理器未初始化');
+                                }
+                            }}
+                            className="px-3 py-2 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-500 transition-colors"
+                        >
+                            测试音频输入
+                        </button>
+                        <button
+                            onClick={() => {
+                                const debugInfo = vadProcessor?.getDebugInfo();
+                                console.log('🔍 VAD状态:', debugInfo);
+                                alert(`VAD调试信息已输出到控制台\n音量: ${vadResult?.volume.toFixed(3) || 0}\n活跃: ${vadActive}\n请打开浏览器控制台查看详细信息`);
+                            }}
+                            className="px-3 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-500 transition-colors"
+                        >
+                            检查VAD状态
+                        </button>
+                        <button
+                            onClick={handleDebugAudio}
+                            className="px-3 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-500 transition-colors"
+                        >
+                            音频轨道调试
+                        </button>
+                        <button
+                            onClick={() => {
+                                if (vadActive) {
+                                    stopVAD();
+                                    console.log('⏹️ VAD已手动停止');
+                                } else {
+                                    startVAD().then(() => {
+                                        console.log('▶️ VAD已手动启动');
+                                    }).catch(error => {
+                                        console.error('❌ VAD启动失败:', error);
+                                    });
+                                }
+                            }}
+                            className={`px-3 py-2 text-white rounded text-sm transition-colors ${
+                                vadActive 
+                                    ? 'bg-red-600 hover:bg-red-500' 
+                                    : 'bg-green-600 hover:bg-green-500'
+                            }`}
+                        >
+                            {vadActive ? '停止VAD' : '启动VAD'}
+                        </button>
+                    </div>
+                    <div className="mt-3 p-2 bg-gray-800/50 rounded text-xs text-yellow-200">
+                        <div className="space-y-1">
+                            <div>🎤 VAD状态: {vadActive ? '✅ 活跃' : '❌ 未启动'}</div>
+                            <div>🔊 实时音量: {vadResult ? `${Math.round(vadResult.volume * 100)}%` : '无数据'}</div>
+                            <div>🗣️ 语音检测: {vadResult?.isSpeaking ? '✅ 正在说话' : '🤫 静音中'}</div>
+                            <div>⚙️ 检测阈值: {Math.round(settings.vadThreshold * 100)}%</div>
+                        </div>
+                    </div>
+                    <p className="text-xs text-yellow-400 mt-2">
+                        💡 测试时请说话，观察实时音量是否有变化。如果始终为0%，说明VAD没有接收到音频数据
+                    </p>
                 </div>
             </div>
         </div>

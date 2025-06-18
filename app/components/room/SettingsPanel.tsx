@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRoomContext, useParticipants } from '@livekit/components-react';
 import { useLiveKitAudioSettings } from '../../hooks/useLiveKitAudioSettings';
+import { AudioDebugger } from '../../utils/audioDebug';
 
 interface SettingsPanelProps {
     onClose: () => void;
@@ -65,6 +66,14 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
     };
 
     const connectionStatus = getConnectionStatus();
+
+    // 调试音频设置
+    const handleDebugAudio = useCallback(() => {
+        console.log('🔧 开始音频调试...');
+        AudioDebugger.logCurrentAudioSettings(room?.localParticipant);
+        AudioDebugger.findAllAudioElements();
+        AudioDebugger.testAudioConstraints();
+    }, [room?.localParticipant]);
 
     return (
         <div 
@@ -337,6 +346,16 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
                             >
                                 关闭
                             </button>
+
+                            {/* 调试按钮 - 仅在开发环境中显示 */}
+                            {process.env.NODE_ENV === 'development' && (
+                                <button
+                                    onClick={handleDebugAudio}
+                                    className="px-3 py-2 bg-yellow-600 text-white rounded-lg text-sm font-medium hover:bg-yellow-500 transition-colors"
+                                >
+                                    调试
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>

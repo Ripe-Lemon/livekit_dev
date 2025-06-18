@@ -50,9 +50,9 @@ export class AudioManager {
 
     private participantVolumes: ParticipantVolumeSettings = {};
     private liveKitSettings: LiveKitAudioSettings = {
-        noiseSuppression: true,
-        echoCancellation: true,
-        autoGainControl: true,
+        noiseSuppression: false,     // 默认关闭
+        echoCancellation: false,     // 默认关闭
+        autoGainControl: true,       // 默认开启
         voiceDetectionThreshold: 0.3
     };
 

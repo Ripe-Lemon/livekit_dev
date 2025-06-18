@@ -107,6 +107,34 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
                             </h3>
                             
                             <div className="space-y-4">
+                                {/* 自动增益控制开关 - 放在第一位 */}
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <span className="text-sm text-white">自动增益控制</span>
+                                        <p className="text-xs text-gray-400">自动调节麦克风增益</p>
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                        {isApplying === 'autoGainControl' && (
+                                            <svg className="w-4 h-4 text-yellow-400 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                            </svg>
+                                        )}
+                                        <button
+                                            onClick={() => handleAudioSettingChange('autoGainControl', !liveKitSettings.autoGainControl)}
+                                            disabled={isApplying === 'autoGainControl'}
+                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+                                                liveKitSettings.autoGainControl ? 'bg-blue-600' : 'bg-gray-600'
+                                            }`}
+                                        >
+                                            <span
+                                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                                                    liveKitSettings.autoGainControl ? 'translate-x-6' : 'translate-x-1'
+                                                }`}
+                                            />
+                                        </button>
+                                    </div>
+                                </div>
+
                                 {/* 噪声抑制开关 */}
                                 <div className="flex items-center justify-between">
                                     <div>

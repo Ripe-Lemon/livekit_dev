@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useAudioProcessing, type AudioProcessingSettings } from '../../hooks/useAudioProcessing';
 import { useVAD } from '../../hooks/useVAD';
 
@@ -19,7 +19,7 @@ export function AudioProcessingControls({ className = '' }: AudioProcessingContr
         getPresets
     } = useAudioProcessing();
     
-    const { vadResult, isActive: vadActive, startVAD, stopVAD, updateThreshold } = useVAD({
+    const { vadResult, isActive: vadActive, startVAD, stopVAD, updateThreshold, vadProcessor } = useVAD({
         threshold: settings.vadThreshold,
         smoothingFactor: settings.vadSmoothingFactor,
         minSpeechFrames: settings.vadMinSpeechFrames,
@@ -135,6 +135,22 @@ export function AudioProcessingControls({ className = '' }: AudioProcessingContr
             }
         }
     }, [settings.vadEnabled, vadActive, startVAD, stopVAD]);
+
+    // 添加VAD测试功能
+    const handleVADTest = useCallback(() => {
+        if (vadProcessor) {
+            console.log('🧪 开始VAD测试...');
+            vadProcessor.testAudioInput();
+            
+            // 显示调试信息
+            setTimeout(() => {
+                const debugInfo = vadProcessor?.getDebugInfo();
+                console.log('🔍 VAD调试信息:', debugInfo);
+            }, 1000);
+        } else {
+            console.error('❌ VAD处理器未初始化');
+        }
+    }, [vadProcessor]);
 
     return (
         <div className={`space-y-6 ${className}`}>
@@ -599,6 +615,34 @@ export function AudioProcessingControls({ className = '' }: AudioProcessingContr
                     </div>
                 )}
             </div>
+
+            {/* 开发环境调试工具 */}
+            {process.env.NODE_ENV === 'development' && (
+                <div className="bg-yellow-900/20 border border-yellow-800 rounded-lg p-3">
+                    <h5 className="text-sm font-medium text-yellow-300 mb-2">🧪 VAD调试工具</h5>
+                    <div className="flex space-x-2">
+                        <button
+                            onClick={handleVADTest}
+                            className="px-3 py-2 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-500 transition-colors"
+                        >
+                            测试音频输入
+                        </button>
+                        <button
+                            onClick={() => {
+                                const debugInfo = vadProcessor?.getDebugInfo();
+                                console.log('🔍 VAD状态:', debugInfo);
+                                alert(`VAD状态已输出到控制台\n音量: ${vadResult?.volume.toFixed(3) || 0}\n活跃: ${vadActive}`);
+                            }}
+                            className="px-3 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-500 transition-colors"
+                        >
+                            状态检查
+                        </button>
+                    </div>
+                    <p className="text-xs text-yellow-400 mt-2">
+                        💡 测试时请说话，检查控制台是否有音频数据输出
+                    </p>
+                </div>
+            )}
         </div>
     );
 }

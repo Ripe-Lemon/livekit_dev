@@ -53,6 +53,11 @@ export class VADProcessor {
     // 回调函数
     private onVADUpdate: ((result: VADResult) => void) | null = null;
 
+    // 添加调试状态
+    private debugMode = process.env.NODE_ENV === 'development';
+    private analysisCount = 0;
+    private lastVolumeUpdate = 0;
+
     constructor(config: Partial<VADConfig> = {}) {
         this.config = { ...DEFAULT_VAD_CONFIG, ...config };
         this.initializeAudioContext();
@@ -73,9 +78,25 @@ export class VADProcessor {
         }
 
         try {
+            // 验证输入流
+            const audioTracks = stream.getAudioTracks();
+            if (audioTracks.length === 0) {
+                throw new Error('输入流中没有音频轨道');
+            }
+
+            const audioTrack = audioTracks[0];
+            console.log('🔍 VAD连接音频轨道:', {
+                label: audioTrack.label,
+                readyState: audioTrack.readyState,
+                enabled: audioTrack.enabled,
+                muted: audioTrack.muted,
+                settings: audioTrack.getSettings()
+            });
+
             // 恢复 AudioContext（如果被暂停）
             if (this.audioContext.state === 'suspended') {
                 await this.audioContext.resume();
+                console.log('🔄 AudioContext 已恢复');
             }
 
             // 创建音频分析节点
@@ -97,8 +118,13 @@ export class VADProcessor {
             console.log('✅ VAD 已连接到麦克风', {
                 fftSize: this.analyserNode.fftSize,
                 bufferLength,
-                sampleRate: this.audioContext.sampleRate
+                sampleRate: this.audioContext.sampleRate,
+                audioContextState: this.audioContext.state
             });
+
+            // 重置计数器
+            this.analysisCount = 0;
+            this.lastVolumeUpdate = Date.now();
 
             this.startAnalysis();
         } catch (error) {
@@ -125,16 +151,45 @@ export class VADProcessor {
             }
             this.lastAnalysisTime = now;
 
-            // 获取音频数据
-            this.analyserNode.getByteTimeDomainData(this.dataArray);
-            this.analyserNode.getByteFrequencyData(this.freqDataArray);
+            try {
+                // 获取音频数据
+                this.analyserNode.getByteTimeDomainData(this.dataArray);
+                this.analyserNode.getByteFrequencyData(this.freqDataArray);
 
-            // 分析音频
-            const result = this.analyzeAudio();
-            
-            // 触发回调
-            if (this.onVADUpdate) {
-                this.onVADUpdate(result);
+                // 验证数据有效性
+                const hasData = this.dataArray.some(value => value !== 128) || 
+                               this.freqDataArray.some(value => value > 0);
+
+                if (!hasData) {
+                    if (this.debugMode && this.analysisCount % 100 === 0) {
+                        console.warn('⚠️ VAD未检测到音频数据，检查麦克风连接');
+                    }
+                } else {
+                    // 分析音频
+                    const result = this.analyzeAudio();
+                    
+                    // 触发回调
+                    if (this.onVADUpdate) {
+                        this.onVADUpdate(result);
+                    }
+
+                    // 调试输出（降低频率）
+                    if (this.debugMode && this.analysisCount % 50 === 0) {
+                        console.log('🔍 VAD数据采样:', {
+                            analysisCount: this.analysisCount,
+                            volume: result.volume.toFixed(3),
+                            probability: result.probability.toFixed(3),
+                            isSpeaking: result.isSpeaking,
+                            dataArraySample: Array.from(this.dataArray.slice(0, 10)),
+                            freqArraySample: Array.from(this.freqDataArray.slice(0, 10)),
+                            audioContextState: this.audioContext?.state
+                        });
+                    }
+                }
+
+                this.analysisCount++;
+            } catch (error) {
+                console.error('❌ VAD分析错误:', error);
             }
 
             requestAnimationFrame(analyze);
@@ -170,16 +225,20 @@ export class VADProcessor {
         this.updateHistory(volume);
 
         // 7. 调试日志（限制频率）
-        if (Math.random() < 0.01) { // 1% 概率输出调试信息
-            console.log('🔍 VAD 分析结果:', {
+        const now = Date.now();
+        if (this.debugMode && volume > 0.01 && now - this.lastVolumeUpdate > 1000) {
+            console.log('🔍 VAD 活跃分析:', {
                 volume: volume.toFixed(3),
                 smoothed: this.smoothedVolume.toFixed(3),
                 probability: probability.toFixed(3),
                 isSpeaking: this.isSpeaking,
-                speechFrames: this.speechFrameCount,
-                silenceFrames: this.silenceFrameCount,
-                spectral: spectralFeatures
+                spectral: {
+                    speechEnergy: spectralFeatures.speechEnergy.toFixed(3),
+                    totalEnergy: spectralFeatures.totalEnergy.toFixed(3),
+                    centroid: spectralFeatures.spectralCentroid.toFixed(1)
+                }
             });
+            this.lastVolumeUpdate = now;
         }
 
         return {
@@ -193,13 +252,23 @@ export class VADProcessor {
         if (!this.dataArray) return 0;
 
         let sum = 0;
+        let nonZeroCount = 0;
+        
         for (let i = 0; i < this.dataArray.length; i++) {
             const amplitude = (this.dataArray[i] - 128) / 128;
             sum += amplitude * amplitude;
+            if (this.dataArray[i] !== 128) nonZeroCount++;
+        }
+        
+        // 如果所有数据都是128（静音），返回0
+        if (nonZeroCount === 0) {
+            return 0;
         }
         
         const rms = Math.sqrt(sum / this.dataArray.length);
-        return Math.min(rms * 2, 1); // 放大并限制在0-1范围
+        const volume = Math.min(rms * 3, 1); // 增加放大倍数以提高敏感度
+        
+        return volume;
     }
 
     private analyzeSpectrum(): { speechEnergy: number; totalEnergy: number; spectralCentroid: number } {
@@ -353,6 +422,45 @@ export class VADProcessor {
         console.log('🗑️ VAD 已销毁');
     }
 
+    // 添加强制测试方法
+    testAudioInput(): void {
+        if (!this.analyserNode || !this.dataArray || !this.freqDataArray) {
+            console.error('❌ VAD未初始化，无法测试');
+            return;
+        }
+
+        console.log('🧪 开始VAD音频输入测试...');
+        
+        const testInterval = setInterval(() => {
+            this.analyserNode!.getByteTimeDomainData(this.dataArray!);
+            this.analyserNode!.getByteFrequencyData(this.freqDataArray!);
+            
+            const volume = this.calculateVolume();
+            const hasTimeData = this.dataArray!.some(v => v !== 128);
+            const hasFreqData = this.freqDataArray!.some(v => v > 0);
+            
+            console.log('🧪 测试结果:', {
+                volume: volume.toFixed(4),
+                hasTimeData,
+                hasFreqData,
+                timeDataSample: Array.from(this.dataArray!.slice(0, 5)),
+                freqDataSample: Array.from(this.freqDataArray!.slice(0, 5)),
+                audioContextState: this.audioContext?.state
+            });
+            
+            if (volume > 0.01) {
+                console.log('✅ 检测到音频输入！');
+                clearInterval(testInterval);
+            }
+        }, 500);
+        
+        // 10秒后停止测试
+        setTimeout(() => {
+            clearInterval(testInterval);
+            console.log('🧪 VAD音频测试结束');
+        }, 10000);
+    }
+
     // 获取当前状态用于调试
     getDebugInfo() {
         return {
@@ -364,7 +472,12 @@ export class VADProcessor {
             speechFrameCount: this.speechFrameCount,
             silenceFrameCount: this.silenceFrameCount,
             volumeHistory: [...this.volumeHistory],
-            audioContextState: this.audioContext?.state
+            audioContextState: this.audioContext?.state,
+            analysisCount: this.analysisCount,
+            hasAnalyser: !!this.analyserNode,
+            hasDataArrays: !!(this.dataArray && this.freqDataArray),
+            dataArrayLength: this.dataArray?.length || 0,
+            lastAnalysisTime: this.lastAnalysisTime
         };
     }
 }

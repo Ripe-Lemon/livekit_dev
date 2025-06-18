@@ -424,27 +424,46 @@ export class VADProcessor {
 
     // 添加强制测试方法
     testAudioInput(): void {
+        console.log('🧪 开始VAD音频输入测试，当前状态检查...');
+        console.log('📊 VAD初始化状态:', {
+            hasAnalyser: !!this.analyserNode,
+            hasDataArrays: !!(this.dataArray && this.freqDataArray),
+            isActive: this.isActive,
+            audioContextState: this.audioContext?.state
+        });
+
         if (!this.analyserNode || !this.dataArray || !this.freqDataArray) {
-            console.error('❌ VAD未初始化，无法测试');
+            console.error('❌ VAD未正确初始化，详细状态:', {
+                analyserNode: !!this.analyserNode,
+                dataArray: !!this.dataArray,
+                freqDataArray: !!this.freqDataArray,
+                audioContext: !!this.audioContext
+            });
             return;
         }
 
-        console.log('🧪 开始VAD音频输入测试...');
+        console.log('🧪 VAD已正确初始化，开始音频输入测试...');
         
         const testInterval = setInterval(() => {
-            this.analyserNode!.getByteTimeDomainData(this.dataArray!);
-            this.analyserNode!.getByteFrequencyData(this.freqDataArray!);
+            if (!this.analyserNode || !this.dataArray || !this.freqDataArray) {
+                console.error('❌ 测试期间VAD被销毁');
+                clearInterval(testInterval);
+                return;
+            }
+
+            this.analyserNode.getByteTimeDomainData(this.dataArray);
+            this.analyserNode.getByteFrequencyData(this.freqDataArray);
             
             const volume = this.calculateVolume();
-            const hasTimeData = this.dataArray!.some(v => v !== 128);
-            const hasFreqData = this.freqDataArray!.some(v => v > 0);
+            const hasTimeData = this.dataArray.some(v => v !== 128);
+            const hasFreqData = this.freqDataArray.some(v => v > 0);
             
             console.log('🧪 测试结果:', {
                 volume: volume.toFixed(4),
                 hasTimeData,
                 hasFreqData,
-                timeDataSample: Array.from(this.dataArray!.slice(0, 5)),
-                freqDataSample: Array.from(this.freqDataArray!.slice(0, 5)),
+                timeDataSample: Array.from(this.dataArray.slice(0, 5)),
+                freqDataSample: Array.from(this.freqDataArray.slice(0, 5)),
                 audioContextState: this.audioContext?.state
             });
             

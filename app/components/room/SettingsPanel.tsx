@@ -221,16 +221,23 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
         });
     }, [participants, participantVolumes]);
 
-    // 同步VAD状态
+    // 同步VAD状态 - 修复无限循环
     useEffect(() => {
+        // 添加防抖，避免频繁操作
         if (settings.vadEnabled !== vadActive) {
-            if (settings.vadEnabled && !vadActive) {
-                startVAD().catch(console.error);
-            } else if (!settings.vadEnabled && vadActive) {
-                stopVAD();
-            }
+            const timeoutId = setTimeout(() => {
+                if (settings.vadEnabled && !vadActive) {
+                    console.log('⚙️ 设置要求启用VAD，但VAD未活跃，启动VAD');
+                    startVAD().catch(console.error);
+                } else if (!settings.vadEnabled && vadActive) {
+                    console.log('⚙️ 设置要求禁用VAD，停止VAD');
+                    stopVAD();
+                }
+            }, 100); // 100ms防抖
+
+            return () => clearTimeout(timeoutId);
         }
-    }, [settings.vadEnabled, vadActive, startVAD, stopVAD]);
+    }, [settings.vadEnabled, vadActive]); // 移除startVAD, stopVAD依赖避免循环
 
     // 调试功能（仅开发环境）
     const handleDebugAudio = useCallback(() => {

@@ -176,9 +176,10 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
         }
     }, []);
 
-    // 监听本地参与者变化
+    // 监听本地参与者变化 - 修复重复初始化问题
     useEffect(() => {
         if (localParticipant && !vadProcessorRef.current) {
+            console.log('🎤 本地参与者就绪，初始化VAD');
             initializeVAD();
         }
     }, [localParticipant, initializeVAD]);
@@ -189,7 +190,6 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
 
         const handleTrackMuted = () => {
             console.log('🔇 LiveKit麦克风被静音，但VAD继续监控原始音频');
-            // VAD可以继续工作，因为它使用的是独立的音频流或原始轨道
         };
 
         const handleTrackUnmuted = () => {
@@ -198,12 +198,14 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
 
         const handleTrackPublished = () => {
             console.log('📤 LiveKit音频轨道已发布，检查VAD连接');
-            // 如果VAD未启动但应该启动，尝试重新连接
+            // 延迟重连，避免立即清理
             if (!isActive && vadProcessorRef.current) {
                 console.log('🔄 尝试重新连接VAD到新的音频轨道');
                 setTimeout(() => {
-                    startVAD().catch(console.error);
-                }, 500);
+                    if (vadProcessorRef.current && !isActive) { // 双重检查
+                        startVAD().catch(console.error);
+                    }
+                }, 1000); // 增加延迟
             }
         };
 
@@ -229,20 +231,24 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
             }
             localParticipant.off('trackPublished', handleTrackPublished);
             localParticipant.off('trackUnpublished', handleTrackUnpublished);
+            // 不要在这里清理VAD
         };
-    }, [localParticipant, isActive, startVAD]);
+    }, [localParticipant, isActive]); // 移除startVAD依赖避免循环
 
     // 清理函数
     useEffect(() => {
         return () => {
             console.log('🧹 清理VAD Hook');
-            stopVAD();
-            if (vadProcessorRef.current) {
-                vadProcessorRef.current.dispose();
-                vadProcessorRef.current = null;
+            // 移除立即清理，改为条件清理
+            if (!isActive) {
+                stopVAD();
+                if (vadProcessorRef.current) {
+                    vadProcessorRef.current.dispose();
+                    vadProcessorRef.current = null;
+                }
             }
         };
-    }, [stopVAD]);
+    }, []); // 空依赖数组，只在组件卸载时清理
 
     return {
         vadResult,

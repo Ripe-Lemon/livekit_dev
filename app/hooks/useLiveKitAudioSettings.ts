@@ -1,10 +1,20 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocalParticipant, useParticipants, useRoomContext } from '@livekit/components-react';
-import { Track, createLocalAudioTrack, AudioCaptureOptions } from 'livekit-client';
+import { Track, createLocalAudioTrack } from 'livekit-client';
 import { AudioManager } from '../lib/audio/AudioManager';
 import { LiveKitAudioSettings, ParticipantVolumeSettings } from '../types/audio';
+
+// 定义 AudioCaptureOptions 接口
+interface AudioCaptureOptions {
+    echoCancellation?: boolean;
+    noiseSuppression?: boolean;
+    autoGainControl?: boolean;
+    sampleRate?: number;
+    channelCount?: number;
+    deviceId?: string;
+}
 
 export function useLiveKitAudioSettings() {
     const { localParticipant } = useLocalParticipant();
@@ -20,6 +30,9 @@ export function useLiveKitAudioSettings() {
         audioManager.getParticipantVolumes()
     );
 
+    // 添加正在应用设置的跟踪
+    const applyingSettingsRef = useRef<Set<string>>(new Set());
+
     // 初始化参与者音量
     useEffect(() => {
         participants.forEach(participant => {
@@ -30,20 +43,105 @@ export function useLiveKitAudioSettings() {
         setParticipantVolumes(audioManager.getParticipantVolumes());
     }, [participants, audioManager]);
 
+    // 添加 DOM 变化监听器来跟踪音频元素
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                // 检查是否有新的音频元素添加
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        const element = node as Element;
+                        
+                        // 检查是否是音频元素
+                        if (element.tagName === 'AUDIO') {
+                            console.log('🔊 检测到新的音频元素:', {
+                                src: (element as HTMLAudioElement).src,
+                                className: element.className,
+                                dataset: { ...(element as HTMLElement).dataset }
+                            });
+                        }
+                        
+                        // 检查子元素中是否有音频元素
+                        const audioElements = element.querySelectorAll('audio');
+                        if (audioElements.length > 0) {
+                            console.log(`🔊 检测到包含 ${audioElements.length} 个音频元素的容器:`, {
+                                tagName: element.tagName,
+                                className: element.className,
+                                dataset: { ...(element as HTMLElement).dataset }
+                            });
+                            
+                            // 应用已保存的音量设置
+                            setTimeout(() => {
+                                participants.forEach(participant => {
+                                    if (!participant.isLocal) {
+                                        const savedVolume = audioManager.getParticipantVolume(participant.identity);
+                                        if (savedVolume !== 100) {
+                                            console.log(`🔄 重新应用参与者 ${participant.identity} 的音量设置: ${savedVolume}%`);
+                                            audioManager.setParticipantVolume(participant.identity, savedVolume);
+                                        }
+                                    }
+                                });
+                            }, 100);
+                        }
+                    }
+                });
+            });
+        });
+
+        // 开始观察 DOM 变化
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+
+        return () => {
+            observer.disconnect();
+        };
+    }, [participants, audioManager]);
+
+    // 当参与者列表变化时，重新应用音量设置
+    useEffect(() => {
+        // 延迟一下，确保 DOM 已更新
+        const timeoutId = setTimeout(() => {
+            participants.forEach(participant => {
+                if (!participant.isLocal) {
+                    const savedVolume = audioManager.getParticipantVolume(participant.identity);
+                    if (savedVolume !== 100) {
+                        console.log(`🔄 参与者变化，重新应用音量设置: ${participant.identity} -> ${savedVolume}%`);
+                        audioManager.setParticipantVolume(participant.identity, savedVolume);
+                    }
+                }
+            });
+        }, 1000);
+
+        return () => clearTimeout(timeoutId);
+    }, [participants, audioManager]);
+
     // 更新 LiveKit 音频设置（实际应用到轨道）
     const updateLiveKitSetting = useCallback(async (key: keyof LiveKitAudioSettings, value: boolean | number) => {
-        const newSettings = { [key]: value };
-        
-        // 立即更新本地状态
-        setLiveKitSettings(prev => ({ ...prev, ...newSettings }));
-        
-        // 保存到 AudioManager
-        audioManager.updateLiveKitAudioSettings(newSettings);
+        // 检查是否已经在应用这个设置
+        if (applyingSettingsRef.current.has(key)) {
+            console.log(`⏳ ${key} 设置正在应用中，跳过重复请求`);
+            return;
+        }
 
-        // 只对音频处理设置应用到 LiveKit 轨道
-        if (localParticipant && (key === 'noiseSuppression' || key === 'echoCancellation' || key === 'autoGainControl')) {
-            try {
-                console.log(`🔄 正在应用 ${key} 设置: ${value}`);
+        // 标记为正在应用
+        applyingSettingsRef.current.add(key);
+
+        try {
+            const newSettings = { [key]: value };
+            
+            // 立即更新本地状态
+            setLiveKitSettings(prev => ({ ...prev, ...newSettings }));
+            
+            // 保存到 AudioManager
+            audioManager.updateLiveKitAudioSettings(newSettings);
+
+            // 只对音频处理设置应用到 LiveKit 轨道
+            if (localParticipant && (key === 'noiseSuppression' || key === 'echoCancellation' || key === 'autoGainControl')) {
+                console.log(`🔄 开始应用 ${key} 设置: ${value}`);
                 
                 // 构建新的音频捕获选项 - 使用更新后的设置
                 const updatedSettings = { ...liveKitSettings, [key]: value };
@@ -53,7 +151,6 @@ export function useLiveKitAudioSettings() {
                     echoCancellation: updatedSettings.echoCancellation,
                     noiseSuppression: updatedSettings.noiseSuppression,
                     autoGainControl: updatedSettings.autoGainControl,
-                    // 添加其他音频选项
                     sampleRate: 48000,
                     channelCount: 1,
                 };
@@ -73,7 +170,7 @@ export function useLiveKitAudioSettings() {
                     console.log('📤 已取消发布当前音频轨道');
                     
                     // 等待一下确保轨道完全停止
-                    await new Promise(resolve => setTimeout(resolve, 100));
+                    await new Promise(resolve => setTimeout(resolve, 200));
                 }
 
                 // 使用正确的 LiveKit 方法重新启用麦克风
@@ -82,7 +179,7 @@ export function useLiveKitAudioSettings() {
                 
                 console.log(`✅ ${key} 设置已通过 AudioCaptureOptions 应用: ${value}`);
 
-                // 验证设置是否真正应用
+                // 验证设置是否真正应用（延迟验证，给轨道时间稳定）
                 setTimeout(() => {
                     const currentPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
                     if (currentPublication?.track) {
@@ -107,11 +204,16 @@ export function useLiveKitAudioSettings() {
                         }
                     }
                 }, 1000);
+            } else {
+                // 对于非音频处理设置，立即完成
+                console.log(`✅ ${key} 设置已保存: ${value}`);
+            }
 
-            } catch (error) {
-                console.error(`❌ 应用 ${key} 设置失败:`, error);
-                
-                // 如果应用失败，尝试恢复麦克风
+        } catch (error) {
+            console.error(`❌ 应用 ${key} 设置失败:`, error);
+            
+            // 如果应用失败，尝试恢复麦克风
+            if (localParticipant && (key === 'noiseSuppression' || key === 'echoCancellation' || key === 'autoGainControl')) {
                 try {
                     console.log('🔄 尝试恢复麦克风...');
                     await localParticipant.setMicrophoneEnabled(true);
@@ -120,68 +222,23 @@ export function useLiveKitAudioSettings() {
                     console.error('❌ 恢复麦克风失败:', recoveryError);
                 }
             }
+            
+            throw error; // 重新抛出错误让调用者处理
+        } finally {
+            // 移除正在应用的标记
+            applyingSettingsRef.current.delete(key);
         }
     }, [localParticipant, liveKitSettings, audioManager]);
+
+    // 检查设置是否正在应用
+    const isApplyingSetting = useCallback((key: keyof LiveKitAudioSettings) => {
+        return applyingSettingsRef.current.has(key);
+    }, []);
 
     // 更新参与者音量
     const updateParticipantVolume = useCallback((participantId: string, volume: number) => {
         audioManager.setParticipantVolume(participantId, volume);
         setParticipantVolumes(audioManager.getParticipantVolumes());
-        
-        // 立即应用音量设置到实际的音频元素
-        const applyVolumeToElements = () => {
-            // 查找多种可能的音频元素选择器
-            const selectors = [
-                `audio[data-lk-participant="${participantId}"]`,
-                `audio[data-participant-id="${participantId}"]`,
-                `audio[data-participant="${participantId}"]`,
-                `[data-lk-participant-id="${participantId}"] audio`,
-                `[data-participant-identity="${participantId}"] audio`,
-                `[data-testid="participant-${participantId}"] audio`,
-                // LiveKit 组件的常见选择器
-                `.lk-participant-tile[data-lk-participant-id="${participantId}"] audio`,
-                `.lk-audio-track[data-lk-participant="${participantId}"]`
-            ];
-
-            let foundElements = 0;
-            
-            selectors.forEach(selector => {
-                const elements = document.querySelectorAll(selector);
-                elements.forEach(element => {
-                    if (element instanceof HTMLAudioElement) {
-                        const volumeValue = Math.min(volume / 100, 1); // HTML5 audio 最大为 1
-                        element.volume = volumeValue;
-                        foundElements++;
-                        console.log(`🔊 已设置音频元素音量: ${selector} -> ${volume}%`);
-                    }
-                });
-            });
-
-            // 如果没找到特定的元素，尝试查找所有音频元素
-            if (foundElements === 0) {
-                const allAudioElements = document.querySelectorAll('audio');
-                console.log(`🔍 未找到特定参与者音频元素，尝试查找所有音频元素 (${allAudioElements.length} 个):`);
-                
-                allAudioElements.forEach((element, index) => {
-                    console.log(`音频元素 ${index}:`, {
-                        src: element.src,
-                        dataset: (element as HTMLElement).dataset,
-                        attributes: Array.from(element.attributes).map(attr => `${attr.name}="${attr.value}"`)
-                    });
-                });
-            }
-
-            return foundElements;
-        };
-
-        const foundElements = applyVolumeToElements();
-        
-        // 如果立即没找到，稍后重试（DOM 可能还在更新）
-        if (foundElements === 0) {
-            setTimeout(applyVolumeToElements, 500);
-            setTimeout(applyVolumeToElements, 1000);
-        }
-        
     }, [audioManager]);
 
     // 获取参与者音量
@@ -194,6 +251,7 @@ export function useLiveKitAudioSettings() {
         participantVolumes,
         updateLiveKitSetting,
         updateParticipantVolume,
-        getParticipantVolume
+        getParticipantVolume,
+        isApplyingSetting  // 新增：检查是否正在应用设置
     };
 }

@@ -1,9 +1,39 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useRoomContext, useParticipants } from '@livekit/components-react';
+import { useRoomContext, useParticipants, useLocalParticipant } from '@livekit/components-react';
 import { useLiveKitAudioSettings } from '../../hooks/useLiveKitAudioSettings';
-import { AudioDebugger } from '../../utils/audioDebug';
+
+// 简化的调试工具函数
+const debugAudio = (localParticipant: any) => {
+    console.log('🔧 开始音频调试...');
+    console.log('='.repeat(50));
+    
+    if (localParticipant) {
+        const audioPublication = localParticipant.getTrackPublication('microphone');
+        if (audioPublication?.track) {
+            const track = audioPublication.track.mediaStreamTrack;
+            const settings = track.getSettings();
+            console.log('🎤 当前音频轨道设置:', settings);
+        }
+    }
+    
+    const audioElements = document.querySelectorAll('audio');
+    console.log(`🔍 找到 ${audioElements.length} 个音频元素:`);
+    audioElements.forEach((audio, i) => {
+        const htmlElement = audio as HTMLElement;
+        const audioElement = audio as HTMLAudioElement;
+        console.log(`音频元素 ${i}:`, {
+            src: audioElement.src,
+            volume: audioElement.volume,
+            dataset: htmlElement.dataset,
+            className: htmlElement.className
+        });
+    });
+    
+    console.log('='.repeat(50));
+    console.log('🔧 音频调试完成');
+};
 
 interface SettingsPanelProps {
     onClose: () => void;
@@ -13,37 +43,26 @@ interface SettingsPanelProps {
 export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
     const room = useRoomContext();
     const participants = useParticipants();
+    const { localParticipant } = useLocalParticipant();
     const {
         liveKitSettings,
         participantVolumes,
         updateLiveKitSetting,
-        updateParticipantVolume
+        updateParticipantVolume,
+        isApplyingSetting  // 使用新的函数而不是状态
     } = useLiveKitAudioSettings();
 
     const [isVolumeControlExpanded, setIsVolumeControlExpanded] = useState(false);
-    const [isApplying, setIsApplying] = useState<string | null>(null);
 
     // 处理音频设置更新
-    const handleAudioSettingChange = async (key: keyof typeof liveKitSettings, value: boolean | number) => {
-        setIsApplying(key);
+    const handleAudioSettingChange = useCallback(async (key: keyof typeof liveKitSettings, value: boolean | number) => {
         try {
             await updateLiveKitSetting(key, value);
-            
-            // 成功后显示一个短暂的成功状态
-            setTimeout(() => {
-                if (isApplying === key) {
-                    setIsApplying(null);
-                }
-            }, 1500); // 稍微延长显示时间
-            
         } catch (error) {
             console.error('应用设置失败:', error);
-            setIsApplying(null);
-            
-            // 可以在这里添加错误提示
-            alert(`应用${key}设置失败，请重试`);
+            // 可以在这里添加用户友好的错误提示
         }
-    };
+    }, [updateLiveKitSetting]);
 
     // 处理参与者音量更新
     const handleParticipantVolumeChange = (participantId: string, volume: number) => {
@@ -78,21 +97,8 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
 
     // 调试音频设置
     const handleDebugAudio = useCallback(() => {
-        console.log('🔧 开始音频调试...');
-        console.log('='.repeat(50));
-        
-        // 1. 检查当前音频设置
-        AudioDebugger.logCurrentAudioSettings(room.localParticipant);
-        
-        // 2. 查找所有音频元素
-        AudioDebugger.findAllAudioElements();
-        
-        // 3. 测试音频约束支持
-        AudioDebugger.testAudioConstraints();
-        
-        console.log('='.repeat(50));
-        console.log('🔧 音频调试完成');
-    }, [room.localParticipant]);
+        debugAudio(localParticipant);
+    }, [localParticipant]);
 
     const handleTestParticipantVolume = useCallback(() => {
         console.log('🔊 测试参与者音量控制...');
@@ -176,14 +182,14 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
                             </div>
                             
                             <div className="space-y-4">
-                                {/* 自动增益控制开关 - 放在第一位 */}
+                                {/* 自动增益控制开关 */}
                                 <div className="flex items-center justify-between">
                                     <div>
                                         <span className="text-sm text-white">自动增益控制</span>
                                         <p className="text-xs text-gray-400">自动调节麦克风增益</p>
                                     </div>
                                     <div className="flex items-center space-x-2">
-                                        {isApplying === 'autoGainControl' && (
+                                        {isApplyingSetting('autoGainControl') && (
                                             <div className="flex items-center space-x-1">
                                                 <svg className="w-4 h-4 text-yellow-400 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -193,7 +199,7 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
                                         )}
                                         <button
                                             onClick={() => handleAudioSettingChange('autoGainControl', !liveKitSettings.autoGainControl)}
-                                            disabled={isApplying === 'autoGainControl'}
+                                            disabled={isApplyingSetting('autoGainControl')}
                                             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
                                                 liveKitSettings.autoGainControl ? 'bg-blue-600' : 'bg-gray-600'
                                             }`}
@@ -214,7 +220,7 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
                                         <p className="text-xs text-gray-400">过滤背景噪音</p>
                                     </div>
                                     <div className="flex items-center space-x-2">
-                                        {isApplying === 'noiseSuppression' && (
+                                        {isApplyingSetting('noiseSuppression') && (
                                             <div className="flex items-center space-x-1">
                                                 <svg className="w-4 h-4 text-yellow-400 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -224,7 +230,7 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
                                         )}
                                         <button
                                             onClick={() => handleAudioSettingChange('noiseSuppression', !liveKitSettings.noiseSuppression)}
-                                            disabled={isApplying === 'noiseSuppression'}
+                                            disabled={isApplyingSetting('noiseSuppression')}
                                             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
                                                 liveKitSettings.noiseSuppression ? 'bg-blue-600' : 'bg-gray-600'
                                             }`}
@@ -245,7 +251,7 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
                                         <p className="text-xs text-gray-400">消除声音回馈</p>
                                     </div>
                                     <div className="flex items-center space-x-2">
-                                        {isApplying === 'echoCancellation' && (
+                                        {isApplyingSetting('echoCancellation') && (
                                             <div className="flex items-center space-x-1">
                                                 <svg className="w-4 h-4 text-yellow-400 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -255,7 +261,7 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
                                         )}
                                         <button
                                             onClick={() => handleAudioSettingChange('echoCancellation', !liveKitSettings.echoCancellation)}
-                                            disabled={isApplying === 'echoCancellation'}
+                                            disabled={isApplyingSetting('echoCancellation')}
                                             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
                                                 liveKitSettings.echoCancellation ? 'bg-blue-600' : 'bg-gray-600'
                                             }`}
@@ -393,21 +399,12 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
                     <div className="p-4">
                         <div className="flex space-x-2">
                             <div className="flex-1 text-center">
-                                {isApplying ? (
-                                    <div className="text-xs text-yellow-400 flex items-center justify-center">
-                                        <svg className="w-3 h-3 mr-1 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                        </svg>
-                                        正在应用设置...
-                                    </div>
-                                ) : (
-                                    <div className="text-xs text-green-400 flex items-center justify-center">
-                                        <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                        </svg>
-                                        设置已实时生效
-                                    </div>
-                                )}
+                                <div className="text-xs text-green-400 flex items-center justify-center">
+                                    <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                    设置已实时生效
+                                </div>
                             </div>
                             
                             {/* 开发环境调试按钮 */}

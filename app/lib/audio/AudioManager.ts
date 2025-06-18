@@ -548,108 +548,174 @@ export class AudioManager {
         try {
             console.log(`🎯 设置参与者 ${participantId} 音量为 ${clampedVolume}%`);
             
-            // 更全面的音频元素查找策略
+            // 改进的音频元素查找策略
             const findAndSetVolume = () => {
-                const selectors = [
-                    // LiveKit 标准选择器
+                let foundElements: HTMLAudioElement[] = [];
+                const volumeValue = clampedVolume / 100;
+
+                // 策略1: 通过 data 属性直接查找
+                const dataSelectors = [
                     `audio[data-lk-participant="${participantId}"]`,
                     `audio[data-participant-id="${participantId}"]`,
                     `audio[data-participant="${participantId}"]`,
-                    // 嵌套查找
-                    `[data-lk-participant-id="${participantId}"] audio`,
-                    `[data-participant-identity="${participantId}"] audio`,
-                    `[data-testid="participant-${participantId}"] audio`,
-                    // LiveKit 组件类名
-                    `.lk-participant-tile[data-lk-participant-id="${participantId}"] audio`,
-                    `.lk-audio-track[data-lk-participant="${participantId}"]`,
-                    // 通用 participant 容器
-                    `[class*="participant"][data-participant*="${participantId}"] audio`,
-                    `[class*="Participant"][data-participant*="${participantId}"] audio`
+                    `audio[data-participant-identity="${participantId}"]`,
                 ];
 
-                let foundAny = false;
-                const volumeValue = clampedVolume / 100;
-
-                selectors.forEach(selector => {
+                dataSelectors.forEach(selector => {
                     const elements = document.querySelectorAll(selector);
-                    if (elements.length > 0) {
-                        console.log(`📍 找到 ${elements.length} 个匹配元素: ${selector}`);
-                        foundAny = true;
-                    }
-                    
-                    elements.forEach((element, index) => {
+                    elements.forEach(element => {
                         if (element instanceof HTMLAudioElement) {
-                            // 设置基础音量
-                            if (volumeValue <= 1) {
-                                element.volume = volumeValue;
-                                console.log(`🔊 设置音频元素 ${index} 音量: ${clampedVolume}%`);
-                            } else {
-                                // 超过 100% 使用 Web Audio API
-                                element.volume = 1;
-                                this.enhanceAudioVolume(element, volumeValue, participantId);
-                                console.log(`🔊 使用增益设置音频元素 ${index} 音量: ${clampedVolume}%`);
-                            }
-
-                            // 添加标识以便后续识别
-                            element.setAttribute('data-volume-controlled', 'true');
-                            element.setAttribute('data-participant-volume', participantId);
+                            foundElements.push(element);
                         }
                     });
                 });
 
-                // 如果没找到特定的，打印调试信息
-                if (!foundAny) {
-                    console.warn(`❌ 未找到参与者 ${participantId} 的音频元素`);
-                    
-                    // 列出所有音频元素进行调试
-                    const allAudio = document.querySelectorAll('audio');
-                    console.log(`🔍 当前页面所有音频元素 (${allAudio.length} 个):`);
-                    allAudio.forEach((audio, i) => {
-                        // 修复类型错误：将 Element 转换为 HTMLElement
-                        const htmlElement = audio as HTMLElement;
-                        console.log(`音频 ${i}:`, {
-                            src: (audio as HTMLAudioElement).src,
-                            dataset: htmlElement.dataset,
-                            className: htmlElement.className,
-                            attributes: Array.from(audio.attributes).reduce((acc, attr) => {
-                                acc[attr.name] = attr.value;
-                                return acc;
-                            }, {} as Record<string, string>)
+                console.log(`📍 通过data属性找到 ${foundElements.length} 个音频元素`);
+
+                // 策略2: 通过父容器查找
+                if (foundElements.length === 0) {
+                    const containerSelectors = [
+                        `[data-lk-participant-id="${participantId}"]`,
+                        `[data-participant-identity="${participantId}"]`,
+                        `[data-testid="participant-${participantId}"]`,
+                    ];
+
+                    containerSelectors.forEach(selector => {
+                        const containers = document.querySelectorAll(selector);
+                        containers.forEach(container => {
+                            const audioElements = container.querySelectorAll('audio');
+                            audioElements.forEach(audio => {
+                                if (audio instanceof HTMLAudioElement) {
+                                    foundElements.push(audio);
+                                }
+                            });
                         });
                     });
 
-                    // 列出所有可能的参与者容器
-                    const participantContainers = document.querySelectorAll('[data-lk-participant], [data-participant], [class*="participant" i], [class*="Participant"]');
-                    console.log(`🔍 找到 ${participantContainers.length} 个参与者容器:`);
-                    participantContainers.forEach((container, i) => {
-                        // 修复类型错误：将 Element 转换为 HTMLElement
-                        const htmlContainer = container as HTMLElement;
-                        console.log(`容器 ${i}:`, {
-                            tagName: container.tagName,
-                            dataset: htmlContainer.dataset,
-                            className: htmlContainer.className,
-                            childAudioCount: container.querySelectorAll('audio').length
-                        });
-                    });
+                    console.log(`📍 通过容器查找到 ${foundElements.length} 个音频元素`);
                 }
 
-                return foundAny;
+                // 策略3: 智能分析所有音频元素
+                if (foundElements.length === 0) {
+                    console.log('🔍 开始智能分析所有音频元素...');
+                    
+                    const allAudioElements = document.querySelectorAll('audio');
+                    console.log(`找到 ${allAudioElements.length} 个音频元素`);
+                    
+                    // 如果只有少数几个音频元素，可以尝试通过索引匹配
+                    if (allAudioElements.length <= 3) {
+                        allAudioElements.forEach((audio, index) => {
+                            const htmlElement = audio as HTMLElement;
+                            const audioElement = audio as HTMLAudioElement;
+                            
+                            console.log(`音频元素 ${index}:`, {
+                                src: audioElement.src,
+                                volume: audioElement.volume,
+                                dataset: { ...htmlElement.dataset },
+                                className: htmlElement.className,
+                                id: htmlElement.id,
+                                parentElement: htmlElement.parentElement?.tagName,
+                                parentClass: htmlElement.parentElement?.className,
+                                parentDataset: htmlElement.parentElement ? { ...(htmlElement.parentElement as HTMLElement).dataset } : null
+                            });
+
+                            // 尝试通过父元素或祖先元素的数据属性关联
+                            let currentElement: HTMLElement | null = htmlElement.parentElement as HTMLElement;
+                            let depth = 0;
+                            
+                            while (currentElement && depth < 5) {
+                                const dataset = currentElement.dataset;
+                                const possibleIds = [
+                                    dataset.lkParticipantId,
+                                    dataset.participantId,
+                                    dataset.participant,
+                                    dataset.participantIdentity,
+                                    dataset.testid?.replace('participant-', '')
+                                ].filter(Boolean);
+
+                                if (possibleIds.includes(participantId)) {
+                                    console.log(`✅ 通过${depth === 0 ? '父' : '祖先'}元素找到匹配的音频元素 ${index} (深度: ${depth})`);
+                                    foundElements.push(audioElement);
+                                    break;
+                                }
+
+                                currentElement = currentElement.parentElement as HTMLElement;
+                                depth++;
+                            }
+                        });
+                    }
+
+                    // 如果还是没找到，且只有一个远程音频元素，可能就是目标
+                    if (foundElements.length === 0 && allAudioElements.length === 1) {
+                        const singleAudio = allAudioElements[0] as HTMLAudioElement;
+                        // 检查是否不是本地音频（没有静音控制或特定类名）
+                        if (!singleAudio.muted && !singleAudio.className.includes('local')) {
+                            console.log('🎯 只有一个音频元素，假设为目标参与者');
+                            foundElements.push(singleAudio);
+                        }
+                    }
+                }
+
+                // 应用音量设置
+                if (foundElements.length > 0) {
+                    console.log(`🔊 找到 ${foundElements.length} 个匹配的音频元素，开始设置音量`);
+                    
+                    foundElements.forEach((audioElement, index) => {
+                        try {
+                            if (volumeValue <= 1) {
+                                audioElement.volume = volumeValue;
+                                console.log(`✅ 设置音频元素 ${index} 音量: ${clampedVolume}%`);
+                            } else {
+                                // 超过 100% 使用 Web Audio API
+                                audioElement.volume = 1;
+                                this.enhanceAudioVolume(audioElement, volumeValue, participantId);
+                                console.log(`✅ 使用增益设置音频元素 ${index} 音量: ${clampedVolume}%`);
+                            }
+
+                            // 添加标识以便后续识别
+                            audioElement.setAttribute('data-volume-controlled', 'true');
+                            audioElement.setAttribute('data-participant-volume', participantId);
+                            
+                            // 验证设置是否生效
+                            setTimeout(() => {
+                                console.log(`🔍 验证音频元素 ${index} 音量: ${Math.round(audioElement.volume * 100)}%`);
+                            }, 100);
+
+                        } catch (error) {
+                            console.error(`❌ 设置音频元素 ${index} 音量失败:`, error);
+                        }
+                    });
+
+                    return true;
+                } else {
+                    console.warn(`❌ 未找到参与者 ${participantId} 的音频元素`);
+                    
+                    // 提供调试建议
+                    console.log('💡 调试建议:');
+                    console.log('1. 确认参与者已连接并发布音频轨道');
+                    console.log('2. 检查 LiveKit 组件的 DOM 结构');
+                    console.log('3. 参与者 ID 可能与预期不符');
+                    
+                    return false;
+                }
             };
 
             // 立即尝试
             const found = findAndSetVolume();
             
-            // 如果没找到，延迟重试
+            // 如果没找到，延迟重试（DOM 可能还在更新）
             if (!found) {
                 setTimeout(() => {
-                    console.log(`🔄 重试设置参与者 ${participantId} 音量...`);
-                    findAndSetVolume();
+                    console.log(`🔄 重试设置参与者 ${participantId} 音量... (500ms后)`);
+                    const retryFound = findAndSetVolume();
+                    
+                    if (!retryFound) {
+                        setTimeout(() => {
+                            console.log(`🔄 最后重试设置参与者 ${participantId} 音量... (1500ms后)`);
+                            findAndSetVolume();
+                        }, 1000);
+                    }
                 }, 500);
-                
-                setTimeout(() => {
-                    console.log(`🔄 最后重试设置参与者 ${participantId} 音量...`);
-                    findAndSetVolume();
-                }, 1500);
             }
 
             // 保存到本地存储

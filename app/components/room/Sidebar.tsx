@@ -260,7 +260,7 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
     return (
         <div className={`bg-gray-900 border-r border-gray-700 flex flex-col h-full ${className}`}>
             {/* 房间信息头部 */}
-            <div className="p-4 border-b border-gray-700">
+            <div className="p-4 border-b border-gray-700 flex-shrink-0">
                 <div className="text-xs text-gray-400 mb-1">
                     当前房间: <span className="text-blue-400 font-medium">{currentRoomName}</span>
                 </div>
@@ -272,7 +272,7 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
             </div>
 
             {/* 标签页导航 */}
-            <div className="border-b border-gray-700">
+            <div className="border-b border-gray-700 flex-shrink-0">
                 <nav className="flex">
                     <button
                         onClick={() => setActiveTab('participants')}
@@ -285,8 +285,12 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
                             }
                         `}
                     >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+                        {/* 使用与控制栏一致的参与者图标 */}
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                            <circle cx="9" cy="7" r="4"/>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
                         </svg>
                         <span>参与者</span>
                         <span className={`
@@ -328,116 +332,118 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
                 </nav>
             </div>
 
-            {/* 内容区域 */}
+            {/* 内容区域 - 添加独立滚动容器 */}
             <div className="flex-1 overflow-hidden">
                 {activeTab === 'participants' && (
-                    <div className="h-full overflow-y-auto p-3">
-                        {/* 参与者列表 */}
-                        <div className="space-y-2">
-                            {currentParticipants.length > 0 ? (
-                                currentParticipants.map((participant, index) => {
-                                    // 正确获取参与者状态
-                                    const isMicEnabled = participant.isMicrophoneEnabled || false;
-                                    const isCameraEnabled = participant.isCameraEnabled || false;
-                                    const isScreenSharing = participant.isScreenShareEnabled || false;
-                                    const connectionQuality = participant.connectionQuality || 'unknown';
-                                    
-                                    return (
-                                        <div key={participant.identity || index} className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg group">
-                                            <div className="flex items-center space-x-3">
-                                                {/* 使用新的头像组件，包含说话检测 */}
-                                                <ParticipantAvatar participant={participant} />
-                                                
-                                                <div>
-                                                    <div className={`text-sm font-medium ${participant.isLocal ? 'text-blue-400' : 'text-white'}`}>
-                                                        {participant.identity || '未知用户'}
-                                                        {participant.isLocal && <span className="text-xs ml-1">(你)</span>}
-                                                    </div>
-                                                    <div className="flex items-center space-x-1">
-                                                        {/* 麦克风状态 - 使用 ControlBar 的图标 */}
-                                                        <div className={`w-4 h-4 ${isMicEnabled ? 'text-green-400' : 'text-gray-500'}`} title={isMicEnabled ? '麦克风已开启' : '麦克风已关闭'}>
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                {isMicEnabled ? (
-                                                                    <g>
-                                                                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" strokeLinecap="round" strokeLinejoin="round"/>
-                                                                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" strokeLinecap="round" strokeLinejoin="round"/>
-                                                                        <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round"/>
-                                                                        <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round"/>
-                                                                    </g>
-                                                                ) : (
-                                                                    <g>
-                                                                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" strokeLinecap="round" strokeLinejoin="round"/>
-                                                                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" strokeLinecap="round" strokeLinejoin="round"/>
-                                                                        <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round"/>
-                                                                        <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round"/>
-                                                                        <line x1="1" y1="1" x2="23" y2="23" strokeLinecap="round"/>
-                                                                    </g>
-                                                                )}
-                                                            </svg>
+                    <div className="h-full overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
+                        <div className="p-3">
+                            {/* 参与者列表 */}
+                            <div className="space-y-2">
+                                {currentParticipants.length > 0 ? (
+                                    currentParticipants.map((participant, index) => {
+                                        // 正确获取参与者状态
+                                        const isMicEnabled = participant.isMicrophoneEnabled || false;
+                                        const isCameraEnabled = participant.isCameraEnabled || false;
+                                        const isScreenSharing = participant.isScreenShareEnabled || false;
+                                        const connectionQuality = participant.connectionQuality || 'unknown';
+                                        
+                                        return (
+                                            <div key={participant.identity || index} className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg group">
+                                                <div className="flex items-center space-x-3">
+                                                    {/* 使用新的头像组件，包含说话检测 */}
+                                                    <ParticipantAvatar participant={participant} />
+                                                    
+                                                    <div>
+                                                        <div className={`text-sm font-medium ${participant.isLocal ? 'text-blue-400' : 'text-white'}`}>
+                                                            {participant.identity || '未知用户'}
+                                                            {participant.isLocal && <span className="text-xs ml-1">(你)</span>}
                                                         </div>
-
-                                                        {/* 摄像头状态 - 使用 ControlBar 的图标 */}
-                                                        <div className={`w-4 h-4 ${isCameraEnabled ? 'text-green-400' : 'text-gray-500'}`} title={isCameraEnabled ? '摄像头已开启' : '摄像头已关闭'}>
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                {isCameraEnabled ? (
-                                                                    <g>
-                                                                        <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" strokeLinecap="round" strokeLinejoin="round"/>
-                                                                        <circle cx="12" cy="13" r="3" strokeLinecap="round" strokeLinejoin="round"/>
-                                                                    </g>
-                                                                ) : (
-                                                                    <g>
-                                                                        <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" strokeLinecap="round" strokeLinejoin="round"/>
-                                                                        <circle cx="12" cy="13" r="3" strokeLinecap="round" strokeLinejoin="round"/>
-                                                                        <line x1="1" y1="1" x2="23" y2="23" strokeLinecap="round"/>
-                                                                    </g>
-                                                                )}
-                                                            </svg>
-                                                        </div>
-
-                                                        {/* 屏幕共享状态 - 使用 ControlBar 的图标 */}
-                                                        {isScreenSharing && (
-                                                            <div className="w-4 h-4 text-blue-400" title="正在共享屏幕">
+                                                        <div className="flex items-center space-x-1">
+                                                            {/* 麦克风状态 - 使用 ControlBar 的图标 */}
+                                                            <div className={`w-4 h-4 ${isMicEnabled ? 'text-green-400' : 'text-gray-500'}`} title={isMicEnabled ? '麦克风已开启' : '麦克风已关闭'}>
                                                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                                                    <line x1="8" y1="21" x2="16" y2="21" strokeLinecap="round"/>
-                                                                    <line x1="12" y1="17" x2="12" y2="21" strokeLinecap="round"/>
-                                                                    <circle cx="12" cy="10" r="3" fill="currentColor"/>
-                                                                    <path d="M8 10l4 4 4-4" strokeWidth="1" fill="none"/>
+                                                                    {isMicEnabled ? (
+                                                                        <g>
+                                                                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" strokeLinecap="round" strokeLinejoin="round"/>
+                                                                            <path d="M19 10v2a7 7 0 0 1-14 0v-2" strokeLinecap="round" strokeLinejoin="round"/>
+                                                                            <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round"/>
+                                                                            <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round"/>
+                                                                        </g>
+                                                                    ) : (
+                                                                        <g>
+                                                                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" strokeLinecap="round" strokeLinejoin="round"/>
+                                                                            <path d="M19 10v2a7 7 0 0 1-14 0v-2" strokeLinecap="round" strokeLinejoin="round"/>
+                                                                            <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round"/>
+                                                                            <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round"/>
+                                                                            <line x1="1" y1="1" x2="23" y2="23" strokeLinecap="round"/>
+                                                                        </g>
+                                                                    )}
                                                                 </svg>
                                                             </div>
-                                                        )}
 
-                                                        {/* 连接质量 */}
-                                                        <div className={`w-4 h-4 ${
-                                                            connectionQuality === 'excellent' ? 'text-green-400' :
-                                                            connectionQuality === 'good' ? 'text-yellow-400' :
-                                                            connectionQuality === 'poor' ? 'text-red-400' : 'text-gray-500'
-                                                        }`} title={`连接质量: ${connectionQuality}`}>
-                                                            <svg fill="currentColor" viewBox="0 0 20 20">
-                                                                <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/>
-                                                            </svg>
+                                                            {/* 摄像头状态 - 使用 ControlBar 的图标 */}
+                                                            <div className={`w-4 h-4 ${isCameraEnabled ? 'text-green-400' : 'text-gray-500'}`} title={isCameraEnabled ? '摄像头已开启' : '摄像头已关闭'}>
+                                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                    {isCameraEnabled ? (
+                                                                        <g>
+                                                                            <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" strokeLinecap="round" strokeLinejoin="round"/>
+                                                                            <circle cx="12" cy="13" r="3" strokeLinecap="round" strokeLinejoin="round"/>
+                                                                        </g>
+                                                                    ) : (
+                                                                        <g>
+                                                                            <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" strokeLinecap="round" strokeLinejoin="round"/>
+                                                                            <circle cx="12" cy="13" r="3" strokeLinecap="round" strokeLinejoin="round"/>
+                                                                            <line x1="1" y1="1" x2="23" y2="23" strokeLinecap="round"/>
+                                                                        </g>
+                                                                    )}
+                                                                </svg>
+                                                            </div>
+
+                                                            {/* 屏幕共享状态 - 使用 ControlBar 的图标 */}
+                                                            {isScreenSharing && (
+                                                                <div className="w-4 h-4 text-blue-400" title="正在共享屏幕">
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                                                        <line x1="8" y1="21" x2="16" y2="21" strokeLinecap="round"/>
+                                                                        <line x1="12" y1="17" x2="12" y2="21" strokeLinecap="round"/>
+                                                                        <circle cx="12" cy="10" r="3" fill="currentColor"/>
+                                                                        <path d="M8 10l4 4 4-4" strokeWidth="1" fill="none"/>
+                                                                    </svg>
+                                                                </div>
+                                                            )}
+
+                                                            {/* 连接质量 */}
+                                                            <div className={`w-4 h-4 ${
+                                                                connectionQuality === 'excellent' ? 'text-green-400' :
+                                                                connectionQuality === 'good' ? 'text-yellow-400' :
+                                                                connectionQuality === 'poor' ? 'text-red-400' : 'text-gray-500'
+                                                            }`} title={`连接质量: ${connectionQuality}`}>
+                                                                <svg fill="currentColor" viewBox="0 0 20 20">
+                                                                    <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/>
+                                                                </svg>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
-                                            </div>
 
-                                            {/* 参与者操作按钮（可选） */}
-                                            {!participant.isLocal && (
-                                                <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    {/* 这里可以添加一些操作按钮，比如静音等 */}
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-                                })
-                            ) : (
-                                <div className="text-center py-8 text-gray-400">
-                                    <svg className="w-8 h-8 mx-auto mb-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
-                                    </svg>
-                                    <p className="text-sm">暂无参与者</p>
-                                </div>
-                            )}
+                                                {/* 参与者操作按钮（可选） */}
+                                                {!participant.isLocal && (
+                                                    <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        {/* 这里可以添加一些操作按钮，比如静音等 */}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })
+                                ) : (
+                                    <div className="text-center py-8 text-gray-400">
+                                        <svg className="w-8 h-8 mx-auto mb-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+                                        </svg>
+                                        <p className="text-sm">暂无参与者</p>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 )}
@@ -445,7 +451,7 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
                 {activeTab === 'rooms' && (
                     <div className="h-full flex flex-col">
                         {/* 房间列表头部 */}
-                        <div className="flex items-center justify-between p-4 border-b border-gray-700">
+                        <div className="flex items-center justify-between p-4 border-b border-gray-700 flex-shrink-0">
                             <h3 className="text-sm font-medium text-white">可用房间</h3>
                             <button
                                 onClick={loadActiveRooms}
@@ -464,72 +470,74 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
                             </button>
                         </div>
 
-                        {/* 房间列表内容 */}
-                        <div className="flex-1 overflow-y-auto p-3">
-                            {roomsError ? (
-                                <div className="text-center py-8">
-                                    <div className="bg-red-900/20 border border-red-800 rounded-lg p-3">
-                                        <p className="text-red-400 text-sm">加载房间列表失败</p>
-                                        <p className="text-red-300 text-xs mt-1">{roomsError}</p>
-                                        <button 
-                                            onClick={loadActiveRooms}
-                                            className="mt-2 text-red-400 text-xs underline hover:no-underline"
-                                        >
-                                            重试
-                                        </button>
-                                    </div>
-                                </div>
-                            ) : isLoadingRooms && activeRooms.length === 0 ? (
-                                <div className="flex items-center justify-center h-32">
-                                    <div className="flex items-center gap-2 text-gray-400">
-                                        <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                        </svg>
-                                        <span className="text-sm">加载中...</span>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="space-y-4">
-                                    {/* 常驻房间 */}
-                                    <div>
-                                        <h4 className="text-xs font-medium text-gray-400 mb-2">常驻房间</h4>
-                                        <div className="space-y-2">
-                                            {PERMANENT_ROOMS.map((room, index) => (
-                                                <RoomCard key={index} room={room} type="permanent" />
-                                            ))}
+                        {/* 房间列表内容 - 独立滚动容器 */}
+                        <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
+                            <div className="p-3">
+                                {roomsError ? (
+                                    <div className="text-center py-8">
+                                        <div className="bg-red-900/20 border border-red-800 rounded-lg p-3">
+                                            <p className="text-red-400 text-sm">加载房间列表失败</p>
+                                            <p className="text-red-300 text-xs mt-1">{roomsError}</p>
+                                            <button 
+                                                onClick={loadActiveRooms}
+                                                className="mt-2 text-red-400 text-xs underline hover:no-underline"
+                                            >
+                                                重试
+                                            </button>
                                         </div>
                                     </div>
-
-                                    {/* 活跃房间 */}
-                                    {activeRooms.length > 0 && (
+                                ) : isLoadingRooms && activeRooms.length === 0 ? (
+                                    <div className="flex items-center justify-center h-32">
+                                        <div className="flex items-center gap-2 text-gray-400">
+                                            <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                            </svg>
+                                            <span className="text-sm">加载中...</span>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        {/* 常驻房间 */}
                                         <div>
-                                            <h4 className="text-xs font-medium text-gray-400 mb-2">其他活跃房间</h4>
+                                            <h4 className="text-xs font-medium text-gray-400 mb-2">常驻房间</h4>
                                             <div className="space-y-2">
-                                                {activeRooms
-                                                    .filter(room => !PERMANENT_ROOMS.some(pr => pr.name === room.name))
-                                                    .map((room) => (
-                                                        <RoomCard key={room.id} room={room} type="active" />
-                                                    ))
-                                                }
+                                                {PERMANENT_ROOMS.map((room, index) => (
+                                                    <RoomCard key={index} room={room} type="permanent" />
+                                                ))}
                                             </div>
                                         </div>
-                                    )}
 
-                                    {activeRooms.filter(room => !PERMANENT_ROOMS.some(pr => pr.name === room.name)).length === 0 && !isLoadingRooms && (
-                                        <div className="text-center py-4 text-gray-400">
-                                            <svg className="w-8 h-8 mx-auto mb-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                                            </svg>
-                                            <p className="text-sm">暂无其他活跃房间</p>
-                                            <p className="text-xs mt-1">试试常驻房间或创建新房间</p>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                                        {/* 活跃房间 */}
+                                        {activeRooms.length > 0 && (
+                                            <div>
+                                                <h4 className="text-xs font-medium text-gray-400 mb-2">其他活跃房间</h4>
+                                                <div className="space-y-2">
+                                                    {activeRooms
+                                                        .filter(room => !PERMANENT_ROOMS.some(pr => pr.name === room.name))
+                                                        .map((room) => (
+                                                            <RoomCard key={room.id} room={room} type="active" />
+                                                        ))
+                                                    }
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {activeRooms.filter(room => !PERMANENT_ROOMS.some(pr => pr.name === room.name)).length === 0 && !isLoadingRooms && (
+                                            <div className="text-center py-4 text-gray-400">
+                                                <svg className="w-8 h-8 mx-auto mb-2 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                                </svg>
+                                                <p className="text-sm">暂无其他活跃房间</p>
+                                                <p className="text-xs mt-1">试试常驻房间或创建新房间</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
                         </div>
 
                         {/* 房间统计 - 修复重复统计问题 */}
-                        <div className="p-3 border-t border-gray-700 bg-gray-800/50">
+                        <div className="p-3 border-t border-gray-700 bg-gray-800/50 flex-shrink-0">
                             <div className="flex items-center justify-between text-xs text-gray-400">
                                 <span>共 {getTotalRoomCount()} 个房间</span>
                                 <span>
@@ -539,22 +547,6 @@ export function Sidebar({ currentRoomName, onRoomSwitch, className = '', usernam
                         </div>
                     </div>
                 )}
-            </div>
-
-            {/* 底部状态信息 */}
-            <div className="p-4 border-t border-gray-700">
-                <div className="text-xs text-gray-400 space-y-1">
-                    <div className="flex justify-between">
-                        <span>连接状态:</span>
-                        <span className={room?.state === 'connected' ? 'text-green-400' : 'text-red-400'}>
-                            {room?.state === 'connected' ? '已连接' : '未连接'}
-                        </span>
-                    </div>
-                    <div className="flex justify-between">
-                        <span>房间ID:</span>
-                        <span className="font-mono truncate ml-2">{room?.name || '未知'}</span>
-                    </div>
-                </div>
             </div>
         </div>
     );

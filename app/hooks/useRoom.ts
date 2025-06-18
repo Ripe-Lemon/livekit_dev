@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Room, RoomEvent, ConnectionState, ParticipantEvent, DataPacket_Kind, DisconnectReason, Track } from 'livekit-client';
+import { AudioManager } from '../lib/audio/AudioManager';
 import { 
     RoomConnectionState, 
     RoomState, 
@@ -9,6 +10,16 @@ import {
     AudioProcessingOptions,
     RoomEvents 
 } from '../types/room';
+
+// 定义 AudioCaptureOptions 接口（如果 livekit-client 没有导出）
+interface AudioCaptureOptions {
+    echoCancellation?: boolean;
+    noiseSuppression?: boolean;
+    autoGainControl?: boolean;
+    sampleRate?: number;
+    channelCount?: number;
+    deviceId?: string;
+}
 
 interface UseRoomOptions {
     autoConnect?: boolean;
@@ -71,10 +82,25 @@ export function useRoom(options: UseRoomOptions = {}): UseRoomReturn {
         setRoomState(prev => ({ ...prev, ...updates }));
     }, []);
 
+    // 添加事件监听器管理
+    const eventListenersRef = useRef<Array<() => void>>([]);
+
+    // 清理事件监听器的辅助函数
+    const cleanupEventListeners = useCallback(() => {
+        eventListenersRef.current.forEach(cleanup => cleanup());
+        eventListenersRef.current = [];
+    }, []);
+
     // 设置房间事件监听器
     const setupRoomEvents = useCallback((room: Room) => {
+        // 先清理之前的监听器
+        cleanupEventListeners();
+
+        // 设置房间的最大监听器数量
+        room.setMaxListeners(20);
+
         // 连接状态变化
-        room.on(RoomEvent.ConnectionStateChanged, (state: ConnectionState) => {
+        const onConnectionStateChanged = (state: ConnectionState) => {
             let connectionState: RoomConnectionState;
             
             switch (state) {
@@ -83,7 +109,7 @@ export function useRoom(options: UseRoomOptions = {}): UseRoomReturn {
                     break;
                 case ConnectionState.Connected:
                     connectionState = RoomConnectionState.CONNECTED;
-                    reconnectAttemptsRef.current = 0; // 重置重连次数
+                    reconnectAttemptsRef.current = 0;
                     break;
                 case ConnectionState.Disconnected:
                     connectionState = RoomConnectionState.DISCONNECTED;
@@ -103,34 +129,34 @@ export function useRoom(options: UseRoomOptions = {}): UseRoomReturn {
             });
 
             events.onConnectionStateChanged?.(connectionState);
-        });
+        };
 
-        // 参与者连接
-        room.on(RoomEvent.ParticipantConnected, (participant) => {
+        const onParticipantConnected = (participant: any) => {
             console.log('参与者加入:', participant.identity);
             updateRoomState({
                 participants: Array.from(room.remoteParticipants.values())
             });
             events.onParticipantConnected?.(participant);
-        });
+        };
 
-        // 参与者断开连接
-        room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+        const onParticipantDisconnected = (participant: any) => {
             console.log('参与者离开:', participant.identity);
             updateRoomState({
                 participants: Array.from(room.remoteParticipants.values())
             });
             events.onParticipantDisconnected?.(participant);
-        });
+        };
 
-        // 接收数据
-        room.on(RoomEvent.DataReceived, (payload: Uint8Array, participant) => {
+        const onDataReceived = (payload: Uint8Array, participant: any) => {
             events.onDataReceived?.(payload, participant);
-        });
+        };
 
-        // 房间断开连接
-        room.on(RoomEvent.Disconnected, (reason) => {
+        const onRoomDisconnected = (reason: any) => {
             console.log('房间断开连接:', reason);
+            
+            // 清理事件监听器
+            cleanupEventListeners();
+            
             updateRoomState({
                 connectionState: RoomConnectionState.DISCONNECTED,
                 isLoading: false,
@@ -156,14 +182,31 @@ export function useRoom(options: UseRoomOptions = {}): UseRoomReturn {
                     }
                 }, reconnectDelay);
             }
-        });
+        };
 
-        // 错误处理
-        room.on(RoomEvent.RoomMetadataChanged, (metadata) => {
+        const onRoomMetadataChanged = (metadata: string) => {
             console.log('房间元数据更新:', metadata);
+        };
+
+        // 添加事件监听器
+        room.on(RoomEvent.ConnectionStateChanged, onConnectionStateChanged);
+        room.on(RoomEvent.ParticipantConnected, onParticipantConnected);
+        room.on(RoomEvent.ParticipantDisconnected, onParticipantDisconnected);
+        room.on(RoomEvent.DataReceived, onDataReceived);
+        room.on(RoomEvent.Disconnected, onRoomDisconnected);
+        room.on(RoomEvent.RoomMetadataChanged, onRoomMetadataChanged);
+
+        // 保存清理函数
+        eventListenersRef.current.push(() => {
+            room.off(RoomEvent.ConnectionStateChanged, onConnectionStateChanged);
+            room.off(RoomEvent.ParticipantConnected, onParticipantConnected);
+            room.off(RoomEvent.ParticipantDisconnected, onParticipantDisconnected);
+            room.off(RoomEvent.DataReceived, onDataReceived);
+            room.off(RoomEvent.Disconnected, onRoomDisconnected);
+            room.off(RoomEvent.RoomMetadataChanged, onRoomMetadataChanged);
         });
 
-    }, [events, reconnectOnFailure, maxReconnectAttempts, reconnectDelay, updateRoomState]);
+    }, [events, reconnectOnFailure, maxReconnectAttempts, reconnectDelay, updateRoomState, cleanupEventListeners]);
 
     // 断开连接
     const disconnect = useCallback(async () => {
@@ -173,6 +216,9 @@ export function useRoom(options: UseRoomOptions = {}): UseRoomReturn {
                 clearTimeout(reconnectTimeoutRef.current);
                 reconnectTimeoutRef.current = null;
             }
+
+            // 清理事件监听器
+            cleanupEventListeners();
 
             if (roomRef.current) {
                 await roomRef.current.disconnect();
@@ -196,7 +242,7 @@ export function useRoom(options: UseRoomOptions = {}): UseRoomReturn {
         } catch (error) {
             console.error('断开连接时出错:', error);
         }
-    }, [updateRoomState]);
+    }, [updateRoomState, cleanupEventListeners]);
 
     // 连接到房间
     const connect = useCallback(async (params: RoomConnectionParams) => {
@@ -271,8 +317,27 @@ export function useRoom(options: UseRoomOptions = {}): UseRoomReturn {
 
             await room.connect(serverUrl, token);
 
-            // 启用音频和视频
-            await room.localParticipant.enableCameraAndMicrophone();
+            // 获取音频设置
+            const audioManager = AudioManager.getInstance();
+            const audioSettings = audioManager.getLiveKitAudioSettings();
+            
+            // 使用正确的 AudioCaptureOptions 启用音频和视频
+            const audioCaptureOptions: AudioCaptureOptions = {
+                echoCancellation: audioSettings.echoCancellation,
+                noiseSuppression: audioSettings.noiseSuppression,
+                autoGainControl: audioSettings.autoGainControl,
+                sampleRate: 48000,
+                channelCount: 1,
+            };
+
+            console.log('🎤 使用音频捕获选项启用麦克风:', audioCaptureOptions);
+            
+            // 启用音频和视频 - 使用正确的 LiveKit API
+            // enableCameraAndMicrophone 不接受参数，我们需要分别启用
+            await room.localParticipant.setCameraEnabled(true);
+            
+            // 使用音频约束启用麦克风
+            await room.localParticipant.setMicrophoneEnabled(true, audioCaptureOptions);
 
             updateRoomState({
                 connectionState: RoomConnectionState.CONNECTED,
@@ -402,11 +467,14 @@ export function useRoom(options: UseRoomOptions = {}): UseRoomReturn {
                 clearTimeout(reconnectTimeoutRef.current);
             }
             
+            // 清理事件监听器
+            cleanupEventListeners();
+            
             if (roomRef.current) {
                 roomRef.current.disconnect();
             }
         };
-    }, []);
+    }, [cleanupEventListeners]);
 
     // 自动连接
     useEffect(() => {

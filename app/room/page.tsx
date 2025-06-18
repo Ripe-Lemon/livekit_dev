@@ -29,6 +29,7 @@ import RoomInfo from '../components/room/RoomInfo';
 import { ParticipantList } from '../components/room/ParticipantList';
 import FloatingChat from '../components/room/FloatingChat';
 import { Sidebar } from '../components/room/Sidebar';
+import { SettingsPanel } from '../components/room/SettingsPanel'; // 添加新的设置面板导入
 
 // Hooks
 import { useImagePreview } from '../hooks/useImagePreview';
@@ -268,6 +269,7 @@ function RoomInnerContent({
                         <Sidebar
                             currentRoomName={roomName}
                             onRoomSwitch={switchRoom}
+                            username={username}
                             className="h-full relative z-20"
                         />
                     </>
@@ -278,15 +280,15 @@ function RoomInnerContent({
             <div className="relative bg-black w-full h-full">
                 <CustomVideoGrid />
                 
-                {/* 自定义控制栏 - 修改传递参数 */}
+                {/* 自定义控制栏 */}
                 <ControlBar
-                    onToggleChat={handleToggleChat} // 使用新的处理函数
+                    onToggleChat={handleToggleChat}
                     onToggleParticipants={() => toggleUIPanel('sidebarCollapsed')}
                     onToggleSettings={() => toggleUIPanel('showSettings')}
                     onToggleFullscreen={toggleFullscreen}
                     onLeaveRoom={leaveRoom}
                     isFullscreen={uiState.isFullscreen}
-                    chatUnreadCount={chatState.unreadCount} // 传递正确的未读计数
+                    chatUnreadCount={chatState.unreadCount}
                     showChat={uiState.showChat}
                     className="bottom-4 left-1/2 transform -translate-x-1/2"
                 />
@@ -311,115 +313,11 @@ function RoomInnerContent({
                 </div>
             )}
 
-            {/* 设置面板 */}
+            {/* 设置面板 - 替换为新的悬浮窗口版本 */}
             {uiState.showSettings && (
-                <div className={`absolute top-0 right-0 h-full z-30 w-80 lg:w-80 md:w-64 sm:w-full bg-gray-800 border-l border-gray-700`}>
-                    {/* 移动端背景遮罩 */}
-                    <div 
-                        className="fixed inset-0 bg-black/50 lg:hidden z-10"
-                        onClick={() => toggleUIPanel('showSettings')}
-                    />
-                    <div className="p-4 h-full overflow-y-auto relative z-20">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-lg font-semibold text-white">设置</h3>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => toggleUIPanel('showSettings')}
-                                className="text-gray-400 hover:text-white"
-                            >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </Button>
-                        </div>
-                        
-                        <div className="space-y-6">
-                            {/* 设备控制 */}
-                            <div>
-                                <h4 className="font-medium text-white mb-3">设备控制</h4>
-                                <div className="space-y-3">
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={async () => {
-                                            if (room?.localParticipant) {
-                                                const isEnabled = room.localParticipant.isCameraEnabled;
-                                                await room.localParticipant.setCameraEnabled(!isEnabled);
-                                            }
-                                        }}
-                                        className="w-full"
-                                    >
-                                        {room?.localParticipant?.isCameraEnabled ? '关闭摄像头' : '开启摄像头'}
-                                    </Button>
-                                    
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={async () => {
-                                            if (room?.localParticipant) {
-                                                const isEnabled = room.localParticipant.isMicrophoneEnabled;
-                                                await room.localParticipant.setMicrophoneEnabled(!isEnabled);
-                                            }
-                                        }}
-                                        className="w-full"
-                                    >
-                                        {room?.localParticipant?.isMicrophoneEnabled ? '关闭麦克风' : '开启麦克风'}
-                                    </Button>
-                                    
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={async () => {
-                                            if (room?.localParticipant) {
-                                                const isEnabled = room.localParticipant.isScreenShareEnabled;
-                                                await room.localParticipant.setScreenShareEnabled(!isEnabled);
-                                            }
-                                        }}
-                                        className="w-full"
-                                    >
-                                        {room?.localParticipant?.isScreenShareEnabled ? '停止屏幕共享' : '开始屏幕共享'}
-                                    </Button>
-                                </div>
-                            </div>
-
-                            {/* 聊天设置 */}
-                            <div>
-                                <h4 className="font-medium text-white mb-3">聊天设置</h4>
-                                <div className="space-y-3">
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={clearMessages}
-                                        className="w-full"
-                                    >
-                                        清除聊天记录
-                                    </Button>
-                                    
-                                    <div className="text-sm text-gray-300">
-                                        <p>消息数量: {chatState.messages.length}</p>
-                                        <p>未读消息: {chatState.unreadCount}</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* 连接状态 */}
-                            <div>
-                                <h4 className="font-medium text-white mb-3">连接状态</h4>
-                                <ConnectionStatus 
-                                    showDetails={true}
-                                    className="bg-gray-700 rounded-lg"
-                                />
-                            </div>
-
-                            {/* 房间信息 */}
-                            <div>
-                                <h4 className="font-medium text-white mb-3">房间信息</h4>
-                                <RoomInfo className="bg-gray-700 rounded-lg p-3" />
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <SettingsPanel
+                    onClose={() => toggleUIPanel('showSettings')}
+                />
             )}
 
             {/* 悬浮聊天窗口 - 移动端全屏 */}
@@ -435,14 +333,14 @@ function RoomInnerContent({
                     />
                     <FloatingChat 
                         setPreviewImage={(src) => src && openPreview(src)}
-                        onClose={handleToggleChat} // 使用新的处理函数
+                        onClose={handleToggleChat}
                         chatState={chatState}
                         onSendMessage={sendTextMessage}
                         onSendImage={sendImageMessage}
                         onClearMessages={clearMessages}
                         onRetryMessage={retryMessage}
                         onDeleteMessage={deleteMessage}
-                        onMarkAsRead={markAsRead} // 传递 markAsRead 函数
+                        onMarkAsRead={markAsRead}
                         className="relative z-20"
                     />
                 </div>

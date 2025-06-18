@@ -336,3 +336,21 @@ export interface AudioQualitySettings {
     reliability: 'best-effort' | 'guaranteed';
     adaptive: boolean;
 }
+
+// 添加设置相关的类型
+export interface LiveKitAudioSettings {
+    noiseSuppression: boolean;
+    echoCancellation: boolean;
+    autoGainControl: boolean;
+    voiceDetectionThreshold: number;
+}
+
+export interface ParticipantVolumeSettings {
+    [participantId: string]: number;
+}
+
+export interface AudioSettingsState {
+    livekit: LiveKitAudioSettings;
+    participantVolumes: ParticipantVolumeSettings;
+    lastUpdated: Date;
+}

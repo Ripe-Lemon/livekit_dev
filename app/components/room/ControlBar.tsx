@@ -172,15 +172,15 @@ function DeviceDropdown({
     );
 }
 
-// 控制按钮组件
+// 控制按钮组件 - 更新以支持半透明效果
 function ControlButton({ 
     onClick, 
     isActive, 
     isLoading, 
     icon, 
     title, 
-    activeColor = 'bg-green-600',
-    inactiveColor = 'bg-red-600',
+    activeColor = 'bg-green-600/80 hover:bg-green-600',
+    inactiveColor = 'bg-red-600/80 hover:bg-red-600',
     children,
     hasDropdown = false
 }: {
@@ -202,7 +202,7 @@ function ControlButton({
                 className={`
                     flex items-center justify-center w-12 h-10 rounded-lg
                     transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed
-                    text-white hover:opacity-90
+                    text-white/90 hover:text-white
                     ${isActive 
                         ? `${activeColor}` 
                         : `${inactiveColor}`
@@ -211,7 +211,7 @@ function ControlButton({
                 title={title}
             >
                 {isLoading ? (
-                    <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full" />
+                    <div className="animate-spin h-5 w-5 border-2 border-white/70 border-t-transparent rounded-full" />
                 ) : (
                     icon
                 )}
@@ -225,7 +225,7 @@ function ControlButton({
     );
 }
 
-// 离开房间按钮组件
+// 离开房间按钮组件 - 移除确认对话框
 function LeaveRoomButton({ onLeaveRoom }: { onLeaveRoom?: () => void }) {
     const router = useRouter();
     const room = useRoomContext();
@@ -234,9 +234,7 @@ function LeaveRoomButton({ onLeaveRoom }: { onLeaveRoom?: () => void }) {
     const handleLeave = useCallback(async () => {
         if (isLeaving) return;
 
-        const confirmed = window.confirm('确定要离开房间吗？');
-        if (!confirmed) return;
-
+        // 移除确认对话框，直接离开
         setIsLeaving(true);
         try {
             if (onLeaveRoom) {
@@ -353,7 +351,24 @@ export function ControlBar({
         volume: 0.6
     });
 
-    // 实时检查权限状态 - 权限变化时刷新设备列表
+    // 添加日志节流
+    const lastLogTimeRef = useRef<{ [key: string]: number }>({});
+    
+    const throttleLog = useCallback((key: string, message: string, data?: any, interval = 5000) => {
+        const now = Date.now();
+        const lastLogTime = lastLogTimeRef.current[key] || 0;
+        
+        if (now - lastLogTime > interval) {
+            if (data !== undefined) {
+                console.log(message, data);
+            } else {
+                console.log(message);
+            }
+            lastLogTimeRef.current[key] = now;
+        }
+    }, []);
+
+    // 实时检查权限状态 - 优化权限检查逻辑
     const checkPermissions = useCallback(async () => {
         try {
             const audioPermission = await navigator.permissions.query({ name: 'microphone' as PermissionName });
@@ -368,43 +383,44 @@ export function ControlBar({
                 video: videoGranted
             };
             
-            setLocalPermissions(newPermissions);
-            
-            // 如果权限状态发生变化，刷新设备列表
+            // 只有在权限状态真正发生变化时才更新和刷新
             if (prevPermissions.audio !== audioGranted || prevPermissions.video !== videoGranted) {
-                console.log('权限状态变化，刷新设备列表:', { 
+                throttleLog('control-permission-change', '控制栏权限状态变化:', { 
                     audio: { prev: prevPermissions.audio, new: audioGranted },
                     video: { prev: prevPermissions.video, new: videoGranted }
                 });
+                
+                setLocalPermissions(newPermissions);
                 
                 // 延迟刷新，确保权限状态已更新
                 setTimeout(async () => {
                     try {
                         await refreshDevices();
-                        console.log('🔄 权限变化后设备列表已刷新');
+                        throttleLog('control-device-refresh', '🔄 控制栏权限变化后设备列表已刷新');
                     } catch (error) {
-                        console.warn('权限变化后刷新设备列表失败:', error);
+                        console.warn('控制栏权限变化后刷新设备列表失败:', error);
                     }
-                }, 200);
+                }, 500);
+            } else {
+                // 静默更新权限状态
+                setLocalPermissions(newPermissions);
             }
-            
-            console.log('权限状态检查:', newPermissions);
         } catch (error) {
             // 如果 permissions API 不可用，回退到 useDeviceManager 的权限状态
-            console.log('使用 useDeviceManager 权限状态:', permissions);
+            throttleLog('control-permission-fallback', '控制栏使用 useDeviceManager 权限状态:', permissions, 10000);
             setLocalPermissions({
                 audio: permissions.audio,
                 video: permissions.video
             });
         }
-    }, [permissions, localPermissions, refreshDevices]);
+    }, [permissions, localPermissions, refreshDevices, throttleLog]);
 
-    // 定期检查权限状态
+    // 定期检查权限状态 - 减少检查频率
     useEffect(() => {
         checkPermissions();
         
-        // 每5秒检查一次权限状态
-        const interval = setInterval(checkPermissions, 5000);
+        // 每10秒检查一次权限状态（减少频率）
+        const interval = setInterval(checkPermissions, 10000);
         
         return () => clearInterval(interval);
     }, [checkPermissions]);
@@ -629,18 +645,19 @@ export function ControlBar({
 
     // 初始化时刷新设备列表
     useEffect(() => {
-        // 页面加载时立即刷新一次设备列表
+        // 页面加载时延迟刷新一次设备列表
         const initializeDevices = async () => {
             try {
                 await refreshDevices();
-                console.log('🚀 初始设备列表加载完成');
+                throttleLog('control-init-devices', '🚀 控制栏初始设备列表加载完成');
             } catch (error) {
-                console.warn('初始设备列表加载失败:', error);
+                console.warn('控制栏初始设备列表加载失败:', error);
             }
         };
         
-        initializeDevices();
-    }, [refreshDevices]);
+        // 延迟初始化
+        setTimeout(initializeDevices, 1000);
+    }, []);
 
     // 自动隐藏控制栏（全屏模式）
     useEffect(() => {
@@ -756,20 +773,22 @@ export function ControlBar({
         <div className={`
             fixed bottom-4 left-1/2 transform -translate-x-1/2
             flex items-center gap-2 px-4 py-3 
-            bg-gray-800/90 backdrop-blur-sm rounded-xl
-            border border-gray-600/50 shadow-lg
+            bg-gray-800/50 backdrop-blur-sm rounded-xl
+            border border-gray-600/30 shadow-lg
             transition-all duration-300 z-50
+            hover:bg-gray-800/90 hover:border-gray-600/50
+            group
             ${isFullscreen && !isControlsVisible ? 'opacity-0 pointer-events-none' : 'opacity-100'}
             ${className}
         `}>
             {/* 麦克风按钮 */}
             <ControlButton
-                onClick={toggleMicrophone} // 使用修复后的函数
+                onClick={toggleMicrophone}
                 isActive={!isMuted}
                 isLoading={isTogglingMic || audioLoading}
                 title={isMuted ? '开启麦克风' : '关闭麦克风'}
-                activeColor="bg-green-600"
-                inactiveColor="bg-red-600"
+                activeColor="bg-green-600/80 hover:bg-green-600"
+                inactiveColor="bg-red-600/80 hover:bg-red-600"
                 hasDropdown={true}
                 icon={
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -785,7 +804,7 @@ export function ControlBar({
                             <g>
                                 <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" strokeLinecap="round" strokeLinejoin="round"/>
                                 <path d="M19 10v2a7 7 0 0 1-14 0v-2" strokeLinecap="round" strokeLinejoin="round"/>
-                                <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round"/>
+                                <line x1="12" y1="19" x2="12" y2="23" strokeLinecap="round" strokeLinejoin="round"/>
                                 <line x1="8" y1="23" x2="16" y2="23" strokeLinecap="round"/>
                             </g>
                         )}
@@ -801,19 +820,19 @@ export function ControlBar({
                     type="microphone"
                     isLoading={audioLoading}
                     error={devicesError}
-                    hasPermission={hasAudioPermission} // 使用本地权限状态
+                    hasPermission={hasAudioPermission}
                     onRequestPermission={handleRequestAudioPermission}
                 />
             </ControlButton>
 
             {/* 摄像头按钮 */}
             <ControlButton
-                onClick={toggleCamera} // 使用修复后的函数
+                onClick={toggleCamera}
                 isActive={!isCameraOff}
                 isLoading={isTogglingCamera || videoLoading}
                 title={isCameraOff ? '开启摄像头' : '关闭摄像头'}
-                activeColor="bg-green-600"
-                inactiveColor="bg-red-600"
+                activeColor="bg-green-600/80 hover:bg-green-600"
+                inactiveColor="bg-red-600/80 hover:bg-red-600"
                 hasDropdown={true}
                 icon={
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -841,7 +860,7 @@ export function ControlBar({
                     type="camera"
                     isLoading={videoLoading}
                     error={devicesError}
-                    hasPermission={hasVideoPermission} // 使用本地权限状态
+                    hasPermission={hasVideoPermission}
                     onRequestPermission={handleRequestVideoPermission}
                 />
             </ControlButton>
@@ -852,8 +871,8 @@ export function ControlBar({
                 isActive={isScreenSharing}
                 isLoading={isTogglingScreen}
                 title={isScreenSharing ? '停止屏幕共享' : '开始屏幕共享'}
-                activeColor="bg-blue-600"
-                inactiveColor="bg-gray-700"
+                activeColor="bg-blue-600/80 hover:bg-blue-600"
+                inactiveColor="bg-gray-700/80 hover:bg-gray-700"
                 icon={
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <rect x="2" y="3" width="20" height="14" rx="2" ry="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -870,7 +889,7 @@ export function ControlBar({
             />
 
             {/* 分隔线 */}
-            <div className="h-6 w-px bg-gray-600/50" />
+            <div className="h-6 w-px bg-gray-600/30 group-hover:bg-gray-600/50 transition-colors duration-300" />
 
             {/* 聊天按钮 */}
             {onToggleChat && (
@@ -878,10 +897,10 @@ export function ControlBar({
                     onClick={onToggleChat}
                     className={`
                         relative flex items-center justify-center w-12 h-10 rounded-lg
-                        transition-all duration-200 text-white
+                        transition-all duration-200 text-white/90 hover:text-white
                         ${showChat 
-                            ? 'bg-blue-600 hover:bg-blue-700' 
-                            : 'bg-gray-700 hover:bg-gray-600'
+                            ? 'bg-blue-600/80 hover:bg-blue-600' 
+                            : 'bg-gray-700/80 hover:bg-gray-700'
                         }
                     `}
                     title="聊天"
@@ -890,7 +909,7 @@ export function ControlBar({
                         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
                     </svg>
                     {chatUnreadCount > 0 && (
-                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center shadow-lg">
                             {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
                         </span>
                     )}
@@ -901,7 +920,7 @@ export function ControlBar({
             {onToggleParticipants && (
                 <button
                     onClick={onToggleParticipants}
-                    className="flex items-center justify-center w-12 h-10 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-all duration-200"
+                    className="flex items-center justify-center w-12 h-10 rounded-lg bg-gray-700/80 text-white/90 hover:bg-gray-700 hover:text-white transition-all duration-200"
                     title="参与者"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -917,7 +936,7 @@ export function ControlBar({
             {onToggleSettings && (
                 <button
                     onClick={onToggleSettings}
-                    className="flex items-center justify-center w-12 h-10 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-all duration-200"
+                    className="flex items-center justify-center w-12 h-10 rounded-lg bg-gray-700/80 text-white/90 hover:bg-gray-700 hover:text-white transition-all duration-200"
                     title="设置"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -931,7 +950,7 @@ export function ControlBar({
             {onToggleFullscreen && (
                 <button
                     onClick={onToggleFullscreen}
-                    className="flex items-center justify-center w-12 h-10 rounded-lg bg-gray-700 text-white hover:bg-gray-600 transition-all duration-200"
+                    className="flex items-center justify-center w-12 h-10 rounded-lg bg-gray-700/80 text-white/90 hover:bg-gray-700 hover:text-white transition-all duration-200"
                     title={isFullscreen ? '退出全屏' : '进入全屏'}
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -955,10 +974,32 @@ export function ControlBar({
             )}
 
             {/* 分隔线 */}
-            <div className="h-6 w-px bg-gray-600/50" />
+            <div className="h-6 w-px bg-gray-600/30 group-hover:bg-gray-600/50 transition-colors duration-300" />
 
             {/* 离开房间按钮 */}
-            <LeaveRoomButton onLeaveRoom={onLeaveRoom} />
+            <button
+                onClick={onLeaveRoom ? () => {
+                    if (onLeaveRoom) onLeaveRoom();
+                } : undefined}
+                className="flex items-center justify-center w-12 h-10 bg-red-600/80 text-white/90 hover:bg-red-600 hover:text-white rounded-lg transition-all duration-200"
+                title="离开房间"
+            >
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                >
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                    <polyline points="16,17 21,12 16,7"/>
+                    <line x1="21" y1="12" x2="9" y2="12"/>
+                </svg>
+            </button>
         </div>
     );
 }

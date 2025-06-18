@@ -351,18 +351,58 @@ export interface ParticipantVolumeSettings {
     [participantId: string]: number;
 }
 
-// 新增：音频处理模块设置
+// 更新：音频处理模块设置 - 集成VAD参数
 export interface AudioProcessingSettings {
     autoGainControl: boolean;
     noiseSuppression: boolean;
     echoCancellation: boolean;
     microphoneThreshold: number; // 0-1 范围
+    
+    // VAD相关设置
+    vadEnabled: boolean;
+    vadThreshold: number; // VAD检测阈值 0-1
+    vadSmoothingFactor: number; // 平滑因子 0-1
+    vadMinSpeechFrames: number; // 最小语音帧数
+    vadMinSilenceFrames: number; // 最小静音帧数
+    vadAnalyzeWindow: number; // 分析窗口大小(毫秒)
+    
+    // 高级VAD设置
+    vadSensitivity: 'low' | 'medium' | 'high' | 'custom'; // 预设敏感度
+    vadNoiseGate: boolean; // 噪声门开关
+    vadHoldTime: number; // 语音保持时间(毫秒)
+    vadAttackTime: number; // 启动时间(毫秒)
+    vadReleaseTime: number; // 释放时间(毫秒)
+}
+
+// 新增：VAD预设配置
+export interface VADPresetConfig {
+    name: string;
+    description: string;
+    settings: {
+        threshold: number;
+        smoothingFactor: number;
+        minSpeechFrames: number;
+        minSilenceFrames: number;
+        analyzeWindow: number;
+    };
+}
+
+// 新增：VAD实时状态
+export interface VADRealtimeStatus {
+    isActive: boolean;
+    volume: number;
+    probability: number;
+    isSpeaking: boolean;
+    spectralCentroid: number;
+    speechEnergy: number;
+    framesSinceLastSpeech: number;
 }
 
 // 新增：音频处理状态
 export interface AudioProcessingState {
     isProcessing: boolean;
     currentSettings: AudioProcessingSettings;
+    vadStatus: VADRealtimeStatus;
     lastError?: string;
 }
 
@@ -382,11 +422,16 @@ export type AudioProcessingEvent =
     | 'processing-started'
     | 'processing-completed'
     | 'processing-failed'
-    | 'track-recreated';
+    | 'track-recreated'
+    | 'vad-started'
+    | 'vad-stopped'
+    | 'speech-detected'
+    | 'speech-ended';
 
 export interface AudioProcessingEventData {
     event: AudioProcessingEvent;
     settings?: AudioProcessingSettings;
+    vadResult?: any;
     error?: Error;
     timestamp: number;
 }

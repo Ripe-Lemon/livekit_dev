@@ -719,11 +719,82 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
                                                         </div>
                                                     </div>
 
-                                                    {/* 高级VAD设置（保持原有的高级设置） */}
+                                                    {/* 高级VAD设置 */}
                                                     {showAdvanced && (
                                                         <div className="space-y-4 pt-4 border-t border-gray-600">
-                                                            <h5 className="text-sm font-medium text-gray-300">高级参数</h5>
-                                                            {/* 保持原有的高级设置代码 */}
+                                                            <h5 className="text-sm font-medium text-gray-300">高级VAD参数</h5>
+                                                            
+                                                            {/* 平滑因子 */}
+                                                            <div>
+                                                                <div className="flex items-center justify-between mb-2">
+                                                                    <span className="text-sm text-white">平滑因子</span>
+                                                                    <span className="text-xs text-gray-400">{settings.vadSmoothingFactor.toFixed(2)}</span>
+                                                                </div>
+                                                                <input
+                                                                    type="range"
+                                                                    min="0.1"
+                                                                    max="0.95"
+                                                                    step="0.05"
+                                                                    value={settings.vadSmoothingFactor}
+                                                                    onChange={(e) => handleNumberChange('vadSmoothingFactor', parseFloat(e.target.value))}
+                                                                    className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
+                                                                />
+                                                                <p className="text-xs text-gray-500 mt-1">控制音量变化的平滑程度</p>
+                                                            </div>
+
+                                                            {/* 最小语音帧数 */}
+                                                            <div>
+                                                                <div className="flex items-center justify-between mb-2">
+                                                                    <span className="text-sm text-white">最小语音帧数</span>
+                                                                    <span className="text-xs text-gray-400">{settings.vadMinSpeechFrames}</span>
+                                                                </div>
+                                                                <input
+                                                                    type="range"
+                                                                    min="1"
+                                                                    max="10"
+                                                                    step="1"
+                                                                    value={settings.vadMinSpeechFrames}
+                                                                    onChange={(e) => handleNumberChange('vadMinSpeechFrames', parseInt(e.target.value))}
+                                                                    className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
+                                                                />
+                                                                <p className="text-xs text-gray-500 mt-1">检测到语音前需要的连续帧数</p>
+                                                            </div>
+
+                                                            {/* 最小静音帧数 */}
+                                                            <div>
+                                                                <div className="flex items-center justify-between mb-2">
+                                                                    <span className="text-sm text-white">最小静音帧数</span>
+                                                                    <span className="text-xs text-gray-400">{settings.vadMinSilenceFrames}</span>
+                                                                </div>
+                                                                <input
+                                                                    type="range"
+                                                                    min="5"
+                                                                    max="20"
+                                                                    step="1"
+                                                                    value={settings.vadMinSilenceFrames}
+                                                                    onChange={(e) => handleNumberChange('vadMinSilenceFrames', parseInt(e.target.value))}
+                                                                    className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
+                                                                />
+                                                                <p className="text-xs text-gray-500 mt-1">确认静音前需要的连续帧数</p>
+                                                            </div>
+
+                                                            {/* 分析窗口 */}
+                                                            <div>
+                                                                <div className="flex items-center justify-between mb-2">
+                                                                    <span className="text-sm text-white">分析窗口</span>
+                                                                    <span className="text-xs text-gray-400">{settings.vadAnalyzeWindow}ms</span>
+                                                                </div>
+                                                                <input
+                                                                    type="range"
+                                                                    min="10"
+                                                                    max="100"
+                                                                    step="5"
+                                                                    value={settings.vadAnalyzeWindow}
+                                                                    onChange={(e) => handleNumberChange('vadAnalyzeWindow', parseInt(e.target.value))}
+                                                                    className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
+                                                                />
+                                                                <p className="text-xs text-gray-500 mt-1">音频分析的时间窗口大小</p>
+                                                            </div>
                                                         </div>
                                                     )}
                                                 </>

@@ -155,10 +155,12 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
             }
             
             // 显示用户友好的错误信息
-            const errorMessage = error.message.includes('timed out') 
-                ? 'VAD启动超时，可能是网络连接问题，请稍后重试'
-                : `VAD操作失败: ${error.message}`;
-                
+            let errorMessage = 'VAD操作失败';
+            if (typeof error === 'object' && error !== null && 'message' in error && typeof (error as any).message === 'string') {
+                errorMessage = (error as any).message.includes('timed out') 
+                    ? 'VAD启动超时，可能是网络连接问题，请稍后重试'
+                    : `VAD操作失败: ${(error as any).message}`;
+            }
             alert(errorMessage);
         }
     };

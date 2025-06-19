@@ -1,9 +1,4 @@
-'use client';
-
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useLocalParticipant } from '@livekit/components-react';
-import { Track } from 'livekit-client';
-import { VADProcessor, VADResult, VADConfig } from '../lib/audio/VADProcessor';
+import { VADProcessor, VADAudioGateway, VADResult, VADConfig } from '../lib/audio/VADProcessor';
 
 export interface VADHookResult {
     vadResult: VADResult | null;
@@ -12,56 +7,69 @@ export interface VADHookResult {
     stopVAD: () => void;
     updateThreshold: (threshold: number) => void;
     vadProcessor: VADProcessor | null;
+    // 新增：网关相关状态
+    isGatewayControlling: boolean;
+    gatewayState: any;
 }
 
 export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
     const { localParticipant } = useLocalParticipant();
     const [vadResult, setVADResult] = useState<VADResult | null>(null);
     const [isActive, setIsActive] = useState(false);
+    const [isGatewayControlling, setIsGatewayControlling] = useState(false);
+    const [gatewayState, setGatewayState] = useState<any>(null);
     
     const vadProcessorRef = useRef<VADProcessor | null>(null);
-    const monitoringStreamRef = useRef<MediaStream | null>(null);
+    const audioGatewayRef = useRef<VADAudioGateway | null>(null);
+    const analysisStreamRef = useRef<MediaStream | null>(null); // 分析用音频流
+    const publishStreamRef = useRef<MediaStream | null>(null);  // 发布用音频流
 
-    // 初始化VAD处理器
+    // 初始化VAD处理器和音频网关
     const initializeVAD = useCallback(() => {
         if (vadProcessorRef.current) {
             vadProcessorRef.current.dispose();
         }
+        if (audioGatewayRef.current) {
+            audioGatewayRef.current.dispose();
+        }
 
         vadProcessorRef.current = new VADProcessor(initialConfig);
+        audioGatewayRef.current = new VADAudioGateway();
         
         // 设置VAD结果回调
         vadProcessorRef.current.setVADCallback((result: VADResult) => {
             setVADResult(result);
         });
 
-        console.log('🎤 VAD 处理器已初始化');
+        // 设置语音状态变化回调，控制音频网关
+        vadProcessorRef.current.setSpeechStateChangeCallback((isSpeaking: boolean) => {
+            if (audioGatewayRef.current) {
+                audioGatewayRef.current.setTransmitting(isSpeaking);
+            }
+        });
+
+        // 设置网关状态回调
+        audioGatewayRef.current.setStateChangeCallback((state) => {
+            setGatewayState(state);
+        });
+
+        console.log('🎤 VAD 处理器和音频网关已初始化');
     }, [initialConfig]);
 
-    // 获取LiveKit音频轨道对应的原始音频流
-    const getLiveKitAudioStream = useCallback(async (): Promise<MediaStream | null> => {
-        if (!localParticipant) {
-            console.warn('本地参与者不存在');
+    // 创建原始音频流用于分析和处理
+    const createDualAudioStreams = useCallback(async (): Promise<{
+        analysisStream: MediaStream;
+        publishStream: MediaStream;
+    } | null> => {
+        if (!localParticipant || !audioGatewayRef.current) {
+            console.warn('本地参与者或音频网关不存在');
             return null;
         }
 
         try {
-            // 首先尝试从现有的LiveKit轨道获取
-            const audioPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
-            if (audioPublication?.track) {
-                const track = audioPublication.track.mediaStreamTrack;
-                if (track.readyState === 'live') {
-                    // 直接使用LiveKit的音频轨道
-                    const stream = new MediaStream([track]);
-                    console.log('✅ 从LiveKit轨道获取音频流用于VAD');
-                    console.log('🔍 音频轨道设置:', track.getSettings());
-                    return stream;
-                }
-            }
-
-            // 如果没有LiveKit轨道，创建一个专门用于VAD的原始音频流
-            console.log('🎤 为VAD创建独立的原始音频流...');
-            const stream = await navigator.mediaDevices.getUserMedia({
+            // 1. 首先尝试获取原始设备音频流
+            console.log('🎤 创建原始音频流用于VAD分析和处理...');
+            const originalStream = await navigator.mediaDevices.getUserMedia({
                 audio: {
                     echoCancellation: false,  // VAD需要原始音频
                     noiseSuppression: false,  // 不要降噪，VAD需要原始信号
@@ -71,102 +79,152 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
                 }
             });
 
-            console.log('✅ 创建VAD专用音频流成功');
-            return stream;
+            // 2. 分析流：直接使用原始流
+            const analysisStream = originalStream;
+
+            // 3. 发布流：通过音频网关处理原始流
+            const publishStream = await audioGatewayRef.current.connectToStream(originalStream);
+            if (!publishStream) {
+                throw new Error('无法创建处理后的发布流');
+            }
+
+            console.log('✅ 双轨道音频流创建成功');
+            console.log('📊 分析流轨道数:', analysisStream.getAudioTracks().length);
+            console.log('📊 发布流轨道数:', publishStream.getAudioTracks().length);
+
+            return {
+                analysisStream,
+                publishStream
+            };
 
         } catch (error) {
-            console.error('❌ 获取VAD音频流失败:', error);
+            console.error('❌ 创建双轨道音频流失败:', error);
             return null;
         }
     }, [localParticipant]);
 
-    // 启动VAD
+    // 启动VAD和音频网关
     const startVAD = useCallback(async () => {
-        if (isActive || !vadProcessorRef.current) {
-            console.log('VAD 已经活跃或处理器未初始化');
+        if (isActive || !vadProcessorRef.current || !audioGatewayRef.current) {
+            console.log('VAD 已经活跃或组件未初始化');
             return;
         }
 
         try {
-            console.log('🔍 启动VAD...');
+            console.log('🔍 启动VAD双轨道系统...');
             
-            const stream = await getLiveKitAudioStream();
-            if (!stream) {
-                throw new Error('无法获取音频流');
+            // 创建双轨道音频流
+            const streams = await createDualAudioStreams();
+            if (!streams) {
+                throw new Error('无法创建双轨道音频流');
             }
 
-            // 验证音频流状态
-            const audioTracks = stream.getAudioTracks();
-            if (audioTracks.length === 0) {
-                throw new Error('音频流中没有音频轨道');
+            const { analysisStream, publishStream } = streams;
+
+            // 验证分析流状态
+            const analysisTrack = analysisStream.getAudioTracks()[0];
+            if (!analysisTrack || analysisTrack.readyState !== 'live') {
+                throw new Error(`分析音频轨道状态无效: ${analysisTrack?.readyState}`);
             }
 
-            const audioTrack = audioTracks[0];
-            console.log('🔍 VAD音频轨道详情:', {
-                label: audioTrack.label,
-                kind: audioTrack.kind,
-                readyState: audioTrack.readyState,
-                enabled: audioTrack.enabled,
-                muted: audioTrack.muted,
-                settings: audioTrack.getSettings(),
-                constraints: audioTrack.getConstraints(),
-                capabilities: audioTrack.getCapabilities()
+            // 验证发布流状态
+            const publishTrack = publishStream.getAudioTracks()[0];
+            if (!publishTrack || publishTrack.readyState !== 'live') {
+                throw new Error(`发布音频轨道状态无效: ${publishTrack?.readyState}`);
+            }
+
+            console.log('🔍 音频轨道详情:', {
+                analysis: {
+                    label: analysisTrack.label,
+                    readyState: analysisTrack.readyState,
+                    settings: analysisTrack.getSettings()
+                },
+                publish: {
+                    label: publishTrack.label,
+                    readyState: publishTrack.readyState,
+                    settings: publishTrack.getSettings()
+                }
             });
 
-            if (audioTrack.readyState !== 'live') {
-                throw new Error(`音频轨道状态无效: ${audioTrack.readyState}`);
+            // 连接VAD到分析流
+            await vadProcessorRef.current.connectToMicrophone(analysisStream);
+            analysisStreamRef.current = analysisStream;
+
+            // 停止并替换LiveKit的现有音频轨道
+            const existingAudioPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
+            if (existingAudioPublication?.track) {
+                console.log('🛑 停止现有LiveKit音频轨道');
+                existingAudioPublication.track.stop();
+                await localParticipant.unpublishTrack(existingAudioPublication.track);
+                
+                // 等待轨道清理
+                await new Promise(resolve => setTimeout(resolve, 300));
             }
 
-            monitoringStreamRef.current = stream;
-            await vadProcessorRef.current.connectToMicrophone(stream);
-            
+            // 发布处理后的音频轨道到LiveKit（标记为microphone）
+            console.log('📤 发布VAD处理后的音频轨道...');
+            await localParticipant.publishTrack(publishTrack, {
+                source: Track.Source.Microphone,
+                name: 'microphone'
+            });
+
+            publishStreamRef.current = publishStream;
             setIsActive(true);
-            console.log('✅ VAD 已启动并连接到音频流');
+            setIsGatewayControlling(true);
+            
+            console.log('✅ VAD双轨道系统已启动并连接');
+            console.log('🎯 分析轨道用于VAD检测，发布轨道用于服务器传输');
 
         } catch (error) {
-            console.error('❌ 启动VAD失败:', error);
+            console.error('❌ 启动VAD双轨道系统失败:', error);
             setIsActive(false);
+            setIsGatewayControlling(false);
             
             // 清理失败的流
-            if (monitoringStreamRef.current) {
-                monitoringStreamRef.current.getTracks().forEach(track => track.stop());
-                monitoringStreamRef.current = null;
+            if (analysisStreamRef.current) {
+                analysisStreamRef.current.getTracks().forEach(track => track.stop());
+                analysisStreamRef.current = null;
+            }
+            if (publishStreamRef.current) {
+                publishStreamRef.current.getTracks().forEach(track => track.stop());
+                publishStreamRef.current = null;
             }
             
             throw error;
         }
-    }, [isActive, getLiveKitAudioStream]);
+    }, [isActive, createDualAudioStreams, localParticipant]);
 
-    // 停止VAD
+    // 停止VAD和音频网关
     const stopVAD = useCallback(() => {
         if (!isActive) return;
 
-        console.log('⏹️ 停止VAD...');
+        console.log('⏹️ 停止VAD双轨道系统...');
         
         if (vadProcessorRef.current) {
             vadProcessorRef.current.stopAnalysis();
         }
 
-        // 清理监控音频流
-        if (monitoringStreamRef.current) {
-            const tracks = monitoringStreamRef.current.getTracks();
-            tracks.forEach(track => {
-                console.log(`🛑 停止VAD音频轨道: ${track.label}`);
-                // 只停止我们创建的专用VAD流，不影响LiveKit的音频轨道
-                const liveKitTrackId = localParticipant?.getTrackPublication(Track.Source.Microphone)?.track?.mediaStreamTrack?.id;
-                const isLiveKitTrack = track.label.includes('LiveKit') || (liveKitTrackId && track.id === liveKitTrackId);
-                
-                if (!isLiveKitTrack) {
-                    track.stop();
-                }
+        // 清理分析音频流
+        if (analysisStreamRef.current) {
+            analysisStreamRef.current.getTracks().forEach(track => {
+                console.log(`🛑 停止分析音频轨道: ${track.label}`);
+                track.stop();
             });
-            monitoringStreamRef.current = null;
+            analysisStreamRef.current = null;
+        }
+
+        // 清理发布音频流（注意：不要停止已发布到LiveKit的轨道）
+        if (publishStreamRef.current) {
+            console.log('📤 发布流将由LiveKit管理，不手动停止');
+            publishStreamRef.current = null;
         }
 
         setIsActive(false);
+        setIsGatewayControlling(false);
         setVADResult(null);
-        console.log('✅ VAD 已停止');
-    }, [isActive, localParticipant]);
+        setGatewayState(null);
+        console.log('✅ VAD双轨道系统已停止');
+    }, [isActive]);
 
     // 更新阈值
     const updateThreshold = useCallback((threshold: number) => {
@@ -176,114 +234,31 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
         }
     }, []);
 
-    // 监听本地参与者变化 - 修复重复初始化问题
+    // 监听本地参与者变化
     useEffect(() => {
         if (localParticipant && !vadProcessorRef.current) {
-            console.log('🎤 本地参与者就绪，初始化VAD');
+            console.log('🎤 本地参与者就绪，初始化VAD双轨道系统');
             initializeVAD();
         }
     }, [localParticipant, initializeVAD]);
 
-    // 监听LiveKit麦克风状态变化
-    useEffect(() => {
-        if (!localParticipant || !isActive) return;
-
-        const handleTrackMuted = () => {
-            console.log('🔇 LiveKit麦克风被静音，但VAD继续监控原始音频');
-        };
-
-        const handleTrackUnmuted = () => {
-            console.log('🎤 LiveKit麦克风取消静音');
-        };
-
-        const handleTrackPublished = () => {
-            console.log('📤 LiveKit音频轨道已发布，检查VAD连接');
-            // 延迟重连，避免立即清理
-            if (!isActive && vadProcessorRef.current) {
-                console.log('🔄 尝试重新连接VAD到新的音频轨道');
-                setTimeout(() => {
-                    if (vadProcessorRef.current && !isActive) { // 双重检查
-                        startVAD().catch(console.error);
-                    }
-                }, 1000); // 增加延迟
-            }
-        };
-
-        const handleTrackUnpublished = () => {
-            console.log('📤 LiveKit音频轨道已取消发布');
-        };
-
-        // 监听轨道状态变化
-        const audioPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
-        if (audioPublication) {
-            audioPublication.on('muted', handleTrackMuted);
-            audioPublication.on('unmuted', handleTrackUnmuted);
-        }
-
-        // 监听参与者事件
-        localParticipant.on('trackPublished', handleTrackPublished);
-        localParticipant.on('trackUnpublished', handleTrackUnpublished);
-
-        return () => {
-            if (audioPublication) {
-                audioPublication.off('muted', handleTrackMuted);
-                audioPublication.off('unmuted', handleTrackUnmuted);
-            }
-            localParticipant.off('trackPublished', handleTrackPublished);
-            localParticipant.off('trackUnpublished', handleTrackUnpublished);
-            // 不要在这里清理VAD
-        };
-    }, [localParticipant, isActive]); // 移除startVAD依赖避免循环
-
-    // 🔧 新增：监听音频轨道重新创建事件
-    useEffect(() => {
-    const handleAudioTrackRecreated = async (event: Event) => {
-        // 类型保护，确保是 CustomEvent
-        if (!(event instanceof CustomEvent)) return;
-        
-        console.log('🔄 检测到音频轨道重新创建，重启VAD');
-        
-        // 如果VAD之前是活跃的，重新启动
-        if (isActive) {
-            try {
-                // 先停止VAD
-                stopVAD();
-                
-                // 等待轨道稳定
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                
-                // 重新启动VAD
-                await startVAD();
-                
-                console.log('✅ VAD已重新连接到新音频轨道');
-            } catch (error) {
-                console.error('❌ VAD重新连接失败:', error);
-            }
-        }
-    };
-
-    // 监听音频轨道重新创建事件 - 修复类型转换
-    window.addEventListener('audioTrackRecreated', handleAudioTrackRecreated);
-
-    return () => {
-        window.removeEventListener('audioTrackRecreated', handleAudioTrackRecreated);
-    };
-}, [isActive, startVAD, stopVAD]);
-
     // 清理函数
     useEffect(() => {
         return () => {
-            console.log('🧹 清理VAD Hook');
-            // 移除立即清理，改为条件清理
-            if (!isActive) {
+            console.log('🧹 清理VAD双轨道系统');
+            if (isActive) {
                 stopVAD();
-                if (vadProcessorRef.current) {
-                    vadProcessorRef.current.dispose();
-                    vadProcessorRef.current = null;
-                }
+            }
+            if (vadProcessorRef.current) {
+                vadProcessorRef.current.dispose();
+                vadProcessorRef.current = null;
+            }
+            if (audioGatewayRef.current) {
+                audioGatewayRef.current.dispose();
+                audioGatewayRef.current = null;
             }
         };
-    }, []); // 空依赖数组，只在组件卸载时清理
+    }, []);
 
     return {
         vadResult,
@@ -291,6 +266,8 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
         startVAD,
         stopVAD,
         updateThreshold,
-        vadProcessor: vadProcessorRef.current
+        vadProcessor: vadProcessorRef.current,
+        isGatewayControlling,
+        gatewayState
     };
 }

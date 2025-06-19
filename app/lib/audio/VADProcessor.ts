@@ -30,6 +30,8 @@ export class VADProcessor {
     private config: VADConfig;
     private dataArray: Uint8Array | null = null;
     private freqDataArray: Uint8Array | null = null;
+    private audioGateway: VADAudioGateway | null = null;
+    private onSpeechStateChange: ((isSpeaking: boolean) => void) | null = null;
     
     // VAD 状态
     private currentVolume = 0;
@@ -366,7 +368,14 @@ export class VADProcessor {
         return 0.5;
     }
 
+    // 新增：设置语音状态变化回调
+    setSpeechStateChangeCallback(callback: (isSpeaking: boolean) => void) {
+        this.onSpeechStateChange = callback;
+    }
+
     private updateSpeechState(probability: number) {
+        const wasSpeeking = this.isSpeaking;
+        
         // 使用更严格的阈值判断，确保与电平条显示一致
         const isAboveThreshold = this.smoothedVolume >= this.config.threshold;
         
@@ -386,6 +395,11 @@ export class VADProcessor {
                 this.isSpeaking = false;
                 console.log(`🤫 检测到语音结束 (音量: ${this.smoothedVolume.toFixed(3)}, 阈值: ${this.config.threshold.toFixed(3)})`);
             }
+        }
+
+        // 新增：如果语音状态发生变化，触发回调
+        if (wasSpeeking !== this.isSpeaking && this.onSpeechStateChange) {
+            this.onSpeechStateChange(this.isSpeaking);
         }
     }
 
@@ -517,5 +531,146 @@ export class VADProcessor {
             dataArrayLength: this.dataArray?.length || 0,
             lastAnalysisTime: this.lastAnalysisTime
         };
+    }
+}
+
+export class VADAudioGateway {
+    private audioContext: AudioContext | null = null;
+    private sourceNode: MediaStreamAudioSourceNode | null = null;
+    private gainNode: GainNode | null = null;
+    private destinationNode: MediaStreamAudioDestinationNode | null = null;
+    
+    private isTransmitting = true;
+    private targetGain = 1.0;
+    private currentGain = 1.0;
+    private fadeInterval: number | null = null;
+    
+    private onStateChange: ((result: any) => void) | null = null;
+
+    constructor() {
+        this.initializeAudioContext();
+    }
+
+    private async initializeAudioContext() {
+        try {
+            this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+            this.gainNode = this.audioContext.createGain();
+            this.gainNode.gain.value = 1.0;
+            this.destinationNode = this.audioContext.createMediaStreamDestination();
+            this.gainNode.connect(this.destinationNode);
+            console.log('🎛️ VAD音频网关已初始化');
+        } catch (error) {
+            console.error('❌ VAD音频网关初始化失败:', error);
+        }
+    }
+
+    async connectToStream(inputStream: MediaStream): Promise<MediaStream | null> {
+        if (!this.audioContext || !this.gainNode || !this.destinationNode) {
+            console.error('VAD音频网关未正确初始化');
+            return null;
+        }
+
+        try {
+            this.sourceNode = this.audioContext.createMediaStreamSource(inputStream);
+            this.sourceNode.connect(this.gainNode);
+            console.log('🔗 VAD音频网关已连接到输入流');
+            return this.destinationNode.stream;
+        } catch (error) {
+            console.error('❌ 连接音频流失败:', error);
+            return null;
+        }
+    }
+
+    setTransmitting(transmitting: boolean, fadeTime: number = 50) {
+        if (this.isTransmitting === transmitting) return;
+        
+        this.isTransmitting = transmitting;
+        this.targetGain = transmitting ? 1.0 : 0.0;
+        
+        console.log(`🎛️ VAD音频网关切换传输状态: ${transmitting ? '开启' : '关闭'}`);
+        
+        if (this.fadeInterval) {
+            clearInterval(this.fadeInterval);
+        }
+        
+        const steps = Math.max(1, fadeTime / 10);
+        const fadeStep = Math.abs(this.targetGain - this.currentGain) / steps;
+        
+        this.fadeInterval = window.setInterval(() => {
+            if (Math.abs(this.currentGain - this.targetGain) < fadeStep) {
+                this.currentGain = this.targetGain;
+                if (this.gainNode) {
+                    this.gainNode.gain.value = this.currentGain;
+                }
+                
+                if (this.fadeInterval) {
+                    clearInterval(this.fadeInterval);
+                    this.fadeInterval = null;
+                }
+                
+                this.notifyStateChange();
+            } else {
+                if (this.currentGain < this.targetGain) {
+                    this.currentGain = Math.min(this.targetGain, this.currentGain + fadeStep);
+                } else {
+                    this.currentGain = Math.max(this.targetGain, this.currentGain - fadeStep);
+                }
+                
+                if (this.gainNode) {
+                    this.gainNode.gain.value = this.currentGain;
+                }
+            }
+        }, 10);
+    }
+
+    getState() {
+        return {
+            isControlling: true,
+            isTransmitting: this.isTransmitting,
+            outputVolume: this.currentGain
+        };
+    }
+
+    setStateChangeCallback(callback: (result: any) => void) {
+        this.onStateChange = callback;
+    }
+
+    private notifyStateChange() {
+        if (this.onStateChange) {
+            this.onStateChange(this.getState());
+        }
+    }
+
+    disconnect() {
+        if (this.fadeInterval) {
+            clearInterval(this.fadeInterval);
+            this.fadeInterval = null;
+        }
+        
+        if (this.sourceNode) {
+            this.sourceNode.disconnect();
+            this.sourceNode = null;
+        }
+        
+        if (this.gainNode) {
+            this.gainNode.disconnect();
+            this.gainNode = null;
+        }
+        
+        console.log('🔌 VAD音频网关已断开连接');
+    }
+
+    dispose() {
+        this.disconnect();
+        
+        if (this.audioContext && this.audioContext.state !== 'closed') {
+            this.audioContext.close();
+            this.audioContext = null;
+        }
+        
+        this.destinationNode = null;
+        this.onStateChange = null;
+        
+        console.log('🗑️ VAD音频网关已销毁');
     }
 }

@@ -19,7 +19,16 @@ export function AudioProcessingControls({ className = '' }: AudioProcessingContr
         getPresets
     } = useAudioProcessing();
     
-    const { vadResult, isActive: vadActive, startVAD, stopVAD, updateThreshold, vadProcessor } = useVAD({
+    const { 
+        vadResult, 
+        isActive: vadActive, 
+        startVAD, 
+        stopVAD, 
+        updateThreshold, 
+        vadProcessor,
+        isGatewayControlling,  // 新增
+        gatewayState           // 新增
+    } = useVAD({
         threshold: settings.vadThreshold,
         smoothingFactor: settings.vadSmoothingFactor,
         minSpeechFrames: settings.vadMinSpeechFrames,
@@ -363,9 +372,12 @@ export function AudioProcessingControls({ className = '' }: AudioProcessingContr
 
                         {settings.vadEnabled && (
                             <>
-                                {/* VAD实时状态 */}
+                                {/* VAD实时状态 - 更新显示双轨道信息 */}
                                 {vadResult && (
                                     <div className="bg-gray-700/30 rounded-lg p-3">
+                                        <h6 className="text-xs font-medium text-gray-400 mb-2">🎛️ VAD双轨道系统状态</h6>
+                                        
+                                        {/* 现有的音量和状态显示 */}
                                         <div className="grid grid-cols-3 gap-3 text-xs mb-3">
                                             <div className="text-center">
                                                 <div className="text-gray-400">语音概率</div>
@@ -387,8 +399,45 @@ export function AudioProcessingControls({ className = '' }: AudioProcessingContr
                                             </div>
                                         </div>
                                         
-                                        {/* 音量可视化 */}
-                                        <div className="space-y-2">
+                                        {/* 新增：双轨道系统状态 */}
+                                        <div className="border-t border-gray-600 pt-3 mt-3">
+                                            <div className="grid grid-cols-2 gap-3 text-xs">
+                                                <div className="space-y-1">
+                                                    <div className="flex justify-between">
+                                                        <span className="text-gray-400">分析轨道:</span>
+                                                        <span className={vadActive ? 'text-green-400' : 'text-gray-400'}>
+                                                            {vadActive ? '✅ 活跃' : '❌ 停止'}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex justify-between">
+                                                        <span className="text-gray-400">音频网关:</span>
+                                                        <span className={isGatewayControlling ? 'text-green-400' : 'text-gray-400'}>
+                                                            {isGatewayControlling ? '✅ 控制中' : '❌ 禁用'}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <div className="flex justify-between">
+                                                        <span className="text-gray-400">发布轨道:</span>
+                                                        <span className={gatewayState?.isTransmitting ? 'text-green-400' : 'text-red-400'}>
+                                                            {gatewayState?.isTransmitting ? '📤 传输中' : '🚫 已静音'}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex justify-between">
+                                                        <span className="text-gray-400">输出音量:</span>
+                                                        <span className="text-blue-400">
+                                                            {gatewayState?.outputVolume 
+                                                                ? `${Math.round(gatewayState.outputVolume * 100)}%`
+                                                                : '100%'
+                                                            }
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* 现有的音量可视化保持不变 */}
+                                        <div className="space-y-2 mt-3">
                                             <div className="flex items-center space-x-2">
                                                 <span className="text-xs text-gray-400 w-12">音量:</span>
                                                 <div className="flex-1 bg-gray-600 rounded-full h-2">
@@ -408,6 +457,33 @@ export function AudioProcessingControls({ className = '' }: AudioProcessingContr
                                                         style={{ width: `${vadResult.probability * 100}%` }}
                                                     />
                                                 </div>
+                                            </div>
+                                            {/* 新增：发布音量条 */}
+                                            <div className="flex items-center space-x-2">
+                                                <span className="text-xs text-gray-400 w-12">发布:</span>
+                                                <div className="flex-1 bg-gray-600 rounded-full h-2">
+                                                    <div 
+                                                        className={`h-2 rounded-full transition-all duration-100 ${
+                                                            gatewayState?.isTransmitting ? 'bg-green-400' : 'bg-red-400'
+                                                        }`}
+                                                        style={{ 
+                                                            width: `${gatewayState?.isTransmitting 
+                                                                ? (gatewayState?.outputVolume || 1) * 100 
+                                                                : 0}%` 
+                                                        }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* 工作原理说明 */}
+                                        <div className="border-t border-gray-600 pt-2 mt-3">
+                                            <div className="text-xs text-gray-400 space-y-1">
+                                                <p>💡 <strong>双轨道VAD系统：</strong></p>
+                                                <p>• 🎤 分析轨道：原始音频用于VAD检测，不发布到服务器</p>
+                                                <p>• 📤 发布轨道：经VAD控制的音频发布给其他参与者</p>
+                                                <p>• 🎛️ 音频网关：根据VAD结果控制发布轨道的音量</p>
+                                                <p>• ⚡ 实时控制：检测到语音时发送原音，静音时发送静音</p>
                                             </div>
                                         </div>
                                     </div>

@@ -65,76 +65,6 @@ export class VADProcessor {
         this.initializeAudioContext();
     }
 
-    private initializeAudioContext() {
-        try {
-            this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-            console.log('🎤 VAD AudioContext 已初始化');
-        } catch (error) {
-            console.error('❌ VAD AudioContext 初始化失败:', error);
-        }
-    }
-
-    async connectToMicrophone(stream: MediaStream): Promise<void> {
-        if (!this.audioContext) {
-            throw new Error('AudioContext 未初始化');
-        }
-
-        try {
-            // 验证输入流
-            const audioTracks = stream.getAudioTracks();
-            if (audioTracks.length === 0) {
-                throw new Error('输入流中没有音频轨道');
-            }
-
-            const audioTrack = audioTracks[0];
-            console.log('🔍 VAD连接音频轨道:', {
-                label: audioTrack.label,
-                readyState: audioTrack.readyState,
-                enabled: audioTrack.enabled,
-                muted: audioTrack.muted,
-                settings: audioTrack.getSettings()
-            });
-
-            // 恢复 AudioContext（如果被暂停）
-            if (this.audioContext.state === 'suspended') {
-                await this.audioContext.resume();
-                console.log('🔄 AudioContext 已恢复');
-            }
-
-            // 创建音频分析节点
-            this.analyserNode = this.audioContext.createAnalyser();
-            this.analyserNode.fftSize = 2048;
-            this.analyserNode.smoothingTimeConstant = 0.8;
-            this.analyserNode.minDecibels = -90;
-            this.analyserNode.maxDecibels = -10;
-
-            // 连接麦克风输入
-            this.microphoneSource = this.audioContext.createMediaStreamSource(stream);
-            this.microphoneSource.connect(this.analyserNode);
-
-            // 初始化数据数组
-            const bufferLength = this.analyserNode.frequencyBinCount;
-            this.dataArray = new Uint8Array(bufferLength);
-            this.freqDataArray = new Uint8Array(bufferLength);
-
-            console.log('✅ VAD 已连接到麦克风', {
-                fftSize: this.analyserNode.fftSize,
-                bufferLength,
-                sampleRate: this.audioContext.sampleRate,
-                audioContextState: this.audioContext.state
-            });
-
-            // 重置计数器
-            this.analysisCount = 0;
-            this.lastVolumeUpdate = Date.now();
-
-            this.startAnalysis();
-        } catch (error) {
-            console.error('❌ VAD 连接麦克风失败:', error);
-            throw error;
-        }
-    }
-
     private startAnalysis() {
         if (this.isActive) return;
         
@@ -209,15 +139,19 @@ export class VADProcessor {
         const volume = this.calculateVolume();
         this.currentVolume = volume;
 
-        // 2. 平滑音量
-        this.smoothedVolume = this.smoothedVolume * this.config.smoothingFactor + 
-                             volume * (1 - this.config.smoothingFactor);
+        // 2. 修复平滑音量算法 - 提高响应性
+        // 当音量上升时使用较少的平滑，下降时使用更多平滑
+        const smoothingFactor = volume > this.smoothedVolume ? 
+            this.config.smoothingFactor * 0.3 :  // 上升时快速响应
+            this.config.smoothingFactor;         // 下降时正常平滑
+            
+        this.smoothedVolume = this.smoothedVolume * smoothingFactor + 
+                             volume * (1 - smoothingFactor);
 
         // 3. 频谱分析
         const spectralFeatures = this.analyzeSpectrum();
 
-        // 4. 修复：使用显示的音量值（smoothedVolume）直接与阈值比较
-        // 确保阈值判断与显示的电平条一致
+        // 4. 使用显示的音量值（smoothedVolume）直接与阈值比较
         const volumeBasedProbability = this.smoothedVolume >= this.config.threshold ? 1.0 : 0.0;
         
         // 5. 频谱增强（可选，增加准确性）
@@ -232,16 +166,21 @@ export class VADProcessor {
         // 8. 更新历史数据
         this.updateHistory(volume);
 
-        // 9. 调试日志
+        // 9. 调试日志 - 增加更详细的音量信息
         const now = Date.now();
         if (this.debugMode && volume > 0.01 && now - this.lastVolumeUpdate > 1000) {
-            console.log('🔍 VAD 阈值对比:', {
-                smoothedVolume: this.smoothedVolume.toFixed(3),
+            console.log('🔍 VAD 音量分析:', {
+                rawVolume: volume.toFixed(4),
+                smoothedVolume: this.smoothedVolume.toFixed(4),
                 threshold: this.config.threshold.toFixed(3),
                 volumeExceedsThreshold: this.smoothedVolume >= this.config.threshold,
                 probability: probability.toFixed(3),
                 isSpeaking: this.isSpeaking,
-                spectralBonus: spectralBonus.toFixed(3)
+                spectralBonus: spectralBonus.toFixed(3),
+                // 新增：原始数据检查
+                dataArrayMax: Math.max(...Array.from(this.dataArray)),
+                dataArrayMin: Math.min(...Array.from(this.dataArray)),
+                dataArrayAvg: Array.from(this.dataArray).reduce((a, b) => a + b, 0) / this.dataArray.length
             });
             this.lastVolumeUpdate = now;
         }
@@ -270,11 +209,15 @@ export class VADProcessor {
         if (!this.dataArray) return 0;
 
         let sum = 0;
+        let max = 0;
         let nonZeroCount = 0;
+        let varianceSum = 0;
         
+        // 首先计算基本统计
         for (let i = 0; i < this.dataArray.length; i++) {
-            const amplitude = (this.dataArray[i] - 128) / 128;
+            const amplitude = Math.abs(this.dataArray[i] - 128) / 128;
             sum += amplitude * amplitude;
+            max = Math.max(max, amplitude);
             if (this.dataArray[i] !== 128) nonZeroCount++;
         }
         
@@ -284,88 +227,232 @@ export class VADProcessor {
         }
         
         const rms = Math.sqrt(sum / this.dataArray.length);
-        const volume = Math.min(rms * 3, 1); // 增加放大倍数以提高敏感度
+        const mean = Math.sqrt(sum / this.dataArray.length);
         
-        return volume;
+        // 计算方差来检测音频活动
+        for (let i = 0; i < this.dataArray.length; i++) {
+            const amplitude = Math.abs(this.dataArray[i] - 128) / 128;
+            varianceSum += Math.pow(amplitude - mean, 2);
+        }
+        const variance = Math.sqrt(varianceSum / this.dataArray.length);
+        
+        // 多重增强算法
+        const rmsVolume = rms * 12;     // 从8倍进一步提高到12倍
+        const peakVolume = max * 3;     // 峰值增强
+        const varianceVolume = variance * 8; // 方差增强，检测音频变化
+        
+        // 组合算法：RMS为主，峰值和方差为辅
+        const combinedVolume = (rmsVolume * 0.6) + (peakVolume * 0.2) + (varianceVolume * 0.2);
+        
+        // 应用非线性增强曲线
+        const enhancedVolume = Math.pow(combinedVolume, 0.5); // 使用平方根增强小信号
+        
+        // 添加最小阈值，确保有音频输入时有可见的音量
+        const minThreshold = 0.02;
+        const finalVolume = Math.max(
+            enhancedVolume > minThreshold ? enhancedVolume : 0,
+            0
+        );
+        
+        // 限制在0-1范围，但允许较高的音量
+        return Math.min(finalVolume, 1.0);
     }
 
-    private analyzeSpectrum(): { speechEnergy: number; totalEnergy: number; spectralCentroid: number } {
-        if (!this.freqDataArray || !this.audioContext) {
-            return { speechEnergy: 0, totalEnergy: 0, spectralCentroid: 0 };
+    async connectToMicrophone(stream: MediaStream): Promise<void> {
+        if (!this.audioContext) {
+            await this.initializeAudioContext();
         }
 
-        const nyquist = this.audioContext.sampleRate / 2;
-        const binWidth = nyquist / this.freqDataArray.length;
+        if (!this.audioContext) {
+            throw new Error('音频上下文初始化失败');
+        }
+
+        try {
+            console.log('🎤 VAD 连接到麦克风...');
+
+            // 创建音频分析节点 - 最大化敏感度设置
+            this.analyserNode = this.audioContext.createAnalyser();
+            this.analyserNode.fftSize = 4096;  // 增加到4096以获得更好的频率分辨率
+            this.analyserNode.smoothingTimeConstant = 0.1; // 进一步降低到0.1，最大化响应速度
+            this.analyserNode.minDecibels = -120; // 进一步降低到-120，捕获极小的信号
+            this.analyserNode.maxDecibels = -10;  // 保持不变
+
+            // 连接麦克风输入
+            this.microphoneSource = this.audioContext.createMediaStreamSource(stream);
+            this.microphoneSource.connect(this.analyserNode);
+
+            // 初始化数据数组
+            const bufferLength = this.analyserNode.frequencyBinCount;
+            this.dataArray = new Uint8Array(bufferLength);
+            this.freqDataArray = new Uint8Array(bufferLength);
+
+            console.log('✅ VAD 已连接到麦克风（高敏感度配置）', {
+                fftSize: this.analyserNode.fftSize,
+                bufferLength,
+                sampleRate: this.audioContext.sampleRate,
+                audioContextState: this.audioContext.state,
+                minDecibels: this.analyserNode.minDecibels,
+                maxDecibels: this.analyserNode.maxDecibels,
+                smoothingTimeConstant: this.analyserNode.smoothingTimeConstant
+            });
+
+            // 重置计数器
+            this.analysisCount = 0;
+            this.lastVolumeUpdate = Date.now();
+
+            this.startAnalysis();
+        } catch (error) {
+            console.error('❌ VAD 连接麦克风失败:', error);
+            throw error;
+        }
+    }
+
+    // 修复初始化音频上下文，确保正确恢复
+    private async initializeAudioContext() {
+        try {
+            this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+            
+            // 确保音频上下文处于运行状态
+            if (this.audioContext.state === 'suspended') {
+                console.log('🎤 音频上下文被暂停，正在恢复...');
+                await this.audioContext.resume();
+                console.log('✅ 音频上下文已恢复');
+            }
+            
+            console.log('🎤 VAD AudioContext 已初始化', {
+                state: this.audioContext.state,
+                sampleRate: this.audioContext.sampleRate,
+                destination: this.audioContext.destination
+            });
+        } catch (error) {
+            console.error('❌ VAD AudioContext 初始化失败:', error);
+            throw error;
+        }
+    }
+
+    // 添加实时音量监控方法
+    getRealTimeVolume(): number {
+        if (!this.analyserNode || !this.dataArray) return 0;
+        
+        this.analyserNode.getByteTimeDomainData(this.dataArray);
+        return this.calculateVolume();
+    }
+
+    // 改进测试音量响应方法
+    testVolumeResponse(): void {
+        console.log('🧪 开始高精度音量响应测试...');
+        
+        if (!this.analyserNode || !this.dataArray) {
+            console.error('❌ 分析器未初始化');
+            return;
+        }
+
+        let testCount = 0;
+        const maxTests = 60; // 60秒测试
+        
+        const testInterval = setInterval(() => {
+            this.analyserNode!.getByteTimeDomainData(this.dataArray!);
+            
+            // 计算多种音量指标
+            let rms = 0;
+            let peak = 0;
+            let nonZeroCount = 0;
+            let variance = 0;
+            let totalAmplitude = 0;
+            
+            // 计算基础统计
+            for (let i = 0; i < this.dataArray!.length; i++) {
+                const amplitude = Math.abs(this.dataArray![i] - 128);
+                totalAmplitude += amplitude;
+                rms += amplitude * amplitude;
+                peak = Math.max(peak, amplitude);
+                if (this.dataArray![i] !== 128) nonZeroCount++;
+            }
+            
+            const avgAmplitude = totalAmplitude / this.dataArray!.length;
+            rms = Math.sqrt(rms / this.dataArray!.length);
+            
+            // 计算方差
+            for (let i = 0; i < this.dataArray!.length; i++) {
+                const amplitude = Math.abs(this.dataArray![i] - 128);
+                variance += Math.pow(amplitude - avgAmplitude, 2);
+            }
+            variance = Math.sqrt(variance / this.dataArray!.length);
+            
+            // 归一化
+            const rmsNormalized = rms / 128;
+            const peakNormalized = peak / 128;
+            const varianceNormalized = variance / 128;
+            const dataPercent = (nonZeroCount / this.dataArray!.length) * 100;
+            const ourAlgorithm = this.calculateVolume();
+            
+            if (rmsNormalized > 0.001 || ourAlgorithm > 0.001) {
+                console.log(`🎤 音量测试 [${testCount + 1}/${maxTests}]:`, {
+                    '我们的算法': ourAlgorithm.toFixed(6),
+                    'RMS标准化': rmsNormalized.toFixed(6),
+                    '峰值标准化': peakNormalized.toFixed(6),
+                    '方差标准化': varianceNormalized.toFixed(6),
+                    '数据覆盖率': `${dataPercent.toFixed(1)}%`,
+                    '平均振幅': avgAmplitude.toFixed(2),
+                    '音频上下文': this.audioContext?.state,
+                    '样本数据': Array.from(this.dataArray!.slice(0, 8)),
+                    '当前阈值': this.config.threshold.toFixed(3),
+                    '超过阈值': ourAlgorithm >= this.config.threshold ? '✅' : '❌'
+                });
+            } else if (testCount % 10 === 0) {
+                console.log(`🎤 静音检测 [${testCount + 1}/${maxTests}]: 无音频输入`);
+            }
+            
+            testCount++;
+            if (testCount >= maxTests) {
+                clearInterval(testInterval);
+                console.log('🧪 高精度音量响应测试结束');
+            }
+        }, 1000);
+    }
+
+    private analyzeSpectrum(): any {
+        if (!this.freqDataArray) {
+            return {
+                totalEnergy: 0,
+                speechEnergy: 0,
+                spectralCentroid: 0
+            };
+        }
 
         let totalEnergy = 0;
         let speechEnergy = 0;
         let weightedFreqSum = 0;
-        let magnitudeSum = 0;
+        let energySum = 0;
+
+        const sampleRate = this.audioContext?.sampleRate || 48000;
+        const nyquist = sampleRate / 2;
+        const binSize = nyquist / this.freqDataArray.length;
 
         for (let i = 0; i < this.freqDataArray.length; i++) {
-            const frequency = i * binWidth;
-            const magnitude = this.freqDataArray[i] / 255; // 归一化到0-1
-            
-            totalEnergy += magnitude;
-            magnitudeSum += magnitude;
-            weightedFreqSum += frequency * magnitude;
+            const amplitude = this.freqDataArray[i] / 255;
+            const energy = amplitude * amplitude;
+            const frequency = i * binSize;
 
-            // 语音频段能量 (85Hz - 4000Hz)
+            totalEnergy += energy;
+
+            // 语音频段通常在 85Hz - 4000Hz
             if (frequency >= 85 && frequency <= 4000) {
-                speechEnergy += magnitude;
+                speechEnergy += energy;
             }
+
+            // 计算频谱重心
+            weightedFreqSum += frequency * energy;
+            energySum += energy;
         }
 
-        const spectralCentroid = magnitudeSum > 0 ? weightedFreqSum / magnitudeSum : 0;
+        const spectralCentroid = energySum > 0 ? weightedFreqSum / energySum : 0;
 
         return {
-            speechEnergy: speechEnergy / this.freqDataArray.length,
-            totalEnergy: totalEnergy / this.freqDataArray.length,
+            totalEnergy,
+            speechEnergy,
             spectralCentroid
         };
-    }
-
-    private calculateSpeechProbability(volume: number, spectral: any): number {
-        // 多维度语音概率计算
-        
-        // 1. 音量概率 (S型曲线)
-        const volumeProb = 1 / (1 + Math.exp(-10 * (volume - this.config.threshold)));
-
-        // 2. 频谱概率 (语音频段能量比例)
-        const spectralProb = spectral.totalEnergy > 0 ? 
-            Math.min(spectral.speechEnergy / spectral.totalEnergy * 2, 1) : 0;
-
-        // 3. 频谱重心概率 (语音通常在500-2000Hz)
-        const centroidProb = spectral.spectralCentroid > 500 && spectral.spectralCentroid < 2000 ? 
-            1 - Math.abs(spectral.spectralCentroid - 1250) / 1250 : 0;
-
-        // 4. 历史趋势概率
-        const trendProb = this.calculateTrendProbability();
-
-        // 加权组合
-        const probability = 
-            volumeProb * 0.4 +      // 音量权重最高
-            spectralProb * 0.3 +    // 频谱能量次之
-            centroidProb * 0.2 +    // 频谱重心
-            trendProb * 0.1;        // 历史趋势
-
-        return Math.max(0, Math.min(1, probability));
-    }
-
-    private calculateTrendProbability(): number {
-        if (this.volumeHistory.length < 3) return 0.5;
-
-        const recent = this.volumeHistory.slice(-3);
-        const avg = recent.reduce((a, b) => a + b, 0) / recent.length;
-        const current = this.currentVolume;
-
-        // 如果当前音量显著高于最近平均值，增加语音概率
-        if (current > avg * 1.2) {
-            return 0.8;
-        } else if (current < avg * 0.8) {
-            return 0.2;
-        }
-        return 0.5;
     }
 
     // 新增：设置语音状态变化回调

@@ -65,6 +65,84 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
         console.log('🎤 VAD 处理器和音频网关已初始化');
     }, [initialConfig]);
 
+    // 创建VAD专用音频流的函数 - 进一步优化
+    const createVADDedicatedStream = useCallback(async (): Promise<MediaStream | null> => {
+        try {
+            console.log('🎤 为VAD创建超高敏感度音频流...');
+            
+            // 尝试获取最佳音频设备
+            let constraints: MediaStreamConstraints = {
+                audio: {
+                    echoCancellation: false,    // 必须关闭，VAD需要原始音频
+                    noiseSuppression: false,    // 必须关闭，保留所有音频信息
+                    autoGainControl: false,     // 必须关闭，避免影响音量检测
+                    sampleRate: 48000,          // 高采样率
+                    channelCount: 1,            // 单声道
+                    // 尝试高级约束
+                    advanced: [
+                        { echoCancellation: { exact: false } },
+                        { noiseSuppression: { exact: false } },
+                        { autoGainControl: { exact: false } },
+                        { sampleRate: { ideal: 48000 } },
+                        { channelCount: { exact: 1 } }
+                    ]
+                }
+            };
+
+            let stream: MediaStream;
+            
+            try {
+                // 首先尝试高级约束
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+            } catch (error) {
+                console.warn('高级音频约束失败，尝试基础约束:', error);
+                // 回退到基础约束
+                constraints = {
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false,
+                        sampleRate: 48000,
+                        channelCount: 1
+                    }
+                };
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+            }
+
+            // 验证和调试音频流
+            const audioTrack = stream.getAudioTracks()[0];
+            if (audioTrack) {
+                const settings = audioTrack.getSettings();
+                console.log('🔍 获得的音频流设置:', {
+                    sampleRate: settings.sampleRate,
+                    channelCount: settings.channelCount,
+                    echoCancellation: settings.echoCancellation,
+                    noiseSuppression: settings.noiseSuppression,
+                    autoGainControl: settings.autoGainControl,
+                    deviceId: settings.deviceId,
+                    groupId: settings.groupId
+                });
+
+                // 验证关键设置
+                if (settings.echoCancellation !== false) {
+                    console.warn('⚠️ 回声消除未完全关闭，可能影响VAD准确性');
+                }
+                if (settings.noiseSuppression !== false) {
+                    console.warn('⚠️ 噪声抑制未完全关闭，可能影响VAD敏感度');
+                }
+                if (settings.autoGainControl !== false) {
+                    console.warn('⚠️ 自动增益控制未完全关闭，可能影响音量检测');
+                }
+            }
+
+            console.log('✅ 创建超高敏感度VAD专用音频流成功');
+            return stream;
+        } catch (error) {
+            console.error('❌ 创建VAD专用音频流失败:', error);
+            return null;
+        }
+    }, []);
+
     // 创建原始音频流用于分析和处理
     const createDualAudioStreams = useCallback(async (): Promise<{
         analysisStream: MediaStream;
@@ -76,21 +154,14 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
         }
 
         try {
-            console.log('🎤 创建原始音频流用于VAD分析和处理...');
+            console.log('🎤 创建双轨道音频流系统...');
             
-            // 1. 创建原始音频流 - 使用更好的约束
-            const originalStream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    echoCancellation: false,  // VAD需要原始音频
-                    noiseSuppression: false,  // 不要降噪，VAD需要原始信号
-                    autoGainControl: false,   // 不要自动增益
-                    sampleRate: 48000,
-                    channelCount: 1,
-                }
-            });
+            // 1. 创建超高敏感度原始音频流
+            const originalStream = await createVADDedicatedStream();
+            if (!originalStream) {
+                throw new Error('无法创建原始音频流');
+            }
 
-            console.log('✅ 原始音频流创建成功');
-            
             // 验证原始流
             const originalTrack = originalStream.getAudioTracks()[0];
             if (!originalTrack || originalTrack.readyState !== 'live') {
@@ -98,23 +169,23 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
                 throw new Error(`原始音频轨道状态无效: ${originalTrack?.readyState}`);
             }
 
-            console.log('🔍 原始音频轨道详情:', {
+            console.log('🔍 原始音频轨道验证通过:', {
                 label: originalTrack.label,
                 readyState: originalTrack.readyState,
-                settings: originalTrack.getSettings(),
-                constraints: originalTrack.getConstraints()
+                enabled: originalTrack.enabled,
+                muted: originalTrack.muted,
+                settings: originalTrack.getSettings()
             });
 
-            // 2. 分析流：克隆原始流用于VAD分析
+            // 2. 分析流：专门用于VAD分析
             const analysisStream = originalStream.clone();
             console.log('📊 分析流已创建（克隆自原始流）');
 
-            // 3. 发布流：通过音频网关处理原始流
-            console.log('🎛️ 创建发布流（通过音频网关）...');
+            // 3. 发布流：通过音频网关处理
+            console.log('🎛️ 通过音频网关创建发布流...');
             const publishStream = await audioGatewayRef.current.connectToStream(originalStream);
             
             if (!publishStream) {
-                // 清理资源
                 originalStream.getTracks().forEach(track => track.stop());
                 analysisStream.getTracks().forEach(track => track.stop());
                 throw new Error('音频网关无法创建发布流');
@@ -128,36 +199,36 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
                 throw new Error('发布流没有音频轨道');
             }
 
-            // 等待发布轨道稳定
-            console.log('⏳ 等待发布轨道稳定...');
-            await new Promise(resolve => setTimeout(resolve, 200));
-
-            if (publishTrack.readyState !== 'live') {
-                originalStream.getTracks().forEach(track => track.stop());
-                analysisStream.getTracks().forEach(track => track.stop());
-                throw new Error(`发布音频轨道状态无效: ${publishTrack.readyState}`);
+            // 多次验证发布轨道状态稳定性
+            for (let i = 0; i < 3; i++) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                if (publishTrack.readyState !== 'live') {
+                    originalStream.getTracks().forEach(track => track.stop());
+                    analysisStream.getTracks().forEach(track => track.stop());
+                    throw new Error(`发布音频轨道状态变为无效: ${publishTrack.readyState}`);
+                }
+                console.log(`✅ 发布轨道状态检查 ${i + 1}/3: ${publishTrack.readyState}`);
             }
 
-            console.log('🔍 发布音频轨道详情:', {
+            console.log('🔍 发布音频轨道验证通过:', {
                 label: publishTrack.label,
                 readyState: publishTrack.readyState,
+                enabled: publishTrack.enabled,
+                muted: publishTrack.muted,
                 settings: publishTrack.getSettings()
             });
 
-            console.log('✅ 双轨道音频流创建成功');
-            console.log('📊 分析流轨道数:', analysisStream.getAudioTracks().length);
-            console.log('📊 发布流轨道数:', publishStream.getAudioTracks().length);
-
+            console.log('✅ 双轨道音频流系统创建成功');
             return {
                 analysisStream,
                 publishStream
             };
 
         } catch (error) {
-            console.error('❌ 创建双轨道音频流失败:', error);
+            console.error('❌ 创建双轨道音频流系统失败:', error);
             return null;
         }
-    }, [localParticipant]);
+    }, [localParticipant, createVADDedicatedStream]);
 
     // 新增：清理现有轨道的函数
     const cleanupExistingTracks = useCallback(async () => {

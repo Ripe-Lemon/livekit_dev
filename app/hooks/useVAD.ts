@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useLocalParticipant } from '@livekit/components-react';
+import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
 import { Track } from 'livekit-client';
 import { VADProcessor, VADAudioGateway, VADResult, VADConfig } from '../lib/audio/VADProcessor';
 
@@ -19,6 +19,10 @@ export interface VADHookResult {
 
 export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
     const { localParticipant } = useLocalParticipant();
+    // 获取 room 对象（假设你有 useRoomContext，如果没有请根据你的项目实际获取 room）
+    // import { useRoomContext } from '@livekit/components-react';
+    // const room = useRoomContext();
+    const room = useRoomContext();
     const [vadResult, setVADResult] = useState<VADResult | null>(null);
     const [isActive, setIsActive] = useState(false);
     const [isGatewayControlling, setIsGatewayControlling] = useState(false);
@@ -108,8 +112,123 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
         }
     }, [localParticipant]);
 
+    // 新增：清理现有轨道的函数
+    const cleanupExistingTracks = useCallback(async () => {
+        if (!localParticipant) {
+            console.warn('本地参与者不存在，跳过轨道清理');
+            return;
+        }
+
+        try {
+            console.log('🧹 清理现有LiveKit音频轨道...');
+            
+            // 获取所有音频发布 - 添加空值检查
+            const audioTrackPublications = localParticipant.audioTrackPublications;
+            if (!audioTrackPublications) {
+                console.log('没有音频轨道发布，跳过清理');
+                return;
+            }
+            
+            const audioPublications = Array.from(audioTrackPublications.values());
+            
+            for (const publication of audioPublications) {
+                if (publication.source === Track.Source.Microphone && publication.track) {
+                    console.log(`🛑 停止并取消发布音频轨道: ${publication.trackSid}`);
+                    
+                    // 先停止轨道
+                    publication.track.stop();
+                    
+                    // 然后取消发布
+                    await localParticipant.unpublishTrack(publication.track);
+                }
+            }
+            
+            console.log('✅ 现有音频轨道清理完成');
+        } catch (error) {
+            console.warn('⚠️ 清理现有轨道时出错:', error);
+            // 不抛出错误，继续流程
+        }
+    }, [localParticipant]);
+
+    // 新增：处理发布超时的函数
+    const handlePublishTimeout = useCallback(async () => {
+        if (!localParticipant) {
+            console.warn('本地参与者不存在，无法处理发布超时');
+            return;
+        }
+
+        try {
+            console.log('🔄 尝试恢复音频轨道发布...');
+            
+            // 清理失败的流
+            if (publishStreamRef.current) {
+                publishStreamRef.current.getTracks().forEach(track => track.stop());
+                publishStreamRef.current = null;
+            }
+            
+            // 重置状态
+            setIsActive(false);
+            setIsGatewayControlling(false);
+            
+            // 等待一段时间后尝试重新创建标准音频轨道
+            setTimeout(async () => {
+                try {
+                    console.log('🎤 创建标准音频轨道作为备用...');
+                    const fallbackStream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true
+                        }
+                    });
+                    
+                    const fallbackTrack = fallbackStream.getAudioTracks()[0];
+                    if (fallbackTrack && localParticipant) {
+                        await localParticipant.publishTrack(fallbackTrack, {
+                            source: Track.Source.Microphone,
+                            name: 'microphone'
+                        });
+                        console.log('✅ 标准音频轨道发布成功');
+                    }
+                } catch (fallbackError) {
+                    console.error('❌ 创建备用音频轨道失败:', fallbackError);
+                }
+            }, 2000);
+            
+        } catch (error) {
+            console.error('❌ 处理发布超时失败:', error);
+        }
+    }, [localParticipant]);
+
+    // 新增：错误清理函数
+    const cleanupOnError = useCallback(async () => {
+        setIsActive(false);
+        setIsGatewayControlling(false);
+        setVADResult(null);
+        setGatewayState(null);
+        
+        // 清理分析音频流
+        if (analysisStreamRef.current) {
+            analysisStreamRef.current.getTracks().forEach(track => track.stop());
+            analysisStreamRef.current = null;
+        }
+        
+        // 清理发布音频流
+        if (publishStreamRef.current) {
+            publishStreamRef.current.getTracks().forEach(track => track.stop());
+            publishStreamRef.current = null;
+        }
+        
+        console.log('🧹 错误清理完成');
+    }, []);
+
     // 启动VAD和音频网关
     const startVAD = useCallback(async () => {
+        if (!localParticipant) {
+            console.warn('本地参与者不存在，无法启动VAD');
+            return;
+        }
+
         if (isActive || !vadProcessorRef.current || !audioGatewayRef.current) {
             console.log('VAD 已经活跃或组件未初始化');
             return;
@@ -172,7 +291,7 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
             });
 
             // 使用Promise.race来处理超时
-            const publishResult = await Promise.race([
+            await Promise.race([
                 publishPromise,
                 new Promise((_, reject) => 
                     setTimeout(() => reject(new Error('音频轨道发布超时（10秒）')), 10000)
@@ -190,7 +309,13 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
             console.error('❌ 启动VAD双轨道系统失败:', error);
             
             // 如果是发布超时错误，尝试重新连接
-            if (error.message.includes('timed out') || error.message.includes('超时')) {
+            if (
+                typeof error === 'object' &&
+                error !== null &&
+                'message' in error &&
+                typeof (error as any).message === 'string' &&
+                ((error as any).message.includes('timed out') || (error as any).message.includes('超时'))
+            ) {
                 console.log('🔄 检测到发布超时，尝试重新连接...');
                 await handlePublishTimeout();
             } else {
@@ -200,101 +325,7 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
             
             throw error;
         }
-    }, [isActive, createDualAudioStreams, localParticipant]);
-
-    // 新增：清理现有轨道的函数
-    const cleanupExistingTracks = useCallback(async () => {
-        try {
-            console.log('🧹 清理现有LiveKit音频轨道...');
-            
-            // 获取所有音频发布
-            const audioPublications = Array.from(localParticipant.audioTrackPublications.values());
-            
-            for (const publication of audioPublications) {
-                if (publication.source === Track.Source.Microphone && publication.track) {
-                    console.log(`🛑 停止并取消发布音频轨道: ${publication.trackSid}`);
-                    
-                    // 先停止轨道
-                    publication.track.stop();
-                    
-                    // 然后取消发布
-                    await localParticipant.unpublishTrack(publication.track);
-                }
-            }
-            
-            console.log('✅ 现有音频轨道清理完成');
-        } catch (error) {
-            console.warn('⚠️ 清理现有轨道时出错:', error);
-            // 不抛出错误，继续流程
-        }
-    }, [localParticipant]);
-
-    // 新增：处理发布超时的函数
-    const handlePublishTimeout = useCallback(async () => {
-        try {
-            console.log('🔄 尝试恢复音频轨道发布...');
-            
-            // 清理失败的流
-            if (publishStreamRef.current) {
-                publishStreamRef.current.getTracks().forEach(track => track.stop());
-                publishStreamRef.current = null;
-            }
-            
-            // 重置状态
-            setIsActive(false);
-            setIsGatewayControlling(false);
-            
-            // 等待一段时间后尝试重新创建标准音频轨道
-            setTimeout(async () => {
-                try {
-                    console.log('🎤 创建标准音频轨道作为备用...');
-                    const fallbackStream = await navigator.mediaDevices.getUserMedia({
-                        audio: {
-                            echoCancellation: true,
-                            noiseSuppression: true,
-                            autoGainControl: true
-                        }
-                    });
-                    
-                    const fallbackTrack = fallbackStream.getAudioTracks()[0];
-                    if (fallbackTrack) {
-                        await localParticipant.publishTrack(fallbackTrack, {
-                            source: Track.Source.Microphone,
-                            name: 'microphone'
-                        });
-                        console.log('✅ 标准音频轨道发布成功');
-                    }
-                } catch (fallbackError) {
-                    console.error('❌ 创建备用音频轨道失败:', fallbackError);
-                }
-            }, 2000);
-            
-        } catch (error) {
-            console.error('❌ 处理发布超时失败:', error);
-        }
-    }, [localParticipant]);
-
-    // 新增：错误清理函数
-    const cleanupOnError = useCallback(async () => {
-        setIsActive(false);
-        setIsGatewayControlling(false);
-        setVADResult(null);
-        setGatewayState(null);
-        
-        // 清理分析音频流
-        if (analysisStreamRef.current) {
-            analysisStreamRef.current.getTracks().forEach(track => track.stop());
-            analysisStreamRef.current = null;
-        }
-        
-        // 清理发布音频流
-        if (publishStreamRef.current) {
-            publishStreamRef.current.getTracks().forEach(track => track.stop());
-            publishStreamRef.current = null;
-        }
-        
-        console.log('🧹 错误清理完成');
-    }, []);
+    }, [isActive, createDualAudioStreams, localParticipant, cleanupExistingTracks, handlePublishTimeout, cleanupOnError]);
 
     // 停止VAD和音频网关
     const stopVAD = useCallback(async () => {
@@ -351,7 +382,8 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
     // 新增：监听LiveKit连接状态
     useEffect(() => {
         const handleConnectionStateChange = () => {
-            if (localParticipant?.room?.state === 'disconnected') {
+            // 修改：使用正确的 LiveKit API 检查连接状态
+            if (room && room.state === 'disconnected') {
                 console.log('🔌 检测到房间断开连接，清理VAD状态');
                 setIsActive(false);
                 setIsGatewayControlling(false);
@@ -360,14 +392,15 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
             }
         };
 
-        if (localParticipant?.room) {
-            localParticipant.room.on('connectionStateChanged', handleConnectionStateChange);
-            
+        // 修改：使用正确的事件监听方式
+        if (room) {
+            room.on('connectionStateChanged', handleConnectionStateChange);
+
             return () => {
-                localParticipant.room?.off('connectionStateChanged', handleConnectionStateChange);
+                room.off('connectionStateChanged', handleConnectionStateChange);
             };
         }
-    }, [localParticipant]);
+    }, [room]);
 
     // 更新阈值
     const updateThreshold = useCallback((threshold: number) => {

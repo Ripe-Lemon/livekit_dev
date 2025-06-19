@@ -76,26 +76,73 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
         }
 
         try {
-            // 1. 首先尝试获取原始设备音频流
             console.log('🎤 创建原始音频流用于VAD分析和处理...');
+            
+            // 1. 创建原始音频流 - 使用更好的约束
             const originalStream = await navigator.mediaDevices.getUserMedia({
                 audio: {
                     echoCancellation: false,  // VAD需要原始音频
                     noiseSuppression: false,  // 不要降噪，VAD需要原始信号
                     autoGainControl: false,   // 不要自动增益
                     sampleRate: 48000,
-                    channelCount: 1
+                    channelCount: 1,
                 }
             });
 
-            // 2. 分析流：直接使用原始流
-            const analysisStream = originalStream;
+            console.log('✅ 原始音频流创建成功');
+            
+            // 验证原始流
+            const originalTrack = originalStream.getAudioTracks()[0];
+            if (!originalTrack || originalTrack.readyState !== 'live') {
+                originalStream.getTracks().forEach(track => track.stop());
+                throw new Error(`原始音频轨道状态无效: ${originalTrack?.readyState}`);
+            }
+
+            console.log('🔍 原始音频轨道详情:', {
+                label: originalTrack.label,
+                readyState: originalTrack.readyState,
+                settings: originalTrack.getSettings(),
+                constraints: originalTrack.getConstraints()
+            });
+
+            // 2. 分析流：克隆原始流用于VAD分析
+            const analysisStream = originalStream.clone();
+            console.log('📊 分析流已创建（克隆自原始流）');
 
             // 3. 发布流：通过音频网关处理原始流
+            console.log('🎛️ 创建发布流（通过音频网关）...');
             const publishStream = await audioGatewayRef.current.connectToStream(originalStream);
+            
             if (!publishStream) {
-                throw new Error('无法创建处理后的发布流');
+                // 清理资源
+                originalStream.getTracks().forEach(track => track.stop());
+                analysisStream.getTracks().forEach(track => track.stop());
+                throw new Error('音频网关无法创建发布流');
             }
+
+            // 验证发布流
+            const publishTrack = publishStream.getAudioTracks()[0];
+            if (!publishTrack) {
+                originalStream.getTracks().forEach(track => track.stop());
+                analysisStream.getTracks().forEach(track => track.stop());
+                throw new Error('发布流没有音频轨道');
+            }
+
+            // 等待发布轨道稳定
+            console.log('⏳ 等待发布轨道稳定...');
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            if (publishTrack.readyState !== 'live') {
+                originalStream.getTracks().forEach(track => track.stop());
+                analysisStream.getTracks().forEach(track => track.stop());
+                throw new Error(`发布音频轨道状态无效: ${publishTrack.readyState}`);
+            }
+
+            console.log('🔍 发布音频轨道详情:', {
+                label: publishTrack.label,
+                readyState: publishTrack.readyState,
+                settings: publishTrack.getSettings()
+            });
 
             console.log('✅ 双轨道音频流创建成功');
             console.log('📊 分析流轨道数:', analysisStream.getAudioTracks().length);
@@ -241,7 +288,7 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
             await cleanupExistingTracks();
             
             // 2. 等待清理完成
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise(resolve => setTimeout(resolve, 800));
             
             // 3. 创建双轨道音频流
             const streams = await createDualAudioStreams();
@@ -251,38 +298,43 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
 
             const { analysisStream, publishStream } = streams;
 
-            // 4. 验证流状态
+            // 4. 最终验证流状态
             const analysisTrack = analysisStream.getAudioTracks()[0];
+            const publishTrack = publishStream.getAudioTracks()[0];
+
+            console.log('🔍 最终音频轨道验证:', {
+                analysis: {
+                    exists: !!analysisTrack,
+                    readyState: analysisTrack?.readyState,
+                    enabled: analysisTrack?.enabled
+                },
+                publish: {
+                    exists: !!publishTrack,
+                    readyState: publishTrack?.readyState,
+                    enabled: publishTrack?.enabled
+                }
+            });
+
             if (!analysisTrack || analysisTrack.readyState !== 'live') {
                 throw new Error(`分析音频轨道状态无效: ${analysisTrack?.readyState}`);
             }
 
-            const publishTrack = publishStream.getAudioTracks()[0];
             if (!publishTrack || publishTrack.readyState !== 'live') {
                 throw new Error(`发布音频轨道状态无效: ${publishTrack?.readyState}`);
             }
 
-            console.log('🔍 音频轨道详情:', {
-                analysis: {
-                    label: analysisTrack.label,
-                    readyState: analysisTrack.readyState,
-                    enabled: analysisTrack.enabled,
-                    settings: analysisTrack.getSettings()
-                },
-                publish: {
-                    label: publishTrack.label,
-                    readyState: publishTrack.readyState,
-                    enabled: publishTrack.enabled,
-                    settings: publishTrack.getSettings()
-                }
-            });
-
             // 5. 连接VAD到分析流
+            console.log('🔗 连接VAD到分析流...');
             await vadProcessorRef.current.connectToMicrophone(analysisStream);
             analysisStreamRef.current = analysisStream;
 
-            // 6. 发布处理后的音频轨道到LiveKit - 使用更长的超时时间
+            // 6. 发布处理后的音频轨道到LiveKit
             console.log('📤 发布VAD处理后的音频轨道...');
+            
+            // 再次检查发布轨道状态
+            if (publishTrack.readyState !== 'live') {
+                throw new Error(`发布前音频轨道状态变为: ${publishTrack.readyState}`);
+            }
             
             // 添加发布超时保护
             const publishPromise = localParticipant.publishTrack(publishTrack, {
@@ -294,7 +346,7 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
             await Promise.race([
                 publishPromise,
                 new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error('音频轨道发布超时（10秒）')), 10000)
+                    setTimeout(() => reject(new Error('音频轨道发布超时（15秒）')), 15000)
                 )
             ]);
 
@@ -308,16 +360,15 @@ export function useVAD(initialConfig?: Partial<VADConfig>): VADHookResult {
         } catch (error) {
             console.error('❌ 启动VAD双轨道系统失败:', error);
             
-            // 如果是发布超时错误，尝试重新连接
-            if (
-                typeof error === 'object' &&
-                error !== null &&
-                'message' in error &&
-                typeof (error as any).message === 'string' &&
-                ((error as any).message.includes('timed out') || (error as any).message.includes('超时'))
-            ) {
+            // 根据错误类型进行不同处理
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            
+            if (errorMessage.includes('timed out') || errorMessage.includes('超时')) {
                 console.log('🔄 检测到发布超时，尝试重新连接...');
                 await handlePublishTimeout();
+            } else if (errorMessage.includes('ended') || errorMessage.includes('状态无效')) {
+                console.log('🔄 检测到轨道状态问题，这可能是暂时的');
+                await cleanupOnError();
             } else {
                 // 其他错误，直接清理
                 await cleanupOnError();

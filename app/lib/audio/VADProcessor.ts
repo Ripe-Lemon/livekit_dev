@@ -546,38 +546,134 @@ export class VADAudioGateway {
     private fadeInterval: number | null = null;
     
     private onStateChange: ((result: any) => void) | null = null;
+    private originalStream: MediaStream | null = null;
 
     constructor() {
-        this.initializeAudioContext();
+        // 不在构造函数中初始化音频上下文，而是在连接时初始化
+        console.log('🎛️ VAD音频网关已创建');
     }
 
     private async initializeAudioContext() {
         try {
+            // 确保在用户交互后创建音频上下文
             this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+            
+            // 如果音频上下文处于暂停状态，尝试恢复
+            if (this.audioContext.state === 'suspended') {
+                await this.audioContext.resume();
+                console.log('🎛️ 音频上下文已恢复');
+            }
+            
+            // 创建增益节点
             this.gainNode = this.audioContext.createGain();
             this.gainNode.gain.value = 1.0;
+            
+            // 创建目标流节点
             this.destinationNode = this.audioContext.createMediaStreamDestination();
+            
+            // 连接音频图
             this.gainNode.connect(this.destinationNode);
-            console.log('🎛️ VAD音频网关已初始化');
+            
+            console.log('🎛️ VAD音频网关音频上下文已初始化');
+            console.log('🔍 音频上下文状态:', this.audioContext.state);
+            console.log('🔍 音频上下文采样率:', this.audioContext.sampleRate);
+            
         } catch (error) {
             console.error('❌ VAD音频网关初始化失败:', error);
+            throw error;
         }
     }
 
     async connectToStream(inputStream: MediaStream): Promise<MediaStream | null> {
-        if (!this.audioContext || !this.gainNode || !this.destinationNode) {
-            console.error('VAD音频网关未正确初始化');
+        try {
+            console.log('🔗 VAD音频网关开始连接到输入流...');
+            
+            // 验证输入流
+            const inputTracks = inputStream.getAudioTracks();
+            if (inputTracks.length === 0) {
+                throw new Error('输入流没有音频轨道');
+            }
+            
+            const inputTrack = inputTracks[0];
+            console.log('🔍 输入音频轨道状态:', {
+                label: inputTrack.label,
+                readyState: inputTrack.readyState,
+                enabled: inputTrack.enabled,
+                muted: inputTrack.muted,
+                settings: inputTrack.getSettings()
+            });
+            
+            if (inputTrack.readyState !== 'live') {
+                throw new Error(`输入音频轨道状态无效: ${inputTrack.readyState}`);
+            }
+            
+            // 保存原始流引用
+            this.originalStream = inputStream;
+            
+            // 初始化音频上下文
+            await this.initializeAudioContext();
+            
+            if (!this.audioContext || !this.gainNode || !this.destinationNode) {
+                throw new Error('音频网关未正确初始化');
+            }
+            
+            // 创建源节点
+            this.sourceNode = this.audioContext.createMediaStreamSource(inputStream);
+            console.log('🔗 已创建音频源节点');
+            
+            // 连接音频图：源 -> 增益 -> 目标
+            this.sourceNode.connect(this.gainNode);
+            console.log('🔗 音频图已连接');
+            
+            // 验证输出流
+            const outputStream = this.destinationNode.stream;
+            const outputTracks = outputStream.getAudioTracks();
+            
+            if (outputTracks.length === 0) {
+                throw new Error('输出流没有生成音频轨道');
+            }
+            
+            const outputTrack = outputTracks[0];
+            console.log('🔍 输出音频轨道状态:', {
+                label: outputTrack.label,
+                readyState: outputTrack.readyState,
+                enabled: outputTrack.enabled,
+                muted: outputTrack.muted,
+                settings: outputTrack.getSettings()
+            });
+            
+            // 等待一小段时间确保轨道状态稳定
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            // 再次检查输出轨道状态
+            if (outputTrack.readyState !== 'live') {
+                throw new Error(`输出音频轨道状态无效: ${outputTrack.readyState}`);
+            }
+            
+            // 监听输入轨道状态变化
+            inputTrack.addEventListener('ended', () => {
+                console.log('⚠️ 输入音频轨道已结束，VAD音频网关将停止');
+                this.handleInputTrackEnded();
+            });
+            
+            console.log('✅ VAD音频网关已成功连接到输入流');
+            return outputStream;
+            
+        } catch (error) {
+            console.error('❌ VAD音频网关连接失败:', error);
+            this.cleanup();
             return null;
         }
+    }
 
-        try {
-            this.sourceNode = this.audioContext.createMediaStreamSource(inputStream);
-            this.sourceNode.connect(this.gainNode);
-            console.log('🔗 VAD音频网关已连接到输入流');
-            return this.destinationNode.stream;
-        } catch (error) {
-            console.error('❌ 连接音频流失败:', error);
-            return null;
+    private handleInputTrackEnded() {
+        console.log('🛑 处理输入轨道结束事件');
+        // 不立即清理，而是通知状态变化
+        if (this.onStateChange) {
+            this.onStateChange({
+                ...this.getState(),
+                inputEnded: true
+            });
         }
     }
 
@@ -589,6 +685,11 @@ export class VADAudioGateway {
         
         console.log(`🎛️ VAD音频网关切换传输状态: ${transmitting ? '开启' : '关闭'}`);
         
+        if (!this.gainNode || !this.audioContext) {
+            console.warn('音频网关未初始化，无法设置传输状态');
+            return;
+        }
+        
         if (this.fadeInterval) {
             clearInterval(this.fadeInterval);
         }
@@ -599,7 +700,7 @@ export class VADAudioGateway {
         this.fadeInterval = window.setInterval(() => {
             if (Math.abs(this.currentGain - this.targetGain) < fadeStep) {
                 this.currentGain = this.targetGain;
-                if (this.gainNode) {
+                if (this.gainNode && this.audioContext && this.audioContext.state === 'running') {
                     this.gainNode.gain.value = this.currentGain;
                 }
                 
@@ -616,7 +717,7 @@ export class VADAudioGateway {
                     this.currentGain = Math.max(this.targetGain, this.currentGain - fadeStep);
                 }
                 
-                if (this.gainNode) {
+                if (this.gainNode && this.audioContext && this.audioContext.state === 'running') {
                     this.gainNode.gain.value = this.currentGain;
                 }
             }
@@ -627,7 +728,9 @@ export class VADAudioGateway {
         return {
             isControlling: true,
             isTransmitting: this.isTransmitting,
-            outputVolume: this.currentGain
+            outputVolume: this.currentGain,
+            audioContextState: this.audioContext?.state || 'closed',
+            hasValidOutput: this.destinationNode?.stream.getAudioTracks()[0]?.readyState === 'live'
         };
     }
 
@@ -641,36 +744,51 @@ export class VADAudioGateway {
         }
     }
 
-    disconnect() {
+    private cleanup() {
         if (this.fadeInterval) {
             clearInterval(this.fadeInterval);
             this.fadeInterval = null;
         }
         
         if (this.sourceNode) {
-            this.sourceNode.disconnect();
+            try {
+                this.sourceNode.disconnect();
+            } catch (error) {
+                console.warn('断开源节点时出错:', error);
+            }
             this.sourceNode = null;
         }
         
         if (this.gainNode) {
-            this.gainNode.disconnect();
+            try {
+                this.gainNode.disconnect();
+            } catch (error) {
+                console.warn('断开增益节点时出错:', error);
+            }
             this.gainNode = null;
         }
-        
-        console.log('🔌 VAD音频网关已断开连接');
+    }
+
+    disconnect() {
+        console.log('🔌 VAD音频网关断开连接');
+        this.cleanup();
     }
 
     dispose() {
-        this.disconnect();
+        console.log('🗑️ VAD音频网关开始销毁');
         
-        if (this.audioContext && this.audioContext.state !== 'closed') {
-            this.audioContext.close();
+        this.cleanup();
+        
+        // 不要关闭音频上下文，让浏览器管理
+        if (this.audioContext) {
+            console.log('🔍 保留音频上下文，让浏览器管理');
             this.audioContext = null;
         }
         
         this.destinationNode = null;
+        this.originalStream = null;
         this.onStateChange = null;
         
-        console.log('🗑️ VAD音频网关已销毁');
+        console.log('✅ VAD音频网关已销毁');
     }
 }

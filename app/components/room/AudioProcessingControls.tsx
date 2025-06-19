@@ -1,14 +1,18 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { useRoomContext } from '@livekit/components-react';
 import { useAudioProcessing, type AudioProcessingSettings } from '../../hooks/useAudioProcessing';
 import { useVAD } from '../../hooks/useVAD';
+import { useTrackDebugger } from '../../hooks/useTrackDebugger';
 
 interface AudioProcessingControlsProps {
     className?: string;
 }
 
 export function AudioProcessingControls({ className = '' }: AudioProcessingControlsProps) {
+    const room = useRoomContext();
+    
     const { 
         settings, 
         updateSetting, 
@@ -36,6 +40,17 @@ export function AudioProcessingControls({ className = '' }: AudioProcessingContr
         analyzeWindow: settings.vadAnalyzeWindow
     });
     
+    // 新增：音轨调试Hook
+    const {
+        trackAnalysis,
+        isAutoMonitoring,
+        analyzeAllRemoteTracks,
+        monitorRemoteTrackVolume,
+        startAutoMonitoring,
+        stopAllVolumeMonitors,
+        getMonitoringStatus
+    } = useTrackDebugger(room);
+
     const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['basic']));
     const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -716,26 +731,130 @@ export function AudioProcessingControls({ className = '' }: AudioProcessingContr
             {process.env.NODE_ENV === 'development' && (
                 <div className="bg-yellow-900/20 border border-yellow-800 rounded-lg p-3">
                     <h5 className="text-sm font-medium text-yellow-300 mb-2">🧪 VAD调试工具</h5>
-                    <div className="flex space-x-2">
-                        <button
-                            onClick={handleVADTest}
-                            className="px-3 py-2 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-500 transition-colors"
-                        >
-                            测试音频输入
-                        </button>
-                        <button
-                            onClick={() => {
-                                const debugInfo = vadProcessor?.getDebugInfo();
-                                console.log('🔍 VAD状态:', debugInfo);
-                                alert(`VAD状态已输出到控制台\n音量: ${vadResult?.volume.toFixed(3) || 0}\n活跃: ${vadActive}`);
-                            }}
-                            className="px-3 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-500 transition-colors"
-                        >
-                            状态检查
-                        </button>
+                    <div className="space-y-3">
+                        <div className="flex space-x-2 flex-wrap gap-2">
+                            <button
+                                onClick={handleVADTest}
+                                className="px-3 py-2 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-500 transition-colors"
+                            >
+                                测试音频输入
+                            </button>
+                            <button
+                                onClick={() => {
+                                    const debugInfo = vadProcessor?.getDebugInfo();
+                                    console.log('🔍 VAD状态:', debugInfo);
+                                    alert(`VAD状态已输出到控制台\n音量: ${vadResult?.volume.toFixed(3) || 0}\n活跃: ${vadActive}`);
+                                }}
+                                className="px-3 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-500 transition-colors"
+                            >
+                                状态检查
+                            </button>
+                        </div>
+                        
+                        {/* 新增：远程音轨分析工具 */}
+                        <div className="border-t border-yellow-700 pt-3">
+                            <p className="text-xs text-yellow-400 mb-2">🎤 远程音轨分析工具</p>
+                            
+                            {/* 状态显示 */}
+                            <div className="bg-black/20 rounded p-2 mb-2 text-xs">
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <span className="text-gray-400">已分析音轨:</span>
+                                        <span className="text-white ml-1">{trackAnalysis.length}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-gray-400">监控状态:</span>
+                                        <span className={`ml-1 ${isAutoMonitoring ? 'text-green-400' : 'text-gray-400'}`}>
+                                            {isAutoMonitoring ? '运行中' : '已停止'}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            {/* 分析按钮 */}
+                            <div className="grid grid-cols-2 gap-2 mb-2">
+                                <button
+                                    onClick={() => {
+                                        const analysis = analyzeAllRemoteTracks();
+                                        console.log('📊 完整分析结果:', analysis);
+                                        alert(`✅ 已分析 ${analysis.length} 个远程音轨\n\n详细信息：\n${analysis.map(t => `• ${t.participantId}: ${t.vadAnalysis?.是否VAD处理 ? 'VAD处理' : '标准音轨'}`).join('\n')}\n\n详情请查看控制台`);
+                                    }}
+                                    className="px-3 py-2 bg-purple-600 text-white rounded text-sm hover:bg-purple-500 transition-colors"
+                                >
+                                    📊 分析音轨
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        const participantId = prompt('请输入要监控的参与者ID:');
+                                        if (participantId) {
+                                            const monitor = monitorRemoteTrackVolume(
+                                                participantId, 
+                                                20000,
+                                                (data) => {
+                                                    // 可选：实时音量回调
+                                                    if (data.rmsVolume > 0.01) {
+                                                        console.log(`📈 ${data.participantId} 实时音量: ${data.rmsVolume.toFixed(4)}`);
+                                                    }
+                                                }
+                                            );
+                                            
+                                            if (monitor) {
+                                                alert(`🎧 开始监控 ${participantId} 音频 20 秒\n查看控制台输出详细数据`);
+                                            } else {
+                                                alert(`❌ 无法监控 ${participantId}\n请检查参与者是否存在且有音频轨道`);
+                                            }
+                                        }
+                                    }}
+                                    className="px-3 py-2 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-500 transition-colors"
+                                >
+                                    🎧 单独监控
+                                </button>
+                            </div>
+                            
+                            {/* 自动监控按钮 */}
+                            <div className="grid grid-cols-2 gap-2">
+                                <button
+                                    onClick={() => {
+                                        if (isAutoMonitoring) {
+                                            stopAllVolumeMonitors();
+                                            alert('⏹️ 已停止所有音量监控');
+                                        } else {
+                                            startAutoMonitoring(30000);
+                                            alert('🚀 开始自动监控所有远程音轨 30 秒\n- 自动分析所有音轨\n- 监控活跃音轨音量\n- 详情查看控制台');
+                                        }
+                                    }}
+                                    className={`px-3 py-2 text-white rounded text-sm transition-colors ${
+                                        isAutoMonitoring 
+                                            ? 'bg-red-600 hover:bg-red-500' 
+                                            : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500'
+                                    }`}
+                                    disabled={!room}
+                                >
+                                    {isAutoMonitoring ? '⏹️ 停止监控' : '🚀 自动监控'}
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        const status = getMonitoringStatus();
+                                        const analysis = analyzeAllRemoteTracks();
+                                        
+                                        console.group('🔍 完整音轨调试报告');
+                                        console.log('📊 远程音轨分析:', analysis);
+                                        console.log('🎧 监控状态:', status);
+                                        console.groupEnd();
+                                        
+                                        alert(`🔍 完整调试报告已生成\n\n📊 分析结果:\n${analysis.length} 个远程音轨\n\n🎧 监控状态:\n活跃监控: ${status.totalActiveMonitors} 个\n自动监控: ${status.isAutoMonitoring ? '运行中' : '已停止'}\n\n详细信息请查看控制台`);
+                                    }}
+                                    className="px-3 py-2 bg-emerald-600 text-white rounded text-sm hover:bg-emerald-500 transition-colors"
+                                    disabled={!room}
+                                >
+                                    📋 完整报告
+                                </button>
+                            </div>
+                        </div>
                     </div>
+                    
                     <p className="text-xs text-yellow-400 mt-2">
-                        💡 测试时请说话，检查控制台是否有音频数据输出
+                        💡 这些工具帮助你检测和分析接收到的远程音轨类型、设置和音量水平
                     </p>
                 </div>
             )}

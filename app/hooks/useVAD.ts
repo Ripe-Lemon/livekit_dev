@@ -1,3 +1,8 @@
+'use client';
+
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useLocalParticipant } from '@livekit/components-react';
+import { Track } from 'livekit-client';
 import { VADProcessor, VADAudioGateway, VADResult, VADConfig } from '../lib/audio/VADProcessor';
 
 export interface VADHookResult {

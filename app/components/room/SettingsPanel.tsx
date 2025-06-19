@@ -107,18 +107,59 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
 
     const handleVADToggle = async () => {
         try {
+            console.log(`🔄 VAD切换: ${vadActive ? '禁用' : '启用'}`);
+            
             if (vadActive) {
+                // 禁用VAD
+                console.log('⏹️ 停止VAD...');
                 stopVAD();
                 await updateSetting('vadEnabled', false);
+                console.log('✅ VAD已禁用');
             } else {
+                // 启用VAD
+                console.log('▶️ 启动VAD...');
                 await updateSetting('vadEnabled', true);
-                await startVAD();
-                // 应用当前VAD设置
-                updateThreshold(settings.vadThreshold);
+                
+                // 使用重试机制启动VAD
+                let retryCount = 0;
+                const maxRetries = 3;
+                
+                while (retryCount < maxRetries) {
+                    try {
+                        await startVAD();
+                        updateThreshold(settings.vadThreshold);
+                        console.log('✅ VAD已启用');
+                        break;
+                    } catch (error) {
+                        retryCount++;
+                        console.warn(`❌ VAD启动失败 (尝试 ${retryCount}/${maxRetries}):`, error);
+                        
+                        if (retryCount < maxRetries) {
+                            const delay = retryCount * 2000; // 递增延迟：2s, 4s, 6s
+                            console.log(`🔄 ${delay/1000}秒后重试...`);
+                            await new Promise(resolve => setTimeout(resolve, delay));
+                        } else {
+                            // 最终失败，回退设置
+                            await updateSetting('vadEnabled', false);
+                            throw new Error(`VAD启动失败，已尝试${maxRetries}次`);
+                        }
+                    }
+                }
             }
         } catch (error) {
             console.error('VAD切换失败:', error);
-            await updateSetting('vadEnabled', false);
+            
+            // 确保UI状态与实际状态一致
+            if (vadActive) {
+                await updateSetting('vadEnabled', false);
+            }
+            
+            // 显示用户友好的错误信息
+            const errorMessage = error.message.includes('timed out') 
+                ? 'VAD启动超时，可能是网络连接问题，请稍后重试'
+                : `VAD操作失败: ${error.message}`;
+                
+            alert(errorMessage);
         }
     };
 
@@ -223,21 +264,29 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
 
     // 同步VAD状态 - 修复无限循环
     useEffect(() => {
-        // 添加防抖，避免频繁操作
         if (settings.vadEnabled !== vadActive) {
-            const timeoutId = setTimeout(() => {
-                if (settings.vadEnabled && !vadActive) {
-                    console.log('⚙️ 设置要求启用VAD，但VAD未活跃，启动VAD');
-                    startVAD().catch(console.error);
-                } else if (!settings.vadEnabled && vadActive) {
-                    console.log('⚙️ 设置要求禁用VAD，停止VAD');
-                    stopVAD();
+            const timeoutId = setTimeout(async () => {
+                try {
+                    if (settings.vadEnabled && !vadActive) {
+                        console.log('⚙️ 设置要求启用VAD，但VAD未活跃，尝试启动VAD');
+                        // 只尝试一次自动启动，失败则不重试
+                        await startVAD();
+                    } else if (!settings.vadEnabled && vadActive) {
+                        console.log('⚙️ 设置要求禁用VAD，停止VAD');
+                        stopVAD();
+                    }
+                } catch (error) {
+                    console.warn('自动VAD同步失败:', error);
+                    // 自动同步失败时，重置设置状态
+                    if (settings.vadEnabled && !vadActive) {
+                        await updateSetting('vadEnabled', false);
+                    }
                 }
-            }, 100); // 100ms防抖
+            }, 300); // 增加防抖时间
 
             return () => clearTimeout(timeoutId);
         }
-    }, [settings.vadEnabled, vadActive]); // 移除startVAD, stopVAD依赖避免循环
+    }, [settings.vadEnabled, vadActive]);
 
     // 调试功能（仅开发环境）
     const handleDebugAudio = useCallback(() => {

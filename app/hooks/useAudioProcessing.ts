@@ -66,6 +66,9 @@ export function useAudioProcessing(): AudioProcessingControls {
     // 音频轨道引用
     const currentTrackRef = useRef<LocalAudioTrack | null>(null);
     const isInitializingRef = useRef<boolean>(false);
+    
+    // 新增：当前音频设备 ID 引用
+    const currentAudioDeviceRef = useRef<string | null>(null);
 
     // 保存设置到本地存储
     const saveSettings = useCallback((newSettings: AudioProcessingSettings) => {
@@ -78,25 +81,79 @@ export function useAudioProcessing(): AudioProcessingControls {
         }
     }, []);
 
+    // 新增：获取当前音频设备 ID
+    const getCurrentAudioDeviceId = useCallback((): string => {
+        // 1. 首先尝试从当前轨道获取设备 ID
+        if (currentTrackRef.current?.mediaStreamTrack) {
+            const settings = currentTrackRef.current.mediaStreamTrack.getSettings();
+            if (settings.deviceId) {
+                console.log('🎤 从当前轨道获取设备 ID:', settings.deviceId);
+                return settings.deviceId;
+            }
+        }
+
+        // 2. 尝试从缓存的设备 ID 获取
+        if (currentAudioDeviceRef.current) {
+            console.log('🎤 使用缓存的设备 ID:', currentAudioDeviceRef.current);
+            return currentAudioDeviceRef.current;
+        }
+
+        // 3. 尝试从本地存储获取用户选择的设备
+        try {
+            const storedDevices = localStorage.getItem('livekit_selected_devices');
+            if (storedDevices) {
+                const parsed = JSON.parse(storedDevices);
+                if (parsed.audioinput) {
+                    console.log('🎤 从本地存储获取设备 ID:', parsed.audioinput);
+                    return parsed.audioinput;
+                }
+            }
+        } catch (error) {
+            console.warn('读取存储的设备选择失败:', error);
+        }
+
+        // 4. 最后使用默认设备
+        console.log('🎤 使用默认音频设备');
+        return 'default';
+    }, []);
+
+    // 新增：缓存当前音频设备 ID
+    const cacheCurrentAudioDeviceId = useCallback(() => {
+        if (currentTrackRef.current?.mediaStreamTrack) {
+            const settings = currentTrackRef.current.mediaStreamTrack.getSettings();
+            if (settings.deviceId) {
+                currentAudioDeviceRef.current = settings.deviceId;
+                console.log('📝 已缓存当前音频设备 ID:', settings.deviceId);
+            }
+        }
+    }, []);
+
     // 创建音频轨道配置
-    const createAudioCaptureOptions = useCallback((settings: AudioProcessingSettings): AudioCaptureOptions => {
+    const createAudioCaptureOptions = useCallback((settings: AudioProcessingSettings, deviceId?: string): AudioCaptureOptions => {
+        // 获取要使用的设备 ID
+        const targetDeviceId = deviceId || getCurrentAudioDeviceId();
+        
         const options: AudioCaptureOptions = {
             autoGainControl: settings.autoGainControl,
             noiseSuppression: settings.noiseSuppression,
             echoCancellation: settings.echoCancellation,
             voiceIsolation: settings.voiceIsolation,
             sampleRate: { ideal: settings.sampleRate },
-            channelCount: { ideal: settings.channelCount },
+            channelCount: { exact: 1 },
             latency: { ideal: settings.latency },
-            deviceId: 'default'
+            deviceId: targetDeviceId // 🎯 使用保持的设备 ID
         };
 
-        console.log('🎛️ 创建音频捕获选项:', options);
+        console.log('🎛️ 创建音频捕获选项:', {
+            ...options,
+            deviceId: `${targetDeviceId} (${targetDeviceId === 'default' ? '默认设备' : '指定设备'})`
+        });
+        
         return options;
-    }, []);
+    }, [getCurrentAudioDeviceId]);
 
     // 应用音频处理设置
-    const applyAudioProcessing = useCallback(async (newSettings: AudioProcessingSettings) => {
+    const applyAudioProcessing = useCallback(async (newSettings: AudioProcessingSettings, preserveDeviceId?: string) => {
         if (!localParticipant || !room) {
             console.warn('本地参与者或房间不存在，无法应用音频设置');
             return false;
@@ -110,6 +167,11 @@ export function useAudioProcessing(): AudioProcessingControls {
         try {
             isInitializingRef.current = true;
             console.log('🎛️ 开始应用音频处理设置:', newSettings);
+
+            // 🎯 在停止轨道前先缓存当前设备 ID
+            cacheCurrentAudioDeviceId();
+            const deviceIdToUse = preserveDeviceId || getCurrentAudioDeviceId();
+            console.log('🎤 将使用音频设备:', deviceIdToUse);
 
             // 获取当前音频发布状态
             const audioPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
@@ -129,17 +191,32 @@ export function useAudioProcessing(): AudioProcessingControls {
             // 等待轨道完全停止
             await new Promise(resolve => setTimeout(resolve, 300));
 
-            // 使用 LiveKit 官方 API 创建新轨道
-            const captureOptions = createAudioCaptureOptions(newSettings);
+            // 🎯 使用保持的设备 ID 创建新轨道
+            const captureOptions = createAudioCaptureOptions(newSettings, deviceIdToUse);
             const newAudioTrack = await createLocalAudioTrack(captureOptions);
 
             currentTrackRef.current = newAudioTrack;
+
+            // 🎯 验证创建的轨道使用了正确的设备
+            const actualSettings = newAudioTrack.mediaStreamTrack.getSettings();
+            console.log('🔍 验证音频轨道设备:', {
+                期望设备: deviceIdToUse,
+                实际设备: actualSettings.deviceId,
+                设备匹配: actualSettings.deviceId === deviceIdToUse || (deviceIdToUse === 'default' && actualSettings.deviceId),
+                其他设置: {
+                    sampleRate: actualSettings.sampleRate,
+                    channelCount: actualSettings.channelCount,
+                    autoGainControl: actualSettings.autoGainControl,
+                    noiseSuppression: actualSettings.noiseSuppression,
+                    echoCancellation: actualSettings.echoCancellation
+                }
+            });
 
             // 发布新轨道（设置 stopMicTrackOnMute）
             await localParticipant.publishTrack(newAudioTrack, {
                 name: 'microphone',
                 source: Track.Source.Microphone,
-                stopMicTrackOnMute: true  // 🎯 关键设置
+                stopMicTrackOnMute: true
             });
 
             console.log('📤 新音频轨道已发布（stopMicTrackOnMute: true）');
@@ -149,10 +226,15 @@ export function useAudioProcessing(): AudioProcessingControls {
                 await localParticipant.setMicrophoneEnabled(true);
             }
 
+            // 🎯 更新设备 ID 缓存
+            if (actualSettings.deviceId) {
+                currentAudioDeviceRef.current = actualSettings.deviceId;
+            }
+
             setIsProcessingActive(true);
             setIsInitialized(true);
 
-            console.log('✅ 音频处理设置应用成功');
+            console.log('✅ 音频处理设置应用成功，设备已保持');
             return true;
 
         } catch (error) {
@@ -162,7 +244,7 @@ export function useAudioProcessing(): AudioProcessingControls {
         } finally {
             isInitializingRef.current = false;
         }
-    }, [localParticipant, room, createAudioCaptureOptions]);
+    }, [localParticipant, room, createAudioCaptureOptions, cacheCurrentAudioDeviceId, getCurrentAudioDeviceId]);
 
     // 更新单个设置
     const updateSetting = useCallback(async (
@@ -194,9 +276,13 @@ export function useAudioProcessing(): AudioProcessingControls {
                 key === 'channelCount' ||
                 key === 'latency'
             )) {
-                console.log(`🔄 立即应用 ${key} 设置: ${value}`);
-                await applyAudioProcessing(newSettings);
-                console.log(`✅ ${key} 设置已应用: ${value}`);
+                console.log(`🔄 立即应用 ${key} 设置: ${value} (保持当前设备)`);
+                
+                // 🎯 传递当前设备 ID 以保持设备不变
+                const currentDeviceId = getCurrentAudioDeviceId();
+                await applyAudioProcessing(newSettings, currentDeviceId);
+                
+                console.log(`✅ ${key} 设置已应用: ${value} (设备已保持)`);
             } else if (key === 'microphoneThreshold') {
                 // 麦克风门限不需要重新创建轨道
                 console.log(`✅ 麦克风门限已设置为: ${value}`);
@@ -215,7 +301,7 @@ export function useAudioProcessing(): AudioProcessingControls {
                 return newSet;
             });
         }
-    }, [settings, applyingSettings, saveSettings, applyAudioProcessing, isInitialized]);
+    }, [settings, applyingSettings, saveSettings, applyAudioProcessing, isInitialized, getCurrentAudioDeviceId]);
 
     // 检查是否正在应用设置
     const isApplying = useCallback((key: keyof AudioProcessingSettings) => {
@@ -231,15 +317,17 @@ export function useAudioProcessing(): AudioProcessingControls {
             saveSettings(DEFAULT_SETTINGS);
             
             if (isInitialized) {
-                await applyAudioProcessing(DEFAULT_SETTINGS);
+                // 🎯 重置时也保持当前设备
+                const currentDeviceId = getCurrentAudioDeviceId();
+                await applyAudioProcessing(DEFAULT_SETTINGS, currentDeviceId);
             }
             
-            console.log('✅ 已重置为默认设置');
+            console.log('✅ 已重置为默认设置（设备已保持）');
         } catch (error) {
             console.error('❌ 重置设置失败:', error);
             throw error;
         }
-    }, [saveSettings, applyAudioProcessing, isInitialized]);
+    }, [saveSettings, applyAudioProcessing, isInitialized, getCurrentAudioDeviceId]);
 
     // 核心：监听房间连接状态，自动初始化音频处理
     useEffect(() => {
@@ -263,6 +351,7 @@ export function useAudioProcessing(): AudioProcessingControls {
         // 延迟初始化，确保 LiveKit 完全准备就绪
         const timer = setTimeout(async () => {
             try {
+                // 🎯 初始化时获取当前设备（可能是用户手动选择的）
                 await applyAudioProcessing(settings);
                 console.log('✅ 音频处理自动初始化完成');
             } catch (error) {
@@ -272,6 +361,34 @@ export function useAudioProcessing(): AudioProcessingControls {
 
         return () => clearTimeout(timer);
     }, [localParticipant, room, room?.state, isInitialized, settings, applyAudioProcessing]);
+
+    // 🎯 新增：监听外部设备变更（比如用户通过控制栏切换设备）
+    useEffect(() => {
+        if (!isInitialized || !localParticipant) return;
+
+        // 定期检查设备是否被外部更改
+        const checkDeviceChange = () => {
+            const audioPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
+            if (audioPublication?.track) {
+                const currentSettings = audioPublication.track.mediaStreamTrack.getSettings();
+                if (currentSettings.deviceId && 
+                    currentAudioDeviceRef.current && 
+                    currentSettings.deviceId !== currentAudioDeviceRef.current) {
+                    
+                    console.log('🔄 检测到外部设备变更:', {
+                        之前: currentAudioDeviceRef.current,
+                        现在: currentSettings.deviceId
+                    });
+                    
+                    // 更新缓存的设备 ID
+                    currentAudioDeviceRef.current = currentSettings.deviceId;
+                }
+            }
+        };
+
+        const interval = setInterval(checkDeviceChange, 2000); // 每2秒检查一次
+        return () => clearInterval(interval);
+    }, [isInitialized, localParticipant]);
 
     // 清理函数
     useEffect(() => {
@@ -283,6 +400,7 @@ export function useAudioProcessing(): AudioProcessingControls {
                 currentTrackRef.current = null;
             }
             
+            currentAudioDeviceRef.current = null;
             setIsProcessingActive(false);
             setIsInitialized(false);
             isInitializingRef.current = false;

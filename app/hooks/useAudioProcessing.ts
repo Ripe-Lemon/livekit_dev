@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
-import { Track, createLocalAudioTrack, LocalAudioTrack, AudioCaptureOptions } from 'livekit-client';
+import { Track, LocalAudioTrack } from 'livekit-client';
 
 export interface AudioProcessingSettings {
     autoGainControl: boolean;
@@ -23,12 +23,13 @@ export interface AudioProcessingControls {
     resetToDefaults: () => Promise<void>;
     isProcessingActive: boolean;
     isInitialized: boolean;
+    audioLevel: number;
 }
 
 const DEFAULT_SETTINGS: AudioProcessingSettings = {
     autoGainControl: true,
     noiseSuppression: true,
-    echoCancellation: false,
+    echoCancellation: false, // 只能在获取原始流时设置
     voiceIsolation: false,
     microphoneThreshold: 0.3,
     sampleRate: 48000,
@@ -42,33 +43,41 @@ export function useAudioProcessing(): AudioProcessingControls {
     const { localParticipant } = useLocalParticipant();
     const room = useRoomContext();
     
-    // 从本地存储加载设置
-    const loadSettings = useCallback((): AudioProcessingSettings => {
+    // 状态管理
+    const [settings, setSettings] = useState<AudioProcessingSettings>(() => {
         if (typeof window === 'undefined') return DEFAULT_SETTINGS;
-        
         try {
             const stored = localStorage.getItem(STORAGE_KEY);
-            if (stored) {
-                const parsed = JSON.parse(stored);
-                return { ...DEFAULT_SETTINGS, ...parsed };
-            }
-        } catch (error) {
-            console.warn('加载音频处理设置失败:', error);
+            return stored ? { ...DEFAULT_SETTINGS, ...JSON.parse(stored) } : DEFAULT_SETTINGS;
+        } catch {
+            return DEFAULT_SETTINGS;
         }
-        return DEFAULT_SETTINGS;
-    }, []);
-
-    const [settings, setSettings] = useState<AudioProcessingSettings>(loadSettings);
+    });
+    
     const [applyingSettings, setApplyingSettings] = useState<Set<string>>(new Set());
     const [isProcessingActive, setIsProcessingActive] = useState(false);
     const [isInitialized, setIsInitialized] = useState(false);
+    const [audioLevel, setAudioLevel] = useState(0);
     
-    // 音频轨道引用
-    const currentTrackRef = useRef<LocalAudioTrack | null>(null);
+    // Web Audio API 节点引用
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
+    const destinationNodeRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+    
+    // 音频处理节点
+    const gainNodeRef = useRef<GainNode | null>(null);
+    const compressorNodeRef = useRef<DynamicsCompressorNode | null>(null);
+    const highpassFilterRef = useRef<BiquadFilterNode | null>(null);
+    const lowpassFilterRef = useRef<BiquadFilterNode | null>(null);
+    const gateNodeRef = useRef<GainNode | null>(null);
+    const analyserNodeRef = useRef<AnalyserNode | null>(null);
+    
+    // 其他引用
+    const originalStreamRef = useRef<MediaStream | null>(null);
+    const processedTrackRef = useRef<LocalAudioTrack | null>(null);
     const isInitializingRef = useRef<boolean>(false);
-    
-    // 新增：当前音频设备 ID 引用
-    const currentAudioDeviceRef = useRef<string | null>(null);
+    const animationFrameRef = useRef<number | null>(null);
+    const audioDataRef = useRef<Uint8Array | null>(null);
 
     // 保存设置到本地存储
     const saveSettings = useCallback((newSettings: AudioProcessingSettings) => {
@@ -81,172 +90,283 @@ export function useAudioProcessing(): AudioProcessingControls {
         }
     }, []);
 
-    // 新增：获取当前音频设备 ID
+    // 获取当前音频设备ID
     const getCurrentAudioDeviceId = useCallback((): string => {
-        // 1. 首先尝试从当前轨道获取设备 ID
-        if (currentTrackRef.current?.mediaStreamTrack) {
-            const settings = currentTrackRef.current.mediaStreamTrack.getSettings();
-            if (settings.deviceId) {
-                console.log('🎤 从当前轨道获取设备 ID:', settings.deviceId);
-                return settings.deviceId;
+        if (processedTrackRef.current?.mediaStreamTrack) {
+            const trackSettings = processedTrackRef.current.mediaStreamTrack.getSettings();
+            if (trackSettings.deviceId) {
+                return trackSettings.deviceId;
             }
         }
-
-        // 2. 尝试从缓存的设备 ID 获取
-        if (currentAudioDeviceRef.current) {
-            console.log('🎤 使用缓存的设备 ID:', currentAudioDeviceRef.current);
-            return currentAudioDeviceRef.current;
-        }
-
-        // 3. 尝试从本地存储获取用户选择的设备
+        
         try {
             const storedDevices = localStorage.getItem('livekit_selected_devices');
             if (storedDevices) {
                 const parsed = JSON.parse(storedDevices);
                 if (parsed.audioinput) {
-                    console.log('🎤 从本地存储获取设备 ID:', parsed.audioinput);
                     return parsed.audioinput;
                 }
             }
         } catch (error) {
             console.warn('读取存储的设备选择失败:', error);
         }
-
-        // 4. 最后使用默认设备
-        console.log('🎤 使用默认音频设备');
+        
         return 'default';
     }, []);
 
-    // 新增：缓存当前音频设备 ID
-    const cacheCurrentAudioDeviceId = useCallback(() => {
-        if (currentTrackRef.current?.mediaStreamTrack) {
-            const settings = currentTrackRef.current.mediaStreamTrack.getSettings();
-            if (settings.deviceId) {
-                currentAudioDeviceRef.current = settings.deviceId;
-                console.log('📝 已缓存当前音频设备 ID:', settings.deviceId);
-            }
-        }
-    }, []);
-
-    // 创建音频轨道配置
-    const createAudioCaptureOptions = useCallback((settings: AudioProcessingSettings, deviceId?: string): AudioCaptureOptions => {
-        // 获取要使用的设备 ID
-        const targetDeviceId = deviceId || getCurrentAudioDeviceId();
+    // 初始化 Web Audio API 处理链
+    const initializeAudioProcessingChain = useCallback(async () => {
+        console.log('🎛️ 初始化音频处理链...');
         
-        const options: AudioCaptureOptions = {
-            autoGainControl: settings.autoGainControl,
-            noiseSuppression: settings.noiseSuppression,
-            echoCancellation: settings.echoCancellation,
-            voiceIsolation: settings.voiceIsolation,
-            sampleRate: { ideal: settings.sampleRate },
-            channelCount: { exact: 1 },
-            latency: { ideal: settings.latency },
-            deviceId: targetDeviceId // 🎯 使用保持的设备 ID
-        };
-
-        console.log('🎛️ 创建音频捕获选项:', {
-            ...options,
-            deviceId: `${targetDeviceId} (${targetDeviceId === 'default' ? '默认设备' : '指定设备'})`
-        });
-        
-        return options;
-    }, [getCurrentAudioDeviceId]);
-
-    // 应用音频处理设置
-    const applyAudioProcessing = useCallback(async (newSettings: AudioProcessingSettings, preserveDeviceId?: string) => {
-        if (!localParticipant || !room) {
-            console.warn('本地参与者或房间不存在，无法应用音频设置');
-            return false;
-        }
-
-        if (isInitializingRef.current) {
-            console.log('⏳ 音频处理正在初始化中，跳过重复应用');
-            return false;
-        }
-
         try {
-            isInitializingRef.current = true;
-            console.log('🎛️ 开始应用音频处理设置:', newSettings);
-
-            // 🎯 在停止轨道前先缓存当前设备 ID
-            cacheCurrentAudioDeviceId();
-            const deviceIdToUse = preserveDeviceId || getCurrentAudioDeviceId();
-            console.log('🎤 将使用音频设备:', deviceIdToUse);
-
-            // 获取当前音频发布状态
-            const audioPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
-            const wasEnabled = audioPublication ? !audioPublication.isMuted : false;
-
-            // 停止当前轨道
-            if (audioPublication?.track) {
-                console.log('🛑 停止当前音频轨道');
-                audioPublication.track.stop();
-                await localParticipant.unpublishTrack(audioPublication.track);
-                
-                if (currentTrackRef.current === audioPublication.track) {
-                    currentTrackRef.current = null;
-                }
-            }
-
-            // 等待轨道完全停止
-            await new Promise(resolve => setTimeout(resolve, 300));
-
-            // 🎯 使用保持的设备 ID 创建新轨道
-            const captureOptions = createAudioCaptureOptions(newSettings, deviceIdToUse);
-            const newAudioTrack = await createLocalAudioTrack(captureOptions);
-
-            currentTrackRef.current = newAudioTrack;
-
-            // 🎯 验证创建的轨道使用了正确的设备
-            const actualSettings = newAudioTrack.mediaStreamTrack.getSettings();
-            console.log('🔍 验证音频轨道设备:', {
-                期望设备: deviceIdToUse,
-                实际设备: actualSettings.deviceId,
-                设备匹配: actualSettings.deviceId === deviceIdToUse || (deviceIdToUse === 'default' && actualSettings.deviceId),
-                其他设置: {
-                    sampleRate: actualSettings.sampleRate,
-                    channelCount: actualSettings.channelCount,
-                    autoGainControl: actualSettings.autoGainControl,
-                    noiseSuppression: actualSettings.noiseSuppression,
-                    echoCancellation: actualSettings.echoCancellation
-                }
+            // 创建音频上下文
+            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({
+                sampleRate: settings.sampleRate,
+                latencyHint: 'interactive'
             });
 
-            // 发布新轨道（设置 stopMicTrackOnMute）
-            await localParticipant.publishTrack(newAudioTrack, {
+            const audioContext = audioContextRef.current;
+
+            // 创建音频处理节点链
+            gainNodeRef.current = audioContext.createGain();
+            compressorNodeRef.current = audioContext.createDynamicsCompressor();
+            highpassFilterRef.current = audioContext.createBiquadFilter();
+            lowpassFilterRef.current = audioContext.createBiquadFilter();
+            gateNodeRef.current = audioContext.createGain();
+            analyserNodeRef.current = audioContext.createAnalyser();
+            destinationNodeRef.current = audioContext.createMediaStreamDestination();
+
+            // 配置分析器
+            analyserNodeRef.current.fftSize = 256;
+            analyserNodeRef.current.smoothingTimeConstant = 0.8;
+            audioDataRef.current = new Uint8Array(analyserNodeRef.current.frequencyBinCount);
+
+            // 配置滤波器（噪声抑制）
+            highpassFilterRef.current.type = 'highpass';
+            highpassFilterRef.current.frequency.value = 85; // 去除低频噪音
+            highpassFilterRef.current.Q.value = 0.7;
+
+            lowpassFilterRef.current.type = 'lowpass';
+            lowpassFilterRef.current.frequency.value = 8000; // 去除高频噪音
+            lowpassFilterRef.current.Q.value = 0.7;
+
+            // 配置压缩器（自动增益控制）
+            compressorNodeRef.current.threshold.value = -24;
+            compressorNodeRef.current.knee.value = 30;
+            compressorNodeRef.current.ratio.value = 12;
+            compressorNodeRef.current.attack.value = 0.003;
+            compressorNodeRef.current.release.value = 0.25;
+
+            // 配置增益节点
+            gainNodeRef.current.gain.value = 1.0;
+            gateNodeRef.current.gain.value = 1.0;
+
+            console.log('✅ 音频处理链节点创建完成');
+            return true;
+        } catch (error) {
+            console.error('❌ 音频处理链初始化失败:', error);
+            throw error;
+        }
+    }, [settings.sampleRate]);
+
+    // 连接音频处理链
+    const connectAudioChain = useCallback(() => {
+        if (!sourceNodeRef.current || !destinationNodeRef.current) return;
+
+        console.log('🔗 连接音频处理链...');
+
+        // 构建处理链：输入 → 分析器 → 增益 → 高通滤波 → 低通滤波 → 压缩器 → 噪声门 → 输出
+        sourceNodeRef.current.connect(analyserNodeRef.current!);
+        analyserNodeRef.current!.connect(gainNodeRef.current!);
+        gainNodeRef.current!.connect(highpassFilterRef.current!);
+        highpassFilterRef.current!.connect(lowpassFilterRef.current!);
+        lowpassFilterRef.current!.connect(compressorNodeRef.current!);
+        compressorNodeRef.current!.connect(gateNodeRef.current!);
+        gateNodeRef.current!.connect(destinationNodeRef.current);
+
+        console.log('✅ 音频处理链已连接');
+    }, []);
+
+    // 🎯 实时更新音频处理参数（不重建轨道）
+    const updateProcessingChain = useCallback(() => {
+        if (!isInitialized) return;
+
+        console.log('⚙️ 实时更新音频处理参数:', settings);
+
+        // 1. 自动增益控制（通过压缩器实现）
+        if (compressorNodeRef.current) {
+            if (settings.autoGainControl) {
+                compressorNodeRef.current.threshold.value = -24;
+                compressorNodeRef.current.ratio.value = 12;
+                compressorNodeRef.current.attack.value = 0.003;
+                compressorNodeRef.current.release.value = 0.25;
+                gainNodeRef.current!.gain.value = 1.2; // 稍微提升音量
+            } else {
+                compressorNodeRef.current.threshold.value = -50; // 几乎不压缩
+                compressorNodeRef.current.ratio.value = 1;
+                gainNodeRef.current!.gain.value = 1.0;
+            }
+        }
+
+        // 2. 噪声抑制（通过滤波器实现）
+        if (highpassFilterRef.current && lowpassFilterRef.current) {
+            if (settings.noiseSuppression) {
+                highpassFilterRef.current.frequency.value = 85; // 过滤低频噪音
+                lowpassFilterRef.current.frequency.value = 8000; // 过滤高频噪音
+                highpassFilterRef.current.Q.value = 0.7;
+                lowpassFilterRef.current.Q.value = 0.7;
+            } else {
+                highpassFilterRef.current.frequency.value = 20; // 最小值
+                lowpassFilterRef.current.frequency.value = 20000; // 最大值
+                highpassFilterRef.current.Q.value = 0.1;
+                lowpassFilterRef.current.Q.value = 0.1;
+            }
+        }
+
+        // 3. 语音隔离（强化的噪声抑制）
+        if (settings.voiceIsolation && highpassFilterRef.current && lowpassFilterRef.current && compressorNodeRef.current) {
+            highpassFilterRef.current.frequency.value = 120; // 更激进的低频过滤
+            lowpassFilterRef.current.frequency.value = 6000; // 更激进的高频过滤
+            compressorNodeRef.current.threshold.value = -18; // 更强的压缩
+            compressorNodeRef.current.ratio.value = 16;
+        }
+
+        console.log('✅ 音频处理参数已实时更新');
+    }, [settings, isInitialized]);
+
+    // 实时音频监控和噪声门控
+    const startAudioMonitoring = useCallback(() => {
+        if (!analyserNodeRef.current || !audioDataRef.current || !gateNodeRef.current || !audioContextRef.current) return;
+
+        const processFrame = () => {
+            if (!isProcessingActive || !analyserNodeRef.current || !audioDataRef.current || !gateNodeRef.current || !audioContextRef.current) return;
+
+            // 获取音频数据
+            analyserNodeRef.current.getByteFrequencyData(audioDataRef.current);
+            
+            // 计算音量级别（RMS）
+            let sum = 0;
+            for (let i = 0; i < audioDataRef.current.length; i++) {
+                sum += audioDataRef.current[i] * audioDataRef.current[i];
+            }
+            const rms = Math.sqrt(sum / audioDataRef.current.length);
+            const volume = rms / 255; // 归一化到 0-1
+
+            // 更新音量状态
+            setAudioLevel(volume);
+
+            // 实现噪声门控（基于麦克风门限）
+            if (volume < settings.microphoneThreshold) {
+                // 音量低于门限，渐进式降低音量（避免突然切断）
+                const targetGain = Math.max(0, volume / settings.microphoneThreshold * 0.1);
+                gateNodeRef.current.gain.exponentialRampToValueAtTime(
+                    targetGain, 
+                    audioContextRef.current.currentTime + 0.1
+                );
+            } else {
+                // 音量高于门限，恢复正常音量
+                gateNodeRef.current.gain.exponentialRampToValueAtTime(
+                    1.0, 
+                    audioContextRef.current.currentTime + 0.05
+                );
+            }
+
+            // 继续下一帧
+            animationFrameRef.current = requestAnimationFrame(processFrame);
+        };
+
+        processFrame();
+    }, [isProcessingActive, settings.microphoneThreshold]);
+
+    // 🎯 核心：初始化音频处理（只执行一次）
+    const initializeAudioProcessing = useCallback(async () => {
+        if (isInitializingRef.current || isInitialized || !localParticipant || !room) {
+            return;
+        }
+
+        isInitializingRef.current = true;
+
+        try {
+            console.log('🎛️ 开始初始化音频处理系统...');
+
+            // 1. 初始化 Web Audio API 处理链
+            await initializeAudioProcessingChain();
+
+            // 2. 获取原始音频流（包含原生浏览器处理）
+            const deviceId = getCurrentAudioDeviceId();
+            const constraints: MediaStreamConstraints = {
+                audio: {
+                    deviceId: deviceId === 'default' ? undefined : { exact: deviceId },
+                    echoCancellation: settings.echoCancellation, // 🎯 只在获取流时设置
+                    sampleRate: { ideal: settings.sampleRate },
+                    channelCount: { exact: 1 } // 强制单声道
+                }
+            };
+
+            console.log('🎤 获取原始音频流，约束:', constraints);
+            const originalStream = await navigator.mediaDevices.getUserMedia(constraints);
+            originalStreamRef.current = originalStream;
+
+            // 3. 连接到 Web Audio API 处理链
+            sourceNodeRef.current = audioContextRef.current!.createMediaStreamSource(originalStream);
+            connectAudioChain();
+
+            // 4. 获取处理后的音频流
+            const processedStream = destinationNodeRef.current!.stream;
+
+            // 5. 🎯 关键：从处理后的流创建音频轨道（只创建一次）
+            const processedAudioTrack = processedStream.getAudioTracks()[0];
+            if (!processedAudioTrack) {
+                throw new Error('无法获取处理后的音频轨道');
+            }
+
+            // 包装为 LocalAudioTrack
+            processedTrackRef.current = new LocalAudioTrack(
+                processedAudioTrack,
+                undefined,
+                false // 不是来自屏幕共享
+            );
+
+            // 6. 🎯 一次性发布到 LiveKit（后续不再重建）
+            await localParticipant.publishTrack(processedTrackRef.current, {
                 name: 'microphone',
                 source: Track.Source.Microphone,
                 stopMicTrackOnMute: true
             });
 
-            console.log('📤 新音频轨道已发布（stopMicTrackOnMute: true）');
+            // 7. 应用初始处理设置
+            updateProcessingChain();
 
-            // 恢复麦克风状态
-            if (wasEnabled) {
-                await localParticipant.setMicrophoneEnabled(true);
-            }
-
-            // 🎯 更新设备 ID 缓存
-            if (actualSettings.deviceId) {
-                currentAudioDeviceRef.current = actualSettings.deviceId;
-            }
+            // 8. 开始实时监控
+            startAudioMonitoring();
 
             setIsProcessingActive(true);
             setIsInitialized(true);
 
-            console.log('✅ 音频处理设置应用成功，设备已保持');
-            return true;
+            console.log('✅ 音频处理系统初始化完成 - 轨道已发布，后续只更新处理参数');
 
         } catch (error) {
-            console.error('❌ 应用音频处理设置失败:', error);
+            console.error('❌ 音频处理系统初始化失败:', error);
             setIsProcessingActive(false);
             throw error;
         } finally {
             isInitializingRef.current = false;
         }
-    }, [localParticipant, room, createAudioCaptureOptions, cacheCurrentAudioDeviceId, getCurrentAudioDeviceId]);
+    }, [
+        localParticipant, 
+        room, 
+        isInitialized, 
+        settings.echoCancellation, 
+        settings.sampleRate, 
+        settings.latency,
+        initializeAudioProcessingChain,
+        getCurrentAudioDeviceId,
+        connectAudioChain,
+        updateProcessingChain,
+        startAudioMonitoring
+    ]);
 
-    // 更新单个设置
+    // 🎯 更新单个设置（只更新处理参数，不重建轨道）
     const updateSetting = useCallback(async (
         key: keyof AudioProcessingSettings, 
         value: boolean | number
@@ -266,27 +386,37 @@ export function useAudioProcessing(): AudioProcessingControls {
             setSettings(newSettings);
             saveSettings(newSettings);
 
-            // 如果是音频处理相关设置且已初始化，立即重新应用
-            if (isInitialized && (
-                key === 'autoGainControl' || 
-                key === 'noiseSuppression' || 
-                key === 'echoCancellation' || 
-                key === 'voiceIsolation' ||
-                key === 'sampleRate' ||
-                key === 'channelCount' ||
-                key === 'latency'
-            )) {
-                console.log(`🔄 立即应用 ${key} 设置: ${value} (保持当前设备)`);
+            // 🎯 关键：只更新处理参数，不重建轨道
+            if (isInitialized) {
+                console.log(`🔄 实时更新 ${key} 设置: ${value}`);
                 
-                // 🎯 传递当前设备 ID 以保持设备不变
-                const currentDeviceId = getCurrentAudioDeviceId();
-                await applyAudioProcessing(newSettings, currentDeviceId);
+                // 直接调用处理链更新，使用新设置
+                if (key === 'autoGainControl' && compressorNodeRef.current && gainNodeRef.current) {
+                    if (value) {
+                        compressorNodeRef.current.threshold.value = -24;
+                        compressorNodeRef.current.ratio.value = 12;
+                        gainNodeRef.current.gain.value = 1.2;
+                    } else {
+                        compressorNodeRef.current.threshold.value = -50;
+                        compressorNodeRef.current.ratio.value = 1;
+                        gainNodeRef.current.gain.value = 1.0;
+                    }
+                } else if (key === 'noiseSuppression' && highpassFilterRef.current && lowpassFilterRef.current) {
+                    if (value) {
+                        highpassFilterRef.current.frequency.value = 85;
+                        lowpassFilterRef.current.frequency.value = 8000;
+                    } else {
+                        highpassFilterRef.current.frequency.value = 20;
+                        lowpassFilterRef.current.frequency.value = 20000;
+                    }
+                } else if (key === 'voiceIsolation') {
+                    // 语音隔离需要完整更新处理链
+                    updateProcessingChain();
+                }
+                // microphoneThreshold 会在实时监控中自动使用新值
                 
-                console.log(`✅ ${key} 设置已应用: ${value} (设备已保持)`);
-            } else if (key === 'microphoneThreshold') {
-                // 麦克风门限不需要重新创建轨道
-                console.log(`✅ 麦克风门限已设置为: ${value}`);
-            } else if (!isInitialized) {
+                console.log(`✅ ${key} 设置已实时生效: ${value}`);
+            } else {
                 console.log(`💾 ${key} 设置已保存，将在初始化时生效: ${value}`);
             }
 
@@ -301,7 +431,7 @@ export function useAudioProcessing(): AudioProcessingControls {
                 return newSet;
             });
         }
-    }, [settings, applyingSettings, saveSettings, applyAudioProcessing, isInitialized, getCurrentAudioDeviceId]);
+    }, [settings, applyingSettings, saveSettings, isInitialized, updateProcessingChain]);
 
     // 检查是否正在应用设置
     const isApplying = useCallback((key: keyof AudioProcessingSettings) => {
@@ -317,90 +447,82 @@ export function useAudioProcessing(): AudioProcessingControls {
             saveSettings(DEFAULT_SETTINGS);
             
             if (isInitialized) {
-                // 🎯 重置时也保持当前设备
-                const currentDeviceId = getCurrentAudioDeviceId();
-                await applyAudioProcessing(DEFAULT_SETTINGS, currentDeviceId);
+                // 🎯 只更新处理参数，不重建轨道
+                updateProcessingChain();
             }
             
-            console.log('✅ 已重置为默认设置（设备已保持）');
+            console.log('✅ 已重置为默认设置');
         } catch (error) {
             console.error('❌ 重置设置失败:', error);
             throw error;
         }
-    }, [saveSettings, applyAudioProcessing, isInitialized, getCurrentAudioDeviceId]);
+    }, [saveSettings, isInitialized, updateProcessingChain]);
 
-    // 核心：监听房间连接状态，自动初始化音频处理
+    // 监听房间连接状态，自动初始化
     useEffect(() => {
-        if (!localParticipant || !room) {
-            console.log('🔍 等待房间和本地参与者准备就绪...');
-            return;
-        }
-
-        if (room.state !== 'connected') {
-            console.log(`🔍 等待房间连接完成，当前状态: ${room.state}`);
+        if (!localParticipant || !room || room.state !== 'connected') {
             return;
         }
 
         if (isInitialized || isInitializingRef.current) {
-            console.log('🔍 音频处理已初始化或正在初始化中，跳过');
             return;
         }
 
-        console.log('🎛️ 房间已连接，开始初始化音频处理');
+        console.log('🎛️ 房间已连接，准备初始化音频处理');
 
-        // 延迟初始化，确保 LiveKit 完全准备就绪
-        const timer = setTimeout(async () => {
-            try {
-                // 🎯 初始化时获取当前设备（可能是用户手动选择的）
-                await applyAudioProcessing(settings);
-                console.log('✅ 音频处理自动初始化完成');
-            } catch (error) {
+        const timer = setTimeout(() => {
+            initializeAudioProcessing().catch(error => {
                 console.error('❌ 音频处理自动初始化失败:', error);
-            }
+            });
         }, 1500);
 
         return () => clearTimeout(timer);
-    }, [localParticipant, room, room?.state, isInitialized, settings, applyAudioProcessing]);
-
-    // 🎯 新增：监听外部设备变更（比如用户通过控制栏切换设备）
-    useEffect(() => {
-        if (!isInitialized || !localParticipant) return;
-
-        // 定期检查设备是否被外部更改
-        const checkDeviceChange = () => {
-            const audioPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
-            if (audioPublication?.track) {
-                const currentSettings = audioPublication.track.mediaStreamTrack.getSettings();
-                if (currentSettings.deviceId && 
-                    currentAudioDeviceRef.current && 
-                    currentSettings.deviceId !== currentAudioDeviceRef.current) {
-                    
-                    console.log('🔄 检测到外部设备变更:', {
-                        之前: currentAudioDeviceRef.current,
-                        现在: currentSettings.deviceId
-                    });
-                    
-                    // 更新缓存的设备 ID
-                    currentAudioDeviceRef.current = currentSettings.deviceId;
-                }
-            }
-        };
-
-        const interval = setInterval(checkDeviceChange, 2000); // 每2秒检查一次
-        return () => clearInterval(interval);
-    }, [isInitialized, localParticipant]);
+    }, [localParticipant, room, room?.state, isInitialized, initializeAudioProcessing]);
 
     // 清理函数
     useEffect(() => {
         return () => {
             console.log('🧹 清理音频处理模块');
             
-            if (currentTrackRef.current) {
-                currentTrackRef.current.stop();
-                currentTrackRef.current = null;
+            // 停止实时监控
+            if (animationFrameRef.current) {
+                cancelAnimationFrame(animationFrameRef.current);
+                animationFrameRef.current = null;
             }
             
-            currentAudioDeviceRef.current = null;
+            // 清理 Web Audio API 节点
+            if (sourceNodeRef.current) {
+                sourceNodeRef.current.disconnect();
+                sourceNodeRef.current = null;
+            }
+            
+            // 关闭音频上下文
+            if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+                audioContextRef.current.close();
+                audioContextRef.current = null;
+            }
+            
+            // 停止原始流
+            if (originalStreamRef.current) {
+                originalStreamRef.current.getTracks().forEach(track => track.stop());
+                originalStreamRef.current = null;
+            }
+            
+            // 清理轨道引用
+            if (processedTrackRef.current) {
+                processedTrackRef.current = null;
+            }
+            
+            // 重置所有节点引用
+            gainNodeRef.current = null;
+            compressorNodeRef.current = null;
+            highpassFilterRef.current = null;
+            lowpassFilterRef.current = null;
+            gateNodeRef.current = null;
+            analyserNodeRef.current = null;
+            destinationNodeRef.current = null;
+            audioDataRef.current = null;
+            
             setIsProcessingActive(false);
             setIsInitialized(false);
             isInitializingRef.current = false;
@@ -413,6 +535,7 @@ export function useAudioProcessing(): AudioProcessingControls {
         isApplying,
         resetToDefaults,
         isProcessingActive,
-        isInitialized
+        isInitialized,
+        audioLevel
     };
 }

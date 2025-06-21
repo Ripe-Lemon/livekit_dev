@@ -1,8 +1,11 @@
+// app/hooks/useAudioProcessing.ts
+
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocalParticipant } from '@livekit/components-react';
 import { Track, createLocalAudioTrack, LocalAudioTrack } from 'livekit-client';
+import { AudioManager } from '../lib/audio/AudioManager';
 
 export interface AudioProcessingSettings {
     autoGainControl: boolean;
@@ -16,12 +19,13 @@ export interface AudioProcessingControls {
     updateSetting: (key: keyof AudioProcessingSettings, value: boolean | number) => Promise<void>;
     isApplying: (key: keyof AudioProcessingSettings) => boolean;
     resetToDefaults: () => Promise<void>;
+    isProcessingActive: boolean;
 }
 
 const DEFAULT_SETTINGS: AudioProcessingSettings = {
     autoGainControl: true,
     noiseSuppression: true,
-    echoCancellation: true,
+    echoCancellation: false,
     microphoneThreshold: 0.3
 };
 
@@ -49,7 +53,20 @@ export function useAudioProcessing(): AudioProcessingControls {
 
     const [settings, setSettings] = useState<AudioProcessingSettings>(loadSettings);
     const [applyingSettings, setApplyingSettings] = useState<Set<string>>(new Set());
-    const currentTrackRef = useRef<LocalAudioTrack | null>(null);
+    const [isProcessingActive, setIsProcessingActive] = useState(false);
+    
+    // 音频管理器和初始化状态
+    const audioManagerRef = useRef<AudioManager | null>(null);
+    const initializationRef = useRef<boolean>(false);
+    const originalStreamRef = useRef<MediaStream | null>(null);
+
+    // 获取音频管理器实例
+    const getAudioManager = useCallback(() => {
+        if (!audioManagerRef.current) {
+            audioManagerRef.current = AudioManager.getInstance();
+        }
+        return audioManagerRef.current;
+    }, []);
 
     // 保存设置到本地存储
     const saveSettings = useCallback((newSettings: AudioProcessingSettings) => {
@@ -62,104 +79,86 @@ export function useAudioProcessing(): AudioProcessingControls {
         }
     }, []);
 
-    // 应用音频约束到轨道
-    const applyAudioConstraints = useCallback(async (newSettings: AudioProcessingSettings) => {
-        if (!localParticipant) {
-            console.warn('本地参与者不存在，无法应用音频设置');
+    // 初始化音频处理链（一次性初始化）
+    const initializeAudioProcessing = useCallback(async () => {
+        if (initializationRef.current || !localParticipant) {
             return;
         }
 
-        console.log('🎛️ 开始应用音频处理设置:', newSettings);
-
         try {
-            // 获取当前音频发布
+            console.log('🎛️ 初始化音频处理链系统...');
+            
+            // 获取原始音频流（只设置必要的约束）
+            const originalStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: settings.echoCancellation, // 这个需要在获取流时设置
+                    sampleRate: { ideal: 48000 },
+                    channelCount: { ideal: 1 },
+                    deviceId: 'default'
+                }
+            });
+
+            console.log('🎤 原始音频流已获取');
+            originalStreamRef.current = originalStream;
+
+            // 启动音频管理器的音频处理链
+            const audioManager = getAudioManager();
+            await audioManager.initializeAudioProcessing();
+            
+            const processedStream = await audioManager.startAudioProcessing(originalStream);
+            
+            if (!processedStream) {
+                throw new Error('无法创建处理后的音频流');
+            }
+
+            // 获取当前音频发布并替换
             const audioPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
-            const wasEnabled = audioPublication ? !audioPublication.isMuted : false;
+            const wasEnabled = audioPublication ? !audioPublication.isMuted : true;
 
-            console.log(`🎤 当前麦克风状态: ${wasEnabled ? '启用' : '禁用'}`);
-
-            // 如果存在当前轨道，先停止并取消发布
+            // 停止现有轨道
             if (audioPublication?.track) {
-                console.log('🛑 停止当前音频轨道');
+                console.log('🛑 停止现有音频轨道');
                 audioPublication.track.stop();
                 await localParticipant.unpublishTrack(audioPublication.track);
-                console.log('📤 已取消发布当前音频轨道');
+                await new Promise(resolve => setTimeout(resolve, 200));
+            }
+
+            // 发布处理后的音频流
+            const processedTrack = processedStream.getAudioTracks()[0];
+            if (processedTrack) {
+                await localParticipant.publishTrack(processedTrack, {
+                    name: 'microphone',
+                    source: Track.Source.Microphone
+                });
+
+                console.log('📤 处理后的音频轨道已发布');
+
+                // 恢复麦克风状态
+                if (wasEnabled) {
+                    await localParticipant.setMicrophoneEnabled(true);
+                }
+
+                setIsProcessingActive(true);
+                initializationRef.current = true;
                 
-                // 清理引用
-                if (currentTrackRef.current === audioPublication.track) {
-                    currentTrackRef.current = null;
-                }
+                // 应用当前设置到处理链
+                audioManager.updateAudioProcessingSettings(settings);
+                
+                console.log('✅ 音频处理链初始化完成');
             }
-
-            // 等待一下确保轨道完全停止
-            await new Promise(resolve => setTimeout(resolve, 300));
-
-            // 创建新的音频轨道配置
-            const audioConstraints: MediaTrackConstraints = {
-                echoCancellation: newSettings.echoCancellation,
-                noiseSuppression: newSettings.noiseSuppression,
-                autoGainControl: newSettings.autoGainControl,
-                sampleRate: { ideal: 48000 },
-                channelCount: { ideal: 1 },
-            };
-
-            console.log('🎛️ 应用音频约束:', audioConstraints);
-
-            // 创建新的音频轨道
-            const newAudioTrack = await createLocalAudioTrack({
-                ...audioConstraints,
-                deviceId: 'default'
-            });
-
-            console.log('✅ 新音频轨道已创建');
-
-            // 保存轨道引用
-            currentTrackRef.current = newAudioTrack;
-
-            // 发布新轨道
-            await localParticipant.publishTrack(newAudioTrack, {
-                name: 'microphone',
-                source: Track.Source.Microphone
-            });
-
-            console.log('📤 新音频轨道已发布');
-
-            // 恢复麦克风状态
-            if (wasEnabled) {
-                await localParticipant.setMicrophoneEnabled(true);
-                console.log('🎤 麦克风已重新启用');
-            }
-
-            // 验证设置
-            setTimeout(() => {
-                const finalPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
-                if (finalPublication?.track) {
-                    const actualSettings = finalPublication.track.mediaStreamTrack.getSettings();
-                    console.log('🔍 验证音频设置:', {
-                        applied: actualSettings,
-                        expected: newSettings,
-                        microphoneEnabled: localParticipant.isMicrophoneEnabled
-                    });
-                }
-            }, 1000);
 
         } catch (error) {
-            console.error('❌ 应用音频处理设置失败:', error);
+            console.error('❌ 初始化音频处理链失败:', error);
             
-            // 尝试恢复基础音频功能
-            try {
-                console.log('🔄 尝试恢复基础音频功能...');
-                await localParticipant.setMicrophoneEnabled(true);
-                console.log('✅ 基础音频功能已恢复');
-            } catch (recoveryError) {
-                console.error('❌ 音频恢复失败:', recoveryError);
+            // 清理失败的流
+            if (originalStreamRef.current) {
+                originalStreamRef.current.getTracks().forEach(track => track.stop());
+                originalStreamRef.current = null;
             }
-            
-            throw error;
         }
-    }, [localParticipant]);
+    }, [localParticipant, settings.echoCancellation, getAudioManager, settings]);
 
-    // 更新单个设置
+    // 更新单个设置（不重建轨道）
     const updateSetting = useCallback(async (
         key: keyof AudioProcessingSettings, 
         value: boolean | number
@@ -178,18 +177,34 @@ export function useAudioProcessing(): AudioProcessingControls {
             
             // 立即更新本地状态
             setSettings(newSettings);
-            
-            // 保存到本地存储
             saveSettings(newSettings);
 
-            // 对于音频处理相关设置，需要重新创建轨道
-            if (key === 'autoGainControl' || key === 'noiseSuppression' || key === 'echoCancellation') {
-                console.log(`🔄 开始应用 ${key} 设置: ${value}`);
-                await applyAudioConstraints(newSettings);
-                console.log(`✅ ${key} 设置已应用: ${value}`);
-            } else if (key === 'microphoneThreshold') {
-                // 麦克风门限设置不需要重新创建轨道，只需保存
-                console.log(`✅ 麦克风门限已设置为: ${value}`);
+            // 特殊处理：echoCancellation 需要重新获取音频流
+            if (key === 'echoCancellation') {
+                console.log('🔄 回声消除设置变更，需要重新初始化...');
+                
+                // 重置初始化状态
+                initializationRef.current = false;
+                setIsProcessingActive(false);
+                
+                // 停止当前处理
+                const audioManager = getAudioManager();
+                audioManager.stopAudioProcessing();
+                
+                // 重新初始化（会使用新的 echoCancellation 设置）
+                await initializeAudioProcessing();
+                
+            } else {
+                // 其他设置直接更新处理链参数
+                console.log(`🔧 更新音频处理参数: ${key} = ${value}`);
+                
+                const audioManager = getAudioManager();
+                if (audioManager.isAudioProcessingActive()) {
+                    audioManager.updateAudioProcessingSettings(newSettings);
+                    console.log(`✅ ${key} 设置已实时应用`);
+                } else {
+                    console.log(`⚠️ 音频处理未激活，设置已保存但未应用`);
+                }
             }
 
         } catch (error) {
@@ -205,7 +220,7 @@ export function useAudioProcessing(): AudioProcessingControls {
                 return newSet;
             });
         }
-    }, [settings, applyingSettings, saveSettings, applyAudioConstraints]);
+    }, [settings, applyingSettings, saveSettings, getAudioManager, initializeAudioProcessing]);
 
     // 检查是否正在应用设置
     const isApplying = useCallback((key: keyof AudioProcessingSettings) => {
@@ -219,41 +234,56 @@ export function useAudioProcessing(): AudioProcessingControls {
         try {
             setSettings(DEFAULT_SETTINGS);
             saveSettings(DEFAULT_SETTINGS);
-            await applyAudioConstraints(DEFAULT_SETTINGS);
+            
+            const audioManager = getAudioManager();
+            if (audioManager.isAudioProcessingActive()) {
+                audioManager.updateAudioProcessingSettings(DEFAULT_SETTINGS);
+            }
+            
             console.log('✅ 已重置为默认设置');
         } catch (error) {
             console.error('❌ 重置设置失败:', error);
             throw error;
         }
-    }, [saveSettings, applyAudioConstraints]);
+    }, [saveSettings, getAudioManager]);
 
     // 组件挂载时初始化
     useEffect(() => {
-        if (localParticipant) {
-            console.log('🎤 初始化音频处理模块');
+        if (localParticipant && !initializationRef.current) {
+            console.log('🎤 检测到本地参与者，准备初始化音频处理');
             
-            // 获取当前轨道引用
-            const audioPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
-            if (audioPublication?.track) {
-                currentTrackRef.current = audioPublication.track as LocalAudioTrack;
-            }
+            // 延迟一点初始化，确保 LiveKit 准备就绪
+            const timer = setTimeout(() => {
+                initializeAudioProcessing();
+            }, 1000);
+            
+            return () => clearTimeout(timer);
         }
-    }, [localParticipant]);
+    }, [localParticipant, initializeAudioProcessing]);
 
     // 清理函数
     useEffect(() => {
         return () => {
             console.log('🧹 清理音频处理模块');
-            if (currentTrackRef.current) {
-                currentTrackRef.current = null;
+            
+            const audioManager = getAudioManager();
+            audioManager.stopAudioProcessing();
+            
+            if (originalStreamRef.current) {
+                originalStreamRef.current.getTracks().forEach(track => track.stop());
+                originalStreamRef.current = null;
             }
+            
+            initializationRef.current = false;
+            setIsProcessingActive(false);
         };
-    }, []);
+    }, [getAudioManager]);
 
     return {
         settings,
         updateSetting,
         isApplying,
-        resetToDefaults
+        resetToDefaults,
+        isProcessingActive
     };
 }

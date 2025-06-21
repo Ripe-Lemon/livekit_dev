@@ -213,10 +213,16 @@ export function useRoom(options: UseRoomOptions = {}): UseRoomReturn {
 
             connectionParamsRef.current = params;
             
-            // 创建新的房间实例
+            // 创建新的房间实例 - 设置 publishDefaults
             const room = new Room({
                 adaptiveStream: true,
                 dynacast: true,
+                audioCaptureDefaults: {
+                    autoGainControl: true,  // 默认值，会被 useAudioProcessing 覆盖
+                    noiseSuppression: true,
+                    echoCancellation: false,
+                    voiceIsolation: false,
+                },
                 videoCaptureDefaults: {
                     resolution: {
                         width: 1280,
@@ -225,6 +231,8 @@ export function useRoom(options: UseRoomOptions = {}): UseRoomReturn {
                     }
                 },
                 publishDefaults: {
+                    // 🎯 关键：房间级别设置 stopMicTrackOnMute
+                    stopMicTrackOnMute: true,
                     audioPreset: {
                         maxBitrate: 20_000,
                     },

@@ -36,6 +36,7 @@ import { useImagePreview } from '../hooks/useImagePreview';
 import { useAudioManager, useAudioTesting, SoundEvent } from '../hooks/useAudioManager';
 import { useAudioNotifications } from '../hooks/useAudioNotifications';
 import { useChat } from '../hooks/useChat';
+import { useAudioProcessing } from '../hooks/useAudioProcessing';
 
 // Types
 import { DisplayMessage, ChatState } from '../types/chat';
@@ -112,6 +113,13 @@ function RoomInnerContent({
 }) {
     const room = useRoomContext();
     const participants = useParticipants();
+    
+    // 🎯 关键：在房间组件中启用音频处理，让其常驻
+    const { 
+        settings: audioSettings, 
+        isProcessingActive, 
+        isInitialized: audioInitialized 
+    } = useAudioProcessing();
     
     // 添加音频通知 Hook
     useAudioNotifications(room, {

@@ -39,184 +39,6 @@ interface SoundInstance {
     lastError?: string;
 }
 
-// 音频处理设置
-interface AudioProcessingSettings {
-    autoGainControl: boolean;
-    noiseSuppression: boolean;
-    echoCancellation: boolean;
-    microphoneThreshold: number;
-}
-
-// 音频处理链类
-export class AudioProcessingChain {
-    private audioContext: AudioContext | null = null;
-    private sourceNode: MediaStreamAudioSourceNode | null = null;
-    private destinationNode: MediaStreamAudioDestinationNode | null = null;
-    
-    // 音频处理节点
-    private gainNode: GainNode | null = null;
-    private compressorNode: DynamicsCompressorNode | null = null;
-    private filterNode: BiquadFilterNode | null = null;
-    
-    // 处理设置
-    private settings: AudioProcessingSettings = {
-        autoGainControl: true,
-        noiseSuppression: true,
-        echoCancellation: false,
-        microphoneThreshold: 0.3
-    };
-    
-    private onSettingsChange: ((settings: AudioProcessingSettings) => void) | null = null;
-
-    constructor() {
-        this.initializeAudioContext();
-    }
-
-    private async initializeAudioContext() {
-        try {
-            this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-            
-            // 创建音频处理节点
-            this.gainNode = this.audioContext.createGain();
-            this.compressorNode = this.audioContext.createDynamicsCompressor();
-            this.filterNode = this.audioContext.createBiquadFilter();
-            this.destinationNode = this.audioContext.createMediaStreamDestination();
-            
-            // 配置压缩器（模拟自动增益控制）
-            this.compressorNode.threshold.value = -24;
-            this.compressorNode.knee.value = 30;
-            this.compressorNode.ratio.value = 12;
-            this.compressorNode.attack.value = 0.003;
-            this.compressorNode.release.value = 0.25;
-            
-            // 配置滤波器（模拟噪声抑制）
-            this.filterNode.type = 'highpass';
-            this.filterNode.frequency.value = 85;
-            this.filterNode.Q.value = 1;
-            
-            // 连接处理链：输入 -> 增益 -> 压缩器 -> 滤波器 -> 输出
-            this.gainNode.connect(this.compressorNode);
-            this.compressorNode.connect(this.filterNode);
-            this.filterNode.connect(this.destinationNode);
-            
-            this.updateProcessingChain();
-            
-            console.log('🎛️ 音频处理链已初始化');
-        } catch (error) {
-            console.error('❌ 音频处理链初始化失败:', error);
-        }
-    }
-
-    // 连接原始音频流
-    async connectInputStream(inputStream: MediaStream): Promise<MediaStream | null> {
-        if (!this.audioContext || !this.gainNode || !this.destinationNode) {
-            console.error('音频处理链未正确初始化');
-            return null;
-        }
-
-        try {
-            // 断开现有连接
-            if (this.sourceNode) {
-                this.sourceNode.disconnect();
-            }
-
-            // 连接新的输入流
-            this.sourceNode = this.audioContext.createMediaStreamSource(inputStream);
-            this.sourceNode.connect(this.gainNode);
-            
-            console.log('🔗 音频流已连接到处理链');
-            return this.destinationNode.stream;
-        } catch (error) {
-            console.error('❌ 连接音频流失败:', error);
-            return null;
-        }
-    }
-
-    // 更新音频处理设置
-    updateSettings(newSettings: Partial<AudioProcessingSettings>) {
-        this.settings = { ...this.settings, ...newSettings };
-        this.updateProcessingChain();
-        
-        if (this.onSettingsChange) {
-            this.onSettingsChange(this.settings);
-        }
-        
-        console.log('⚙️ 音频处理设置已更新:', this.settings);
-    }
-
-    // 应用处理设置到音频链
-    private updateProcessingChain() {
-        if (!this.gainNode || !this.compressorNode || !this.filterNode) return;
-
-        // 更新增益节点
-        this.gainNode.gain.value = 1.0;
-
-        // 更新压缩器（自动增益控制）
-        if (this.settings.autoGainControl) {
-            this.compressorNode.threshold.value = -24;
-            this.compressorNode.ratio.value = 12;
-        } else {
-            this.compressorNode.threshold.value = -50;
-            this.compressorNode.ratio.value = 1;
-        }
-
-        // 更新滤波器（噪声抑制）
-        if (this.settings.noiseSuppression) {
-            this.filterNode.frequency.value = 85; // 高通滤波，去除低频噪声
-            this.filterNode.Q.value = 1;
-        } else {
-            this.filterNode.frequency.value = 20; // 最小值，基本不滤波
-            this.filterNode.Q.value = 0.1;
-        }
-
-        // 注意：echoCancellation 需要在获取媒体流时设置，无法通过 Web Audio API 实现
-        
-        console.log('🔧 音频处理链参数已更新');
-    }
-
-    // 获取当前设置
-    getSettings(): AudioProcessingSettings {
-        return { ...this.settings };
-    }
-
-    // 设置设置变化回调
-    setSettingsChangeCallback(callback: (settings: AudioProcessingSettings) => void) {
-        this.onSettingsChange = callback;
-    }
-
-    // 获取处理后的音频流
-    getOutputStream(): MediaStream | null {
-        return this.destinationNode?.stream || null;
-    }
-
-    // 断开连接
-    disconnect() {
-        if (this.sourceNode) {
-            this.sourceNode.disconnect();
-            this.sourceNode = null;
-        }
-        console.log('🔌 音频处理链已断开');
-    }
-
-    // 销毁处理链
-    dispose() {
-        this.disconnect();
-        
-        if (this.audioContext && this.audioContext.state !== 'closed') {
-            this.audioContext.close();
-            this.audioContext = null;
-        }
-        
-        this.gainNode = null;
-        this.compressorNode = null;
-        this.filterNode = null;
-        this.destinationNode = null;
-        this.onSettingsChange = null;
-        
-        console.log('🗑️ 音频处理链已销毁');
-    }
-}
-
 export class AudioManager {
     private static instance: AudioManager;
     private sounds: Map<SoundEvent, SoundInstance> = new Map();
@@ -224,12 +46,6 @@ export class AudioManager {
     private audioContext: AudioContext | null = null;
     private masterGainNode: GainNode | null = null;
     private initialized: boolean = false;
-
-    // 新增：音频处理链
-    private audioProcessingChain: AudioProcessingChain | null = null;
-    private originalAudioStream: MediaStream | null = null;
-    private processedAudioStream: MediaStream | null = null;
-    private isProcessingActive = false;
 
     private constructor(config: Partial<AudioManagerConfig> = {}) {
         this.config = {
@@ -653,99 +469,8 @@ export class AudioManager {
         this.playSound(name, { volume: 0.5 });
     }
 
-    // 初始化音频处理链
-    async initializeAudioProcessing(): Promise<boolean> {
-        try {
-            if (!this.audioProcessingChain) {
-                this.audioProcessingChain = new AudioProcessingChain();
-                console.log('🎛️ 音频处理链管理器已初始化');
-            }
-            return true;
-        } catch (error) {
-            console.error('❌ 初始化音频处理链失败:', error);
-            return false;
-        }
-    }
-
-    // 启动音频处理
-    async startAudioProcessing(inputStream: MediaStream): Promise<MediaStream | null> {
-        if (!this.audioProcessingChain) {
-            await this.initializeAudioProcessing();
-        }
-
-        if (!this.audioProcessingChain) {
-            console.error('音频处理链未初始化');
-            return null;
-        }
-
-        try {
-            this.originalAudioStream = inputStream;
-            this.processedAudioStream = await this.audioProcessingChain.connectInputStream(inputStream);
-            
-            if (this.processedAudioStream) {
-                this.isProcessingActive = true;
-                console.log('✅ 音频处理已启动');
-            }
-            
-            return this.processedAudioStream;
-        } catch (error) {
-            console.error('❌ 启动音频处理失败:', error);
-            return null;
-        }
-    }
-
-    // 停止音频处理
-    stopAudioProcessing() {
-        if (this.audioProcessingChain) {
-            this.audioProcessingChain.disconnect();
-        }
-        
-        if (this.originalAudioStream) {
-            this.originalAudioStream.getTracks().forEach(track => track.stop());
-            this.originalAudioStream = null;
-        }
-        
-        this.processedAudioStream = null;
-        this.isProcessingActive = false;
-        
-        console.log('⏹️ 音频处理已停止');
-    }
-
-    // 更新音频处理设置
-    updateAudioProcessingSettings(settings: Partial<AudioProcessingSettings>) {
-        if (this.audioProcessingChain) {
-            this.audioProcessingChain.updateSettings(settings);
-        } else {
-            console.warn('音频处理链未初始化，无法更新设置');
-        }
-    }
-
-    // 获取音频处理设置
-    getAudioProcessingSettings(): AudioProcessingSettings | null {
-        return this.audioProcessingChain?.getSettings() || null;
-    }
-
-    // 检查音频处理是否活跃
-    isAudioProcessingActive(): boolean {
-        return this.isProcessingActive;
-    }
-
-    // 获取处理后的音频流
-    getProcessedAudioStream(): MediaStream | null {
-        return this.processedAudioStream;
-    }
-
     // 销毁音频管理器
     destroy(): void {
-        // 停止音频处理
-        this.stopAudioProcessing();
-        
-        // 销毁音频处理链
-        if (this.audioProcessingChain) {
-            this.audioProcessingChain.dispose();
-            this.audioProcessingChain = null;
-        }
-        
         // 停止所有音效
         this.stopAllSounds();
         
@@ -761,7 +486,7 @@ export class AudioManager {
         document.removeEventListener('visibilitychange', this.handleVisibilityChange);
         
         this.initialized = false;
-        console.log('音频管理器已销毁（包含音频处理链）');
+        console.log('音频管理器已销毁');
     }
 
     // 获取音频统计信息

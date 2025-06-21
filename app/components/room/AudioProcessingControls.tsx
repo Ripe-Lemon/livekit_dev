@@ -6,9 +6,11 @@ import { useAudioProcessing, AudioProcessingSettings } from '../../hooks/useAudi
 
 interface AudioProcessingControlsProps {
     className?: string;
+    audioProcessing: ReturnType<typeof useAudioProcessing>; // 🎯 接收外部的音频处理对象
 }
 
-export function AudioProcessingControls({ className = '' }: AudioProcessingControlsProps) {
+export function AudioProcessingControls({ className = '', audioProcessing }: AudioProcessingControlsProps) {
+    // 🎯 不再在这里调用 useAudioProcessing()，而是使用传入的对象
     const { 
         settings, 
         updateSetting, 
@@ -16,7 +18,7 @@ export function AudioProcessingControls({ className = '' }: AudioProcessingContr
         resetToDefaults, 
         isProcessingActive, 
         isInitialized 
-    } = useAudioProcessing();
+    } = audioProcessing;
 
     const handleToggleSetting = async (key: keyof AudioProcessingSettings, currentValue: boolean) => {
         try {
@@ -51,7 +53,7 @@ export function AudioProcessingControls({ className = '' }: AudioProcessingContr
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
                     </svg>
                     音频处理设置
-                    {/* 更新状态指示器 */}
+                    {/* 状态指示器 */}
                     <span className={`ml-2 px-2 py-1 rounded-full text-xs flex items-center space-x-1 ${
                         isProcessingActive 
                             ? 'bg-green-900/30 text-green-300 border border-green-600' 
@@ -90,7 +92,7 @@ export function AudioProcessingControls({ className = '' }: AudioProcessingContr
             {/* 说明文字 */}
             <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-3">
                 <p className="text-xs text-blue-300">
-                    💡 音频处理系统常驻运行，使用 LiveKit 官方 AudioCaptureOptions + stopMicTrackOnMute
+                    💡 音频处理系统常驻运行，不受设置界面打开/关闭影响
                 </p>
                 {!isInitialized && (
                     <p className="text-xs text-yellow-300 mt-1">
@@ -104,7 +106,7 @@ export function AudioProcessingControls({ className = '' }: AudioProcessingContr
                 )}
             </div>
 
-            {/* 音频处理开关 */}
+            {/* 其余的 UI 控件保持不变... */}
             <div className="space-y-4">
                 {/* 自动增益控制 */}
                 <div className="flex items-center justify-between">
@@ -260,7 +262,7 @@ export function AudioProcessingControls({ className = '' }: AudioProcessingContr
                 </div>
             </div>
 
-            {/* 更新状态显示 */}
+            {/* 状态显示 */}
             <div className="bg-gray-800/50 rounded-lg p-3">
                 <h4 className="text-sm font-medium text-gray-300 mb-2">音频处理系统状态</h4>
                 <div className="grid grid-cols-2 gap-4 text-xs">
@@ -307,10 +309,10 @@ export function AudioProcessingControls({ className = '' }: AudioProcessingContr
                 <div className="mt-3 pt-2 border-t border-gray-600">
                     <p className="text-xs text-gray-500">
                         💡 <strong>常驻音频处理：</strong><br/>
-                        • 房间连接后自动初始化<br/>
+                        • 房间级别管理，不受UI影响<br/>
                         • 设置变更立即生效<br/>
                         • stopMicTrackOnMute 自动启用<br/>
-                        • 不依赖设置界面的打开状态
+                        • Hook 在房间顶层常驻运行
                     </p>
                 </div>
             </div>

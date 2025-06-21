@@ -4,13 +4,14 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useRoomContext, useParticipants, useLocalParticipant } from '@livekit/components-react';
 import { Track } from 'livekit-client';
 import { AudioProcessingControls } from './AudioProcessingControls';
+import { useAudioProcessing } from '../../hooks/useAudioProcessing';
 
 interface SettingsPanelProps {
     onClose: () => void;
-    className?: string;
+    audioProcessing: ReturnType<typeof useAudioProcessing>; // 🎯 接收外部的音频处理对象
 }
 
-export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
+export function SettingsPanel({ onClose, audioProcessing }: SettingsPanelProps) {
     const room = useRoomContext();
     const participants = useParticipants();
     const { localParticipant } = useLocalParticipant();
@@ -165,7 +166,6 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
             <div className={`
                 bg-gray-800 rounded-xl border border-gray-600 shadow-2xl
                 w-full max-w-2xl max-h-[85vh] flex flex-col
-                ${className}
             `}>
                 {/* 头部 */}
                 <div className="flex items-center justify-between p-4 border-b border-gray-700 flex-shrink-0">
@@ -224,7 +224,9 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
                     <div className="p-4">
                         {/* 音频处理标签页 */}
                         {activeTab === 'processing' && (
-                            <AudioProcessingControls />
+                            <AudioProcessingControls 
+                                audioProcessing={audioProcessing} // 🎯 传递音频处理对象到控件
+                            />
                         )}
 
                         {/* 音量控制标签页 */}
@@ -422,7 +424,7 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
                     </div>
                 </div>
 
-                {/* 底部状态栏和操作按钮 */}
+                {/* 底部状态栏和操作按钮 - 显示音频处理状态 */}
                 <div className="border-t border-gray-700 flex-shrink-0">
                     {/* 连接状态 */}
                     <div className="px-4 py-2 border-b border-gray-700 bg-gray-800/50">
@@ -438,22 +440,20 @@ export function SettingsPanel({ onClose, className = '' }: SettingsPanelProps) {
                             </div>
                         </div>
                         <div className="flex items-center justify-between text-xs mt-1">
+                            <span className="text-gray-400">音频处理:</span>
+                            <div className="flex items-center space-x-1">
+                                <div className={`w-2 h-2 rounded-full ${
+                                    audioProcessing.isProcessingActive ? 'bg-green-400' : 'bg-yellow-400'
+                                }`} />
+                                <span className="text-gray-300">
+                                    {audioProcessing.isProcessingActive ? '活跃' : audioProcessing.isInitialized ? '已初始化' : '未初始化'}
+                                </span>
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-between text-xs mt-1">
                             <span className="text-gray-400">参与者:</span>
                             <span className="text-gray-300">{participants.length} 人</span>
                         </div>
-                        {localParticipant && (
-                            <div className="flex items-center justify-between text-xs mt-1">
-                                <span className="text-gray-400">麦克风:</span>
-                                <div className="flex items-center space-x-1">
-                                    <div className={`w-2 h-2 rounded-full ${
-                                        localParticipant.isMicrophoneEnabled ? 'bg-green-400' : 'bg-red-400'
-                                    }`} />
-                                    <span className="text-gray-300">
-                                        {localParticipant.isMicrophoneEnabled ? '已启用' : '已禁用'}
-                                    </span>
-                                </div>
-                            </div>
-                        )}
                     </div>
 
                     {/* 操作按钮 */}

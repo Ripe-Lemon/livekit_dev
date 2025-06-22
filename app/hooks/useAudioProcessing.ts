@@ -297,7 +297,7 @@ export function useAudioProcessing(): AudioProcessingControls {
             const constraints: MediaStreamConstraints = {
                 audio: {
                     deviceId: deviceId === 'default' ? undefined : { exact: deviceId },
-                    echoCancellation: settings.echoCancellation, // 🎯 只在获取流时设置
+                    echoCancellation: false,//settings.echoCancellation, // 🎯 只在获取流时设置
                     sampleRate: { ideal: settings.sampleRate },
                     channelCount: { exact: 1 } // 强制单声道
                 }

@@ -337,6 +337,10 @@ export function ControlBar({
         video: false
     });
 
+    // 🎯 修复：添加初始化状态控制
+    const [isInitialized, setIsInitialized] = useState(false);
+    const initializingRef = useRef(false);
+
     // 音效控制
     const {
         playMuteSound,
@@ -392,15 +396,17 @@ export function ControlBar({
                 
                 setLocalPermissions(newPermissions);
                 
-                // 延迟刷新，确保权限状态已更新
-                setTimeout(async () => {
-                    try {
-                        await refreshDevices();
-                        throttleLog('control-device-refresh', '🔄 控制栏权限变化后设备列表已刷新');
-                    } catch (error) {
-                        console.warn('控制栏权限变化后刷新设备列表失败:', error);
-                    }
-                }, 500);
+                // 🎯 只有初始化完成后才刷新设备
+                if (isInitialized) {
+                    setTimeout(async () => {
+                        try {
+                            await refreshDevices();
+                            throttleLog('control-device-refresh', '🔄 控制栏权限变化后设备列表已刷新');
+                        } catch (error) {
+                            console.warn('控制栏权限变化后刷新设备列表失败:', error);
+                        }
+                    }, 500);
+                }
             } else {
                 // 静默更新权限状态
                 setLocalPermissions(newPermissions);
@@ -413,17 +419,62 @@ export function ControlBar({
                 video: permissions.video
             });
         }
-    }, [permissions, localPermissions, refreshDevices, throttleLog]);
+    }, [permissions, localPermissions, refreshDevices, throttleLog, isInitialized]);
 
-    // 定期检查权限状态 - 减少检查频率
+    // 🎯 修复：统一的初始化函数
+    const initializeControlBar = useCallback(async () => {
+        if (initializingRef.current || isInitialized) {
+            console.log('⏭️ 控制栏已初始化或正在初始化，跳过');
+            return;
+        }
+
+        initializingRef.current = true;
+
+        try {
+            console.log('🚀 开始初始化控制栏...');
+
+            // 1. 检查权限状态
+            await checkPermissions();
+
+            // 2. 确保选择默认麦克风
+            const currentDevice = getSelectedDeviceInfo('audioinput');
+            if (!currentDevice) {
+                console.log('🎤 未选择音频设备，设置为默认设备');
+                selectDevice('audioinput', 'default');
+            }
+
+            // 3. 刷新设备列表
+            await refreshDevices();
+
+            setIsInitialized(true);
+            console.log('✅ 控制栏初始化完成');
+
+        } catch (error) {
+            console.warn('❌ 控制栏初始化失败:', error);
+        } finally {
+            initializingRef.current = false;
+        }
+    }, [checkPermissions, getSelectedDeviceInfo, selectDevice, refreshDevices, isInitialized]);
+
+    // 🎯 修复：只在组件挂载时初始化一次
     useEffect(() => {
-        checkPermissions();
-        
+        // 延迟初始化，确保页面完全加载
+        const timer = setTimeout(() => {
+            initializeControlBar();
+        }, 1000);
+
+        return () => clearTimeout(timer);
+    }, []); // 🎯 空依赖数组，只执行一次
+
+    // 🎯 修复：减少权限检查频率，只有初始化完成后才检查
+    useEffect(() => {
+        if (!isInitialized) return;
+
         // 每10秒检查一次权限状态（减少频率）
         const interval = setInterval(checkPermissions, 10000);
         
         return () => clearInterval(interval);
-    }, [checkPermissions]);
+    }, [checkPermissions, isInitialized]); // 🎯 添加 isInitialized 依赖
 
     // 同步设备状态
     useEffect(() => {
@@ -436,9 +487,10 @@ export function ControlBar({
             setIsCameraOff(!cameraEnabled);
             setIsScreenSharing(screenSharing);
             
-            console.log('设备状态同步:', { micEnabled, cameraEnabled, screenSharing });
+            // 🎯 减少日志频率
+            throttleLog('device-state-sync', '设备状态同步:', { micEnabled, cameraEnabled, screenSharing }, 5000);
         }
-    }, [localParticipant?.isMicrophoneEnabled, localParticipant?.isCameraEnabled, localParticipant?.isScreenShareEnabled]);
+    }, [localParticipant?.isMicrophoneEnabled, localParticipant?.isCameraEnabled, localParticipant?.isScreenShareEnabled, throttleLog]);
 
     // 修复麦克风切换逻辑 - 权限获取后刷新设备列表
     const toggleMicrophone = useCallback(async () => {

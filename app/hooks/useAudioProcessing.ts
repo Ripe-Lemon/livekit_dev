@@ -92,18 +92,13 @@ export function useAudioProcessing(): AudioProcessingControls {
 
     // 获取当前音频设备ID
     const getCurrentAudioDeviceId = useCallback((): string => {
-        if (processedTrackRef.current?.mediaStreamTrack) {
-            const trackSettings = processedTrackRef.current.mediaStreamTrack.getSettings();
-            if (trackSettings.deviceId) {
-                return trackSettings.deviceId;
-            }
-        }
-        
+        // 1. 优先检查用户是否手动选择了设备
         try {
             const storedDevices = localStorage.getItem('livekit_selected_devices');
             if (storedDevices) {
                 const parsed = JSON.parse(storedDevices);
-                if (parsed.audioinput) {
+                if (parsed.audioinput && parsed.audioinput !== 'default') {
+                    console.log('🎤 使用用户选择的设备:', parsed.audioinput);
                     return parsed.audioinput;
                 }
             }
@@ -111,6 +106,17 @@ export function useAudioProcessing(): AudioProcessingControls {
             console.warn('读取存储的设备选择失败:', error);
         }
         
+        // 2. 检查当前轨道设备
+        if (processedTrackRef.current?.mediaStreamTrack) {
+            const trackSettings = processedTrackRef.current.mediaStreamTrack.getSettings();
+            if (trackSettings.deviceId) {
+                console.log('🎤 使用当前轨道设备:', trackSettings.deviceId);
+                return trackSettings.deviceId;
+            }
+        }
+        
+        // 3. 🎯 默认返回 'default' 设备（系统默认麦克风）
+        console.log('🎤 使用系统默认麦克风设备');
         return 'default';
     }, []);
 
@@ -287,66 +293,125 @@ export function useAudioProcessing(): AudioProcessingControls {
         isInitializingRef.current = true;
 
         try {
-            console.log('🎛️ 开始初始化音频处理系统...');
+            console.log('🎛️ 开始初始化自定义音频处理系统...');
 
-            // 1. 初始化 Web Audio API 处理链
+            // 🎯 步骤1：强制停止和清理所有现有的音频轨道
+            console.log('🧹 清理现有音频轨道...');
+            const existingAudioPublications = Array.from(localParticipant.audioTrackPublications.values());
+            
+            for (const publication of existingAudioPublications) {
+                if (publication.track) {
+                    console.log('🛑 停止现有音频轨道:', publication.trackName);
+                    publication.track.stop();
+                    await localParticipant.unpublishTrack(publication.track);
+                }
+            }
+
+            // 等待清理完成
+            await new Promise(resolve => setTimeout(resolve, 800));
+
+            // 🎯 步骤2：初始化 Web Audio API 处理链
             await initializeAudioProcessingChain();
 
-            // 2. 获取原始音频流（包含原生浏览器处理）
+            // 🎯 步骤3：获取原始音频流（使用默认设备，禁用浏览器处理）
             const deviceId = getCurrentAudioDeviceId();
             const constraints: MediaStreamConstraints = {
                 audio: {
+                    // 🎯 设备选择
                     deviceId: deviceId === 'default' ? undefined : { exact: deviceId },
-                    echoCancellation: false,//settings.echoCancellation, // 🎯 只在获取流时设置
+                    
+                    // 🎯 关键：禁用所有浏览器原生音频处理
+                    echoCancellation: false,  // 禁用回声抑制
+                    noiseSuppression: false,  // 禁用噪声抑制  
+                    autoGainControl: false,   // 禁用自动增益
+                    
+                    // 音频质量设置
                     sampleRate: { ideal: settings.sampleRate },
                     channelCount: { exact: 1 } // 强制单声道
                 }
             };
 
-            console.log('🎤 获取原始音频流，约束:', constraints);
+            console.log('🎤 获取原始音频流（已禁用浏览器处理）:', constraints);
             const originalStream = await navigator.mediaDevices.getUserMedia(constraints);
             originalStreamRef.current = originalStream;
 
-            // 3. 连接到 Web Audio API 处理链
+            // 验证获取的音频流设置
+            const audioTrack = originalStream.getAudioTracks()[0];
+            if (audioTrack) {
+                const actualSettings = audioTrack.getSettings();
+                console.log('🔍 实际音频流设置:', {
+                    deviceId: actualSettings.deviceId,
+                    echoCancellation: actualSettings.echoCancellation,
+                    noiseSuppression: actualSettings.noiseSuppression,
+                    autoGainControl: actualSettings.autoGainControl,
+                    sampleRate: actualSettings.sampleRate,
+                    channelCount: actualSettings.channelCount
+                });
+
+                // 🎯 确保浏览器处理已被禁用
+                if (actualSettings.echoCancellation || actualSettings.noiseSuppression || actualSettings.autoGainControl) {
+                    console.warn('⚠️ 警告：浏览器音频处理未完全禁用，可能存在冲突');
+                }
+            }
+
+            // 🎯 步骤4：连接到 Web Audio API 处理链
             sourceNodeRef.current = audioContextRef.current!.createMediaStreamSource(originalStream);
             connectAudioChain();
 
-            // 4. 获取处理后的音频流
+            // 🎯 步骤5：获取处理后的音频流
             const processedStream = destinationNodeRef.current!.stream;
-
-            // 5. 🎯 关键：从处理后的流创建音频轨道（只创建一次）
             const processedAudioTrack = processedStream.getAudioTracks()[0];
+            
             if (!processedAudioTrack) {
                 throw new Error('无法获取处理后的音频轨道');
             }
 
-            // 包装为 LocalAudioTrack
+            // 🎯 步骤6：创建 LiveKit LocalAudioTrack
             processedTrackRef.current = new LocalAudioTrack(
                 processedAudioTrack,
                 undefined,
-                false // 不是来自屏幕共享
+                false
             );
 
-            // 6. 🎯 一次性发布到 LiveKit（后续不再重建）
+            // 🎯 步骤7：发布自定义音频轨道
             await localParticipant.publishTrack(processedTrackRef.current, {
-                name: 'microphone',
+                name: 'custom-microphone', // 🎯 使用自定义名称
                 source: Track.Source.Microphone,
                 stopMicTrackOnMute: true
             });
 
-            // 7. 应用初始处理设置
+            console.log('📤 自定义音频轨道已发布');
+
+            // 🎯 步骤8：保存设备选择到本地存储
+            if (deviceId && deviceId !== 'default') {
+                try {
+                    const storedDevices = localStorage.getItem('livekit_selected_devices') || '{}';
+                    const devices = JSON.parse(storedDevices);
+                    devices.audioinput = deviceId;
+                    localStorage.setItem('livekit_selected_devices', JSON.stringify(devices));
+                    console.log('💾 设备选择已保存:', deviceId);
+                } catch (error) {
+                    console.warn('保存设备选择失败:', error);
+                }
+            }
+
+            // 🎯 步骤9：应用初始处理设置
             updateProcessingChain();
 
-            // 8. 开始实时监控
+            // 🎯 步骤10：开始实时监控
             startAudioMonitoring();
 
             setIsProcessingActive(true);
             setIsInitialized(true);
 
-            console.log('✅ 音频处理系统初始化完成 - 轨道已发布，后续只更新处理参数');
+            console.log('✅ 自定义音频处理系统初始化完成');
+            console.log('🎯 系统状态：');
+            console.log('  - 已发布1条自定义音频轨道');
+            console.log('  - 已禁用浏览器原生音频处理');
+            console.log('  - 使用设备:', deviceId === 'default' ? '系统默认麦克风' : deviceId);
 
         } catch (error) {
-            console.error('❌ 音频处理系统初始化失败:', error);
+            console.error('❌ 自定义音频处理系统初始化失败:', error);
             setIsProcessingActive(false);
             throw error;
         } finally {
@@ -356,9 +421,7 @@ export function useAudioProcessing(): AudioProcessingControls {
         localParticipant, 
         room, 
         isInitialized, 
-        settings.echoCancellation, 
-        settings.sampleRate, 
-        settings.latency,
+        settings,
         initializeAudioProcessingChain,
         getCurrentAudioDeviceId,
         connectAudioChain,

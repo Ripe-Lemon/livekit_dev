@@ -213,16 +213,14 @@ export function useRoom(options: UseRoomOptions = {}): UseRoomReturn {
 
             connectionParamsRef.current = params;
             
-            // 创建新的房间实例 - 设置 publishDefaults
+            // 🎯 修复：完全禁用默认音频捕获和发布
             const room = new Room({
                 adaptiveStream: true,
                 dynacast: true,
-                audioCaptureDefaults: {
-                    autoGainControl: true,  // 默认值，会被 useAudioProcessing 覆盖
-                    noiseSuppression: true,
-                    echoCancellation: false,
-                    voiceIsolation: false,
-                },
+                
+                // 🎯 关键：不设置任何默认音频捕获选项
+                // audioCaptureDefaults: undefined, // 完全不设置
+                
                 videoCaptureDefaults: {
                     resolution: {
                         width: 1280,
@@ -231,7 +229,6 @@ export function useRoom(options: UseRoomOptions = {}): UseRoomReturn {
                     }
                 },
                 publishDefaults: {
-                    // 🎯 关键：房间级别设置 stopMicTrackOnMute
                     stopMicTrackOnMute: true,
                     audioPreset: {
                         maxBitrate: 20_000,
@@ -267,6 +264,13 @@ export function useRoom(options: UseRoomOptions = {}): UseRoomReturn {
                 token = data.token;
             }
 
+            // 🎯 修复：连接时明确禁用自动音频发布
+            const connectOptions = {
+                autoSubscribe: true,
+                publishAudio: false, // 🎯 关键：禁用自动音频发布
+                publishVideo: false, // 🎯 也禁用自动视频发布，让用户手动控制
+            };
+
             // 连接到房间
             const serverUrl = params.serverUrl || process.env.NEXT_PUBLIC_LIVEKIT_URL;
             if (!serverUrl) {
@@ -277,7 +281,7 @@ export function useRoom(options: UseRoomOptions = {}): UseRoomReturn {
                 throw new Error('访问令牌获取失败');
             }
 
-            await room.connect(serverUrl, token);
+            await room.connect(serverUrl, token, connectOptions);
 
             // 启用音频和视频
             await room.localParticipant.enableCameraAndMicrophone();

@@ -659,6 +659,31 @@ export function ControlBar({
         setTimeout(initializeDevices, 1000);
     }, []);
 
+    // 🎯 修复：初始化时确保选择默认麦克风
+    useEffect(() => {
+        const initializeDefaultDevices = async () => {
+            try {
+                // 检查当前选择的音频设备
+                const currentDevice = getSelectedDeviceInfo('audioinput');
+                
+                if (!currentDevice) {
+                    console.log('🎤 未选择音频设备，设置为默认设备');
+                    selectDevice('audioinput', 'default');
+                }
+                
+                // 刷新设备列表
+                await refreshDevices();
+                
+                console.log('🚀 控制栏设备初始化完成');
+            } catch (error) {
+                console.warn('控制栏设备初始化失败:', error);
+            }
+        };
+        
+        // 延迟初始化，确保页面完全加载
+        setTimeout(initializeDefaultDevices, 1000);
+    }, [getSelectedDeviceInfo, selectDevice, refreshDevices]);
+
     // 自动隐藏控制栏（全屏模式）
     useEffect(() => {
         let timeout: NodeJS.Timeout;

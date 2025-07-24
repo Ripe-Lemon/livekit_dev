@@ -174,7 +174,7 @@ export function useAudioProcessing(): AudioProcessingControls {
                 negativeSpeechThreshold: settings.vadNegativeSpeechThreshold,
                 redemptionFrames: settings.vadRedemptionFrames,
                 minSpeechFrames: 3,
-                preSpeechPadFrames: 3,
+                preSpeechPadFrames: 16,
                 // --- 回调函数 ---
                 onSpeechStart: () => {
                     console.log('VAD: 检测到语音开始');

@@ -336,31 +336,34 @@ export function useAudioProcessing(): AudioProcessingControls {
         processFrame();
     }, []);
 
+    // 🎯 新增：确保 AudioContext 处于运行状态的函数
+    const ensureAudioContextRunning = useCallback(async () => {
+        if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+            console.log('AudioContext is suspended, attempting to resume...');
+            try {
+                await audioContextRef.current.resume();
+                console.log('✅ AudioContext resumed successfully.');
+            } catch (e) {
+                console.error('❌ Failed to resume AudioContext:', e);
+            }
+        }
+    }, []);
+
     // 🎯 核心：初始化音频处理（只执行一次）
     const initializeAudioProcessing = useCallback(async () => {
-        if (isInitializingRef.current || isInitialized || !localParticipant || !room) {
-            return;
-        }
-
+        if (isInitializingRef.current || isInitialized || !localParticipant || !room) return;
         isInitializingRef.current = true;
-
+        
         try {
             console.log('🎛️ 开始初始化自定义音频处理系统...');
-
-            // 🎯 步骤1：强制停止和清理所有现有的音频轨道
-            console.log('🧹 清理现有音频轨道...');
+            // 清理现有轨道...
             const existingAudioPublications = Array.from(localParticipant.audioTrackPublications.values());
-            
-            for (const publication of existingAudioPublications) {
-                if (publication.track) {
-                    console.log('🛑 停止现有音频轨道:', publication.trackName);
-                    publication.track.stop();
-                    await localParticipant.unpublishTrack(publication.track);
+            for (const pub of existingAudioPublications) {
+                if (pub.track) {
+                    await localParticipant.unpublishTrack(pub.track);
                 }
             }
-
-            // 等待清理完成
-            await new Promise(resolve => setTimeout(resolve, 800));
+            await new Promise(resolve => setTimeout(resolve, 200));
 
             // 🎯 步骤2：初始化 Web Audio API 处理链
             await initializeAudioProcessingChain();
@@ -386,6 +389,7 @@ export function useAudioProcessing(): AudioProcessingControls {
             console.log('🎤 获取原始音频流（已禁用浏览器处理）:', constraints);
             const originalStream = await navigator.mediaDevices.getUserMedia(constraints);
             originalStreamRef.current = originalStream;
+            await ensureAudioContextRunning();
 
             // 🎯 步骤4：连接到 Web Audio API 处理链
             sourceNodeRef.current = audioContextRef.current!.createMediaStreamSource(originalStream);
@@ -398,58 +402,19 @@ export function useAudioProcessing(): AudioProcessingControls {
                 controlGate('open');
             }
             
-            // 🎯 步骤5：获取处理后的音频流
+            // 发布轨道
             const processedStream = destinationNodeRef.current!.stream;
             const processedAudioTrack = processedStream.getAudioTracks()[0];
-            
-            if (!processedAudioTrack) {
-                throw new Error('无法获取处理后的音频轨道');
-            }
+            processedTrackRef.current = new LocalAudioTrack(processedAudioTrack, undefined, false);
+            await localParticipant.publishTrack(processedTrackRef.current, { name: 'custom-microphone-vad', source: Track.Source.Microphone, stopMicTrackOnMute: true });
 
-            // 🎯 步骤6：创建 LiveKit LocalAudioTrack
-            processedTrackRef.current = new LocalAudioTrack(
-                processedAudioTrack,
-                undefined,
-                false
-            );
-
-            // 🎯 步骤7：发布自定义音频轨道
-            await localParticipant.publishTrack(processedTrackRef.current, {
-                name: 'custom-microphone', // 🎯 使用自定义名称
-                source: Track.Source.Microphone,
-                stopMicTrackOnMute: true
-            });
-
-            console.log('📤 自定义音频轨道已发布');
-
-            // 🎯 步骤8：保存设备选择到本地存储
-            if (deviceId && deviceId !== 'default') {
-                try {
-                    const storedDevices = localStorage.getItem('livekit_selected_devices') || '{}';
-                    const devices = JSON.parse(storedDevices);
-                    devices.audioinput = deviceId;
-                    localStorage.setItem('livekit_selected_devices', JSON.stringify(devices));
-                    console.log('💾 设备选择已保存:', deviceId);
-                } catch (error) {
-                    console.warn('保存设备选择失败:', error);
-                }
-            }
-
-            // 🎯 步骤9：应用初始处理设置
+            // 更新和启动监控
             updateProcessingChain();
-
-            // 🎯 步骤10：开始实时监控
             startAudioMonitoring();
 
             setIsProcessingActive(true);
             setIsInitialized(true);
-
             console.log('✅ 自定义音频处理系统初始化完成');
-            console.log('🎯 系统状态：');
-            console.log('  - 已发布1条自定义音频轨道');
-            console.log('  - 已禁用浏览器原生音频处理');
-            console.log('  - 使用设备:', deviceId === 'default' ? '系统默认麦克风' : deviceId);
-
         } catch (error) {
             console.error('❌ 自定义音频处理系统初始化失败:', error);
             setIsProcessingActive(false);
@@ -468,7 +433,8 @@ export function useAudioProcessing(): AudioProcessingControls {
         getCurrentAudioDeviceId,
         connectAudioChain,
         updateProcessingChain,
-        startAudioMonitoring
+        startAudioMonitoring,
+        ensureAudioContextRunning
     ]);
 
     // 🎯 更新单个设置（只更新处理参数，不重建轨道）

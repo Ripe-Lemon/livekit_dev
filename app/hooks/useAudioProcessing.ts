@@ -21,7 +21,7 @@ export interface AudioProcessingSettings {
 
 export interface AudioProcessingControls {
     settings: AudioProcessingSettings;
-    updateSetting: (key: keyof AudioProcessingSettings, value: boolean | number) => Promise<void>;
+    updateSetting: (key: keyof AudioProcessingSettings, value: boolean | number) => void;
     isApplying: (key: keyof AudioProcessingSettings) => boolean;
     resetToDefaults: () => Promise<void>;
     isProcessingActive: boolean;
@@ -447,7 +447,7 @@ export function useAudioProcessing(): AudioProcessingControls {
     ]);
 
     // 🎯 更新单个设置（只更新处理参数，不重建轨道）
-    const updateSetting = useCallback(async (key: keyof AudioProcessingSettings, value: boolean | number): Promise<void> => {
+    const updateSetting = useCallback((key: keyof AudioProcessingSettings, value: boolean | number): void => {
         setSettings(prevSettings => {
             const newSettings = { ...prevSettings, [key]: value };
             saveSettings(newSettings);

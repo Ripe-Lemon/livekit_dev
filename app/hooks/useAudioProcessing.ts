@@ -34,17 +34,17 @@ export interface AudioProcessingControls {
 const DEFAULT_SETTINGS: Omit<AudioProcessingSettings, 'echoCancellation'> = {
     preamp: 1.0,
     postamp: 7.0,
-    autoGainControl: true,
+    autoGainControl: false,
     noiseSuppression: false,
     vadEnabled: true,
-    vadPositiveSpeechThreshold: 0.65,
-    vadNegativeSpeechThreshold: 0.45,
+    vadPositiveSpeechThreshold: 0.8,
+    vadNegativeSpeechThreshold: 0.65,
     vadRedemptionFrames: 1,
     sampleRate: 48000,
     channels: 1,
 };
 
-const STORAGE_KEY = 'livekit_audio_processing_settings_V2';
+const STORAGE_KEY = 'livekit_audio_processing_settings_V3';
 type StoredSettings = Partial<AudioProcessingSettings & { microphoneThreshold?: number }>;
 
 export function useAudioProcessing(): AudioProcessingControls {
@@ -145,7 +145,7 @@ export function useAudioProcessing(): AudioProcessingControls {
             const now = audioContext.currentTime;
             gateNode.gain.cancelScheduledValues(now);
             const targetGain = action === 'open' ? 1.0 : 0.0001;
-            const delay = action === 'open' ? 0.1 : 0.5;
+            const delay = action === 'open' ? 0.01 : 0.05;
             gateNode.gain.setValueAtTime(gateNode.gain.value, now);
             if (action === 'open') {
             // 🎯 核心修复：将开门的延迟从 0.1 大幅缩短到 0.015
@@ -153,7 +153,7 @@ export function useAudioProcessing(): AudioProcessingControls {
             gateNode.gain.exponentialRampToValueAtTime(1.0, now + 0.01);
         } else {
             // 关门时可以保留一个较长的延迟，让语音结束得更自然
-            gateNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
+            gateNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.02);
         }
         }
     }, []);
@@ -166,7 +166,7 @@ export function useAudioProcessing(): AudioProcessingControls {
         }
 
         try {
-            console.log('🎤 正在加载 Silero v5 VAD 模型并应用设置:', {
+            console.log('🎤 正在加载 VAD 模型并应用设置:', {
                 positiveSpeechThreshold: settings.vadPositiveSpeechThreshold,
                 negativeSpeechThreshold: settings.vadNegativeSpeechThreshold,
                 redemptionFrames: settings.vadRedemptionFrames,
@@ -234,7 +234,7 @@ export function useAudioProcessing(): AudioProcessingControls {
             gateNodeRef.current.gain.value = 0.0;
 
             // 配置分析器
-            analyserNodeRef.current.fftSize = 256;
+            analyserNodeRef.current.fftSize = 512;
             analyserNodeRef.current.smoothingTimeConstant = 0.8;
             audioDataRef.current = new Uint8Array(analyserNodeRef.current.frequencyBinCount);
             

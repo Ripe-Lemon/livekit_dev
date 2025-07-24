@@ -128,12 +128,12 @@ const MainControls = React.memo(({
                      <h4 className="text-xs font-medium text-gray-300">VAD 参数微调</h4>
                      <div>
                          <div className="flex items-center justify-between mb-2"><span className="text-sm text-white">触发灵敏度</span><span className="text-xs text-gray-400">{settings.vadPositiveSpeechThreshold.toFixed(2)}</span></div>
-                         <input type="range" min="0.2" max="0.9" step="0.01" defaultValue={settings.vadPositiveSpeechThreshold} onChange={(e) => handleNumberChange('vadPositiveSpeechThreshold', e.target.value)} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" />
+                         <input type="range" min="0.2" max="0.99" step="0.01" defaultValue={settings.vadPositiveSpeechThreshold} onChange={(e) => handleNumberChange('vadPositiveSpeechThreshold', e.target.value)} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" />
                          <div className="flex justify-between text-xs text-gray-500 mt-1"><span>不易触发</span><span>容易触发</span></div>
                      </div>
                      <div>
                          <div className="flex items-center justify-between mb-2"><span className="text-sm text-white">结束灵敏度</span><span className="text-xs text-gray-400">{settings.vadNegativeSpeechThreshold.toFixed(2)}</span></div>
-                         <input type="range" min="0.1" max="0.7" step="0.01" defaultValue={settings.vadNegativeSpeechThreshold} onChange={(e) => handleNumberChange('vadNegativeSpeechThreshold', e.target.value)} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" />
+                         <input type="range" min="0.1" max="0.9" step="0.01" defaultValue={settings.vadNegativeSpeechThreshold} onChange={(e) => handleNumberChange('vadNegativeSpeechThreshold', e.target.value)} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" />
                          <div className="flex justify-between text-xs text-gray-500 mt-1"><span>不易断句</span><span>容易断句</span></div>
                      </div>
                      <div>

@@ -30,6 +30,10 @@ export function AudioProcessingControls({ className = '', audioProcessing }: Aud
         }
     };
 
+    const handleNumberChange = async (key: keyof AudioProcessingSettings, value: string) => {
+        await updateSetting(key, parseFloat(value));
+    };
+
     const handleReset = async () => {
         try {
             await resetToDefaults();
@@ -156,6 +160,76 @@ export function AudioProcessingControls({ className = '', audioProcessing }: Aud
                         />
                     </div>
                  </div>
+
+                 {/* 🎯 2. 新增：VAD 参数调整模块 (仅在VAD启用时显示) */}
+                {settings.vadEnabled && isInitialized && (
+                    <div className="space-y-4 p-3 border border-gray-700 rounded-lg">
+                        <h4 className="text-xs font-medium text-gray-300">VAD 参数微调</h4>
+                        
+                        {/* VAD 灵敏度滑块 */}
+                        <div>
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm text-white">触发灵敏度</span>
+                                <span className="text-xs text-gray-400">{settings.vadPositiveSpeechThreshold.toFixed(2)}</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="0.3"
+                                max="0.8" // 建议范围，可调整
+                                step="0.05"
+                                value={settings.vadPositiveSpeechThreshold}
+                                onChange={(e) => handleNumberChange('vadPositiveSpeechThreshold', e.target.value)}
+                                className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                            />
+                            <div className="flex justify-between text-xs text-gray-500 mt-1">
+                                <span>不易触发</span>
+                                <span>容易触发</span>
+                            </div>
+                        </div>
+
+                        {/* 🎯 新增：VAD 结束灵敏度滑块 */}
+                        <div>
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm text-white">结束灵敏度</span>
+                                <span className="text-xs text-gray-400">{settings.vadNegativeSpeechThreshold.toFixed(2)}</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="0.1"
+                                max="0.5" // negative 阈值通常低于 positive
+                                step="0.05"
+                                value={settings.vadNegativeSpeechThreshold}
+                                onChange={(e) => handleNumberChange('vadNegativeSpeechThreshold', e.target.value)}
+                                className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                            />
+                            <div className="flex justify-between text-xs text-gray-500 mt-1">
+                                <span>不易断句</span>
+                                <span>容易断句</span>
+                            </div>
+                        </div>
+
+                        {/* VAD 静音延迟滑块 */}
+                        <div>
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm text-white">静音延迟</span>
+                                <span className="text-xs text-gray-400">{settings.vadRedemptionFrames} 帧</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="1"
+                                max="20"
+                                step="1"
+                                value={settings.vadRedemptionFrames}
+                                onChange={(e) => handleNumberChange('vadRedemptionFrames', e.target.value)}
+                                className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                            />
+                             <div className="flex justify-between text-xs text-gray-500 mt-1">
+                                <span>快速静音</span>
+                                <span>延迟静音</span>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* 自动增益控制 */}
                 <div className="flex items-center justify-between">

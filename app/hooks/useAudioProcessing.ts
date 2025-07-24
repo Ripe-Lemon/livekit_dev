@@ -11,13 +11,17 @@ export interface AudioProcessingSettings {
     noiseSuppression: boolean;
     echoCancellation: boolean;
     vadEnabled: boolean;
+    vadPositiveSpeechThreshold: number; 
+    vadNegativeSpeechThreshold: number;
+    // VAD 静音延迟，值越大，语音结束后等待时间越长
+    vadRedemptionFrames: number;
     sampleRate: number;
     channels: number;
 }
 
 export interface AudioProcessingControls {
     settings: AudioProcessingSettings;
-    updateSetting: (key: keyof AudioProcessingSettings, value: boolean) => Promise<void>;
+    updateSetting: (key: keyof AudioProcessingSettings, value: boolean | number) => Promise<void>;
     isApplying: (key: keyof AudioProcessingSettings) => boolean;
     resetToDefaults: () => Promise<void>;
     isProcessingActive: boolean;
@@ -30,6 +34,9 @@ const DEFAULT_SETTINGS: Omit<AudioProcessingSettings, 'echoCancellation'> = {
     autoGainControl: true,
     noiseSuppression: true,
     vadEnabled: true,
+    vadPositiveSpeechThreshold: 0.5, // 官方默认值
+    vadNegativeSpeechThreshold: 0.35,
+    vadRedemptionFrames: 8,          // 官方默认值
     sampleRate: 48000,
     channels: 1,
 };
@@ -149,7 +156,10 @@ export function useAudioProcessing(): AudioProcessingControls {
         }
 
         try {
-            console.log('🎤 正在加载 VAD 模型...');
+            console.log('🎤 正在加载 VAD 模型并应用设置:', {
+                positiveSpeechThreshold: settings.vadPositiveSpeechThreshold,
+                redemptionFrames: settings.vadRedemptionFrames
+            });
             
             // 使用 MicVAD.new() 并直接在构造函数中传入 stream
             const vad = await MicVAD.new({
@@ -168,7 +178,15 @@ export function useAudioProcessing(): AudioProcessingControls {
                 // 建议：添加对 VADMisfire 的处理，用于调试
                 onVADMisfire: () => {
                     console.log('VAD Misfire: 检测到过短的语音片段，已忽略');
-                }
+                },
+
+                // 使用来自 state 的配置参数
+                positiveSpeechThreshold: settings.vadPositiveSpeechThreshold,
+                negativeSpeechThreshold: settings.vadNegativeSpeechThreshold, // 使用新参数
+                redemptionFrames: settings.vadRedemptionFrames,
+                // 其他参数可保持默认或根据需要暴露
+                minSpeechFrames: 3,            //
+                preSpeechPadFrames: 1,         //
             });
             
             // 实例创建后直接启动监听
@@ -219,7 +237,7 @@ export function useAudioProcessing(): AudioProcessingControls {
             highpassFilterRef.current.Q.value = 0.7;
 
             lowpassFilterRef.current.type = 'lowpass';
-            lowpassFilterRef.current.frequency.value = 8000; // 去除高频噪音
+            lowpassFilterRef.current.frequency.value = 16000; // 去除高频噪音
             lowpassFilterRef.current.Q.value = 0.7;
 
             // 配置压缩器（自动增益控制）
@@ -471,25 +489,17 @@ export function useAudioProcessing(): AudioProcessingControls {
             setSettings(newSettings);
             saveSettings(newSettings);
 
-            if (key === 'vadEnabled' && isInitialized) {
-                if (value) {
-                    console.log('启用 VAD');
-                    // VAD被启用，初始化并启动它
-                    if (originalStreamRef.current) {
-                        await initializeVAD(originalStreamRef.current);
-                    }
-                } else {
-                    console.log('禁用 VAD');
-                    // VAD被禁用，销毁实例并手动打开门
-                    if (vadRef.current) {
-                        // 使用 pause() 或 destroy()
-                        vadRef.current.destroy();
-                        vadRef.current = null;
-                    }
-                    controlGate('open');
+            const isVadParam = key === 'vadPositiveSpeechThreshold' || key === 'vadRedemptionFrames' || key === 'vadNegativeSpeechThreshold';
+            if (isInitialized && settings.vadEnabled && (isVadParam || key === 'vadEnabled')) {
+                if(originalStreamRef.current) {
+                    await initializeVAD(originalStreamRef.current);
                 }
+            } else if (key === 'vadEnabled' && !value) {
+                // 如果是禁用VAD
+                if (vadRef.current) vadRef.current.destroy();
+                controlGate('open');
             } else {
-                updateProcessingChain(); // 更新其他设置
+                updateProcessingChain();
             }
         } catch (error) {
             console.error(`❌ 更新 ${key} 设置失败:`, error);

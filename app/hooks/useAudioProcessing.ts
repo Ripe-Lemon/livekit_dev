@@ -11,17 +11,13 @@ export interface AudioProcessingSettings {
     noiseSuppression: boolean;
     echoCancellation: boolean;
     vadEnabled: boolean;
-    vadPositiveSpeechThreshold: number; 
-    vadNegativeSpeechThreshold: number;
-    // VAD 静音延迟，值越大，语音结束后等待时间越长
-    vadRedemptionFrames: number;
     sampleRate: number;
     channels: number;
 }
 
 export interface AudioProcessingControls {
     settings: AudioProcessingSettings;
-    updateSetting: (key: keyof AudioProcessingSettings, value: boolean | number) => void;
+    updateSetting: (key: keyof AudioProcessingSettings, value: boolean) => void;
     isApplying: (key: keyof AudioProcessingSettings) => boolean;
     resetToDefaults: () => Promise<void>;
     isProcessingActive: boolean;
@@ -34,9 +30,6 @@ const DEFAULT_SETTINGS: Omit<AudioProcessingSettings, 'echoCancellation'> = {
     autoGainControl: true,
     noiseSuppression: true,
     vadEnabled: true,
-    vadPositiveSpeechThreshold: 0.5, // 官方默认值
-    vadNegativeSpeechThreshold: 0.35,
-    vadRedemptionFrames: 8,          // 官方默认值
     sampleRate: 48000,
     channels: 1,
 };
@@ -159,11 +152,7 @@ export function useAudioProcessing(): AudioProcessingControls {
         }
 
         try {
-            console.log('🎤 正在加载 VAD 模型并应用设置:', {
-                positiveSpeechThreshold: settings.vadPositiveSpeechThreshold,
-                negativeSpeechThreshold: settings.vadNegativeSpeechThreshold,
-                redemptionFrames: settings.vadRedemptionFrames
-            });
+            console.log('🎤 正在加载 Silero v5 VAD 模型...');
             
             // 使用 MicVAD.new() 并直接在构造函数中传入 stream
             const vad = await MicVAD.new({
@@ -184,19 +173,13 @@ export function useAudioProcessing(): AudioProcessingControls {
                     console.log('VAD Misfire: 检测到过短的语音片段，已忽略');
                     controlGate('close');
                 },
-                positiveSpeechThreshold: settings.vadPositiveSpeechThreshold,
-                negativeSpeechThreshold: settings.vadNegativeSpeechThreshold,
-                redemptionFrames: settings.vadRedemptionFrames,
-
-                // 其他参数可保持默认或根据需要暴露
-                minSpeechFrames: 3,            //
-                preSpeechPadFrames: 5,         //
+                model: "v5"
             });
             
             // 实例创建后直接启动监听
             vad.start();
             vadRef.current = vad;
-            console.log('✅ VAD 模型加载并启动成功');
+            console.log('✅ Silero v5 VAD 模型加载并启动成功');
             
         } catch (error) {
             console.error('❌ VAD 初始化失败:', error);
@@ -204,7 +187,7 @@ export function useAudioProcessing(): AudioProcessingControls {
             controlGate('open');
         }
 
-    }, [controlGate, settings]);
+    }, [controlGate]);
 
     // 初始化 Web Audio API 处理链
     const initializeAudioProcessingChain = useCallback(async () => {
@@ -450,7 +433,7 @@ export function useAudioProcessing(): AudioProcessingControls {
     ]);
 
     // 🎯 更新单个设置（只更新处理参数，不重建轨道）
-    const updateSetting = useCallback((key: keyof AudioProcessingSettings, value: boolean | number): void => {
+    const updateSetting = useCallback((key: keyof AudioProcessingSettings, value: boolean): void => {
         setSettings(prevSettings => {
             const newSettings = { ...prevSettings, [key]: value };
             saveSettings(newSettings);
@@ -463,25 +446,25 @@ export function useAudioProcessing(): AudioProcessingControls {
         if (!isInitialized) return;
 
         const handleSettingsChange = async () => {
-            // 如果VAD被启用，则根据最新设置重新初始化
             if (settings.vadEnabled) {
-                if (originalStreamRef.current) {
-                    console.log('VAD settings changed, re-initializing VAD...');
+                if (originalStreamRef.current && !vadRef.current) {
+                    console.log('VAD已启用，正在初始化VAD...');
                     await initializeVAD(originalStreamRef.current);
                 }
-            } else { // 如果VAD被禁用
+            } else { 
                 if (vadRef.current) {
                     vadRef.current.destroy();
                     vadRef.current = null;
                 }
-                controlGate('open'); // 手动打开门
-                console.log('VAD is disabled, gate opened.');
+                controlGate('open');
+                console.log('VAD已禁用，音频门已打开。');
             }
         };
         
         handleSettingsChange();
+        updateProcessingChain(); // 同时更新其他处理设置
 
-    }, [settings, isInitialized, initializeVAD, controlGate]); // 监听整个settings对象的变化
+    }, [settings, isInitialized, initializeVAD, controlGate, updateProcessingChain]);
 
     // 检查是否正在应用设置
     const isApplying = useCallback((key: keyof AudioProcessingSettings) => {

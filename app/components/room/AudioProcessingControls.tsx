@@ -32,21 +32,19 @@ const MainControls = React.memo(({
     settings, 
     isApplying, 
     isVADActive,
-    handleToggleSetting, 
-    handleNumberChange 
+    handleToggleSetting
 }: {
     settings: any;
-    isApplying: any;
+    isApplying: (key: keyof AudioProcessingSettings) => boolean;
     isVADActive: boolean;
-    handleToggleSetting: (key: string, value: boolean) => void;
-    handleNumberChange: (key: string, value: string) => void;
+    handleToggleSetting: (key: keyof AudioProcessingSettings, value: boolean) => void;
 }) => {
     return (
         <div className="space-y-4">
             {/* VAD 主开关 */}
             <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
                 <div className="flex-1">
-                    <span className="text-sm text-white flex items-center">语音激活检测 (VAD)</span>
+                    <span className="text-sm text-white flex items-center">语音激活检测 (Silero v5)</span>
                     <p className="text-xs text-gray-400 mt-1">仅在您说话时发送音频，有效过滤背景噪音。</p>
                     <div className="flex items-center text-xs mt-2">
                         <span className="mr-2 text-gray-400">状态:</span>
@@ -64,28 +62,6 @@ const MainControls = React.memo(({
                     <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${settings.vadEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
             </div>
-
-            {/* VAD 参数微调 */}
-            {settings.vadEnabled && (
-                 <div className="space-y-4 p-3 border border-gray-700 rounded-lg">
-                     <h4 className="text-xs font-medium text-gray-300">VAD 参数微调</h4>
-                     <div>
-                         <div className="flex items-center justify-between mb-2"><span className="text-sm text-white">触发灵敏度</span><span className="text-xs text-gray-400">{settings.vadPositiveSpeechThreshold.toFixed(2)}</span></div>
-                         <input type="range" min="0.3" max="0.8" step="0.05" defaultValue={settings.vadPositiveSpeechThreshold} onChange={(e) => handleNumberChange('vadPositiveSpeechThreshold', e.target.value)} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" />
-                         <div className="flex justify-between text-xs text-gray-500 mt-1"><span>不易触发</span><span>容易触发</span></div>
-                     </div>
-                     <div>
-                         <div className="flex items-center justify-between mb-2"><span className="text-sm text-white">结束灵敏度</span><span className="text-xs text-gray-400">{settings.vadNegativeSpeechThreshold.toFixed(2)}</span></div>
-                         <input type="range" min="0.1" max="0.5" step="0.05" defaultValue={settings.vadNegativeSpeechThreshold} onChange={(e) => handleNumberChange('vadNegativeSpeechThreshold', e.target.value)} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" />
-                         <div className="flex justify-between text-xs text-gray-500 mt-1"><span>不易断句</span><span>容易断句</span></div>
-                     </div>
-                     <div>
-                         <div className="flex items-center justify-between mb-2"><span className="text-sm text-white">静音延迟</span><span className="text-xs text-gray-400">{settings.vadRedemptionFrames} 帧</span></div>
-                         <input type="range" min="1" max="20" step="1" defaultValue={settings.vadRedemptionFrames} onChange={(e) => handleNumberChange('vadRedemptionFrames', e.target.value)} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" />
-                         <div className="flex justify-between text-xs text-gray-500 mt-1"><span>快速静音</span><span>延迟静音</span></div>
-                     </div>
-                 </div>
-            )}
 
             {/* 自动增益控制 */}
                 <div className="flex items-center justify-between">
@@ -200,21 +176,6 @@ export function AudioProcessingControls({ className = '', audioProcessing }: Aud
     }, [updateSetting]);
 
     const debounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
-    
-    // 使用 useCallback 确保函数稳定，避免子组件不必要的渲染
-    const handleNumberChange = React.useCallback((key: string, value: string) => {
-        // 清除上一次的定时器，以防用户仍在快速拖动
-        if (debounceTimerRef.current) {
-            clearTimeout(debounceTimerRef.current);
-        }
-
-        // 设置一个新的定时器。只有当用户停止拖动250ms后，更新才会真正执行
-        debounceTimerRef.current = setTimeout(() => {
-            console.log(`Debounced update triggered: ${key} -> ${value}`);
-            updateSetting(key as any, parseFloat(value));
-        }, 250); // 250毫秒的防抖延迟
-
-    }, [updateSetting]);
 
     return (
         <div className="space-y-4">
@@ -227,7 +188,6 @@ export function AudioProcessingControls({ className = '', audioProcessing }: Aud
                 isApplying={isApplying}
                 isVADActive={isVADActive}
                 handleToggleSetting={handleToggleSetting}
-                handleNumberChange={handleNumberChange}
             />
         </div>
     );

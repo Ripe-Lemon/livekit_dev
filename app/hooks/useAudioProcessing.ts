@@ -31,12 +31,12 @@ export interface AudioProcessingControls {
 }
 
 const DEFAULT_SETTINGS: Omit<AudioProcessingSettings, 'echoCancellation'> = {
-    preamp: 5.0,
+    preamp: 10.0,
     autoGainControl: true,
     noiseSuppression: false,
     vadEnabled: true,
-    vadPositiveSpeechThreshold: 0.5,
-    vadNegativeSpeechThreshold: 0.35,
+    vadPositiveSpeechThreshold: 0.4,
+    vadNegativeSpeechThreshold: 0.3,
     vadRedemptionFrames: 8,
     sampleRate: 48000,
     channels: 1,
@@ -178,7 +178,7 @@ export function useAudioProcessing(): AudioProcessingControls {
                 negativeSpeechThreshold: settings.vadNegativeSpeechThreshold,
                 redemptionFrames: settings.vadRedemptionFrames,
                 minSpeechFrames: 3,
-                preSpeechPadFrames: 5,
+                preSpeechPadFrames: 8,
                 // --- 回调函数 ---
                 onSpeechStart: () => {
                     console.log('VAD: 检测到语音开始');

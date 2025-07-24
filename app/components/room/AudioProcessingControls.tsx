@@ -56,7 +56,7 @@ const MainControls = React.memo(({
                     <input 
                         type="range" 
                         min="0.5" // 最小值设为0.5倍
-                        max="10.0" // 最大值设为10倍，提供更大空间
+                        max="20.0" // 最大值设为20倍，提供更大空间
                         step="0.1" 
                         defaultValue={settings.preamp} 
                         onChange={(e) => handleNumberChange('preamp', e.target.value)} 

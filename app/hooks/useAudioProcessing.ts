@@ -39,7 +39,7 @@ const DEFAULT_SETTINGS: Omit<AudioProcessingSettings, 'echoCancellation'> = {
     vadEnabled: true,
     vadPositiveSpeechThreshold: 0.8,
     vadNegativeSpeechThreshold: 0.65,
-    vadRedemptionFrames: 1,
+    vadRedemptionFrames: 4,
     sampleRate: 48000,
     channels: 1,
 };
@@ -235,7 +235,7 @@ export function useAudioProcessing(): AudioProcessingControls {
 
             // 配置分析器
             analyserNodeRef.current.fftSize = 256;
-            analyserNodeRef.current.smoothingTimeConstant = 0.8;
+            analyserNodeRef.current.smoothingTimeConstant = 1;
             audioDataRef.current = new Uint8Array(analyserNodeRef.current.frequencyBinCount);
             
             console.log('✅ 音频处理链节点创建完成');

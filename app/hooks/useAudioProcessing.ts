@@ -263,11 +263,15 @@ export function useAudioProcessing(): AudioProcessingControls {
 
         // 断开所有旧连接，以防万一
         source.disconnect();
+        gate.disconnect();
+        postamp.disconnect();
+        analyser.disconnect();
 
         // 新的连接顺序
         source.connect(gate);
-        gate.connect(postamp);
-        gate.connect(analyser); // 分析器现在监听门后的纯语音
+        source.connect(gate);
+        gate.connect(postamp);      // VAD门后的干净语音进入后置放大
+        postamp.connect(analyser);  // 分析器现在监听最终放大后的音量
         analyser.connect(destination);
 
         console.log('✅ 优化后的音频处理链已连接');

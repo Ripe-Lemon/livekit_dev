@@ -150,10 +150,10 @@ export function useAudioProcessing(): AudioProcessingControls {
             if (action === 'open') {
             // 🎯 核心修复：将开门的延迟从 0.1 大幅缩短到 0.015
             // 这样音频门会几乎瞬间打开，让 preSpeechPadFrames 缓存的音头通过
-            gateNode.gain.exponentialRampToValueAtTime(1.0, now + 0.01);
+            gateNode.gain.exponentialRampToValueAtTime(1.0, now + 0.001);
         } else {
             // 关门时可以保留一个较长的延迟，让语音结束得更自然
-            gateNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.02);
+            gateNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.01);
         }
         }
     }, []);

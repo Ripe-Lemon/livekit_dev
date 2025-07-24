@@ -31,7 +31,7 @@ export interface AudioProcessingControls {
 }
 
 const DEFAULT_SETTINGS: Omit<AudioProcessingSettings, 'echoCancellation'> = {
-    preamp: 10.0,
+    preamp: 5.0,
     autoGainControl: true,
     noiseSuppression: false,
     vadEnabled: true,
@@ -173,7 +173,7 @@ export function useAudioProcessing(): AudioProcessingControls {
             const vad = await MicVAD.new({
                 // 关键：在这里传入我们自己创建的音频流
                 stream: stream,
-                model: "v5",
+                //model: "v5",
                 positiveSpeechThreshold: settings.vadPositiveSpeechThreshold,
                 negativeSpeechThreshold: settings.vadNegativeSpeechThreshold,
                 redemptionFrames: settings.vadRedemptionFrames,

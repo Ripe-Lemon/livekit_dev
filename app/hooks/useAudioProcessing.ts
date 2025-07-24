@@ -161,6 +161,7 @@ export function useAudioProcessing(): AudioProcessingControls {
         try {
             console.log('🎤 正在加载 VAD 模型并应用设置:', {
                 positiveSpeechThreshold: settings.vadPositiveSpeechThreshold,
+                negativeSpeechThreshold: settings.vadNegativeSpeechThreshold,
                 redemptionFrames: settings.vadRedemptionFrames
             });
             
@@ -183,11 +184,13 @@ export function useAudioProcessing(): AudioProcessingControls {
                     console.log('VAD Misfire: 检测到过短的语音片段，已忽略');
                     controlGate('close');
                 },
-                ...settings,
+                positiveSpeechThreshold: settings.vadPositiveSpeechThreshold,
+                negativeSpeechThreshold: settings.vadNegativeSpeechThreshold,
+                redemptionFrames: settings.vadRedemptionFrames,
 
                 // 其他参数可保持默认或根据需要暴露
                 minSpeechFrames: 3,            //
-                preSpeechPadFrames: 1,         //
+                preSpeechPadFrames: 5,         //
             });
             
             // 实例创建后直接启动监听

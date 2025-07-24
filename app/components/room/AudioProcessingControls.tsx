@@ -65,37 +65,40 @@ const MainControls = React.memo(({
                 </button>
             </div>
 
-            {/* 🎯 新增的前置增益滑块 */}
-            <div className="p-3 border border-gray-700 rounded-lg">
-                <h4 className="text-xs font-medium text-gray-300 mb-2">输入音量</h4>
-                <div>
-                    <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm text-white">前置增益</span>
-                        <span className="text-xs text-gray-400">
-                            x{settings.preamp.toFixed(2)}
-                        </span>
+            {/* 自动增益控制 */}
+                <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                        <span className="text-sm text-white">自动增益控制</span>
+                        <p className="text-xs text-gray-400">
+                            LiveKit 原生自动增益控制，确保音量稳定
+                        </p>
                     </div>
-                    <input 
-                        type="range" 
-                        min="0.5" 
-                        max="3.0" 
-                        step="0.1" 
-                        defaultValue={settings.preamp} 
-                        onChange={(e) => handleNumberChange('preamp', e.target.value)} 
-                        className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
-                    />
-                    <div className="flex justify-between text-xs text-gray-500 mt-1">
-                        <span>音量减小</span>
-                        <span>正常</span>
-                        <span>音量放大</span>
+                    <div className="flex items-center space-x-2 ml-4">
+                        {isApplying('autoGainControl') && (
+                            <div className="flex items-center space-x-1">
+                                <svg className="w-4 h-4 text-yellow-400 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                                <span className="text-xs text-yellow-400">应用中</span>
+                            </div>
+                        )}
+                        <button
+                            onClick={() => handleToggleSetting('autoGainControl', settings.autoGainControl)}
+                            disabled={isApplying('autoGainControl')}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+                                settings.autoGainControl ? 'bg-blue-600' : 'bg-gray-600'
+                            }`}
+                        >
+                            <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+                                    settings.autoGainControl ? 'translate-x-6' : 'translate-x-1'
+                                }`}
+                            />
+                        </button>
                     </div>
-                    <p className="text-xs text-gray-400 mt-2">
-                        💡 在VAD处理前放大或减小麦克风输入音量。如果说话声音轻，可适当调高此值。
-                    </p>
                 </div>
-            </div>
-
-{/* 🎯 1. 恢复 VAD 参数微调UI */}
+                
+            {/* 🎯 1. 恢复 VAD 参数微调UI */}
             {settings.vadEnabled && (
                  <div className="space-y-4 p-3 border border-gray-700 rounded-lg">
                      <h4 className="text-xs font-medium text-gray-300">VAD 参数微调</h4>
@@ -143,39 +146,6 @@ const MainControls = React.memo(({
                     </div>
                 </div>
             </div>
-
-            {/* 自动增益控制 */}
-                <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                        <span className="text-sm text-white">自动增益控制</span>
-                        <p className="text-xs text-gray-400">
-                            LiveKit 原生自动增益控制，确保音量稳定
-                        </p>
-                    </div>
-                    <div className="flex items-center space-x-2 ml-4">
-                        {isApplying('autoGainControl') && (
-                            <div className="flex items-center space-x-1">
-                                <svg className="w-4 h-4 text-yellow-400 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                </svg>
-                                <span className="text-xs text-yellow-400">应用中</span>
-                            </div>
-                        )}
-                        <button
-                            onClick={() => handleToggleSetting('autoGainControl', settings.autoGainControl)}
-                            disabled={isApplying('autoGainControl')}
-                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
-                                settings.autoGainControl ? 'bg-blue-600' : 'bg-gray-600'
-                            }`}
-                        >
-                            <span
-                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
-                                    settings.autoGainControl ? 'translate-x-6' : 'translate-x-1'
-                                }`}
-                            />
-                        </button>
-                    </div>
-                </div>
 
                 {/* 噪声抑制 */}
                 <div className="flex items-center justify-between">

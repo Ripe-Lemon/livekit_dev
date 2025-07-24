@@ -189,8 +189,8 @@ export function useAudioProcessing(): AudioProcessingControls {
                 positiveSpeechThreshold: settings.vadPositiveSpeechThreshold,
                 negativeSpeechThreshold: settings.vadNegativeSpeechThreshold,
                 redemptionFrames: settings.vadRedemptionFrames,
-                minSpeechFrames: 3,
-                preSpeechPadFrames: 6,
+                minSpeechFrames: 1,
+                preSpeechPadFrames: 8,
             });
             
             // 实例创建后直接启动监听

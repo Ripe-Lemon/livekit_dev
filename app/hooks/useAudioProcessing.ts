@@ -137,35 +137,28 @@ export function useAudioProcessing(): AudioProcessingControls {
     }, []);
 
     const controlGate = useCallback((action: 'open' | 'close') => {
-        // 使用函数式更新，避免isVADActive的陈旧状态问题
-        if (action === 'open') {
-            setIsVADActive(true);
-        } else {
-            setIsVADActive(false);
-        }
-
+        setIsVADActive(action === 'open');
         if (gateNodeRef.current && audioContextRef.current?.state === 'running') {
             const gateNode = gateNodeRef.current;
             const audioContext = audioContextRef.current;
+            const now = audioContext.currentTime;
+            gateNode.gain.cancelScheduledValues(now);
             const targetGain = action === 'open' ? 1.0 : 0.0001;
             const delay = action === 'open' ? 0.1 : 0.5;
-            gateNode.gain.exponentialRampToValueAtTime(targetGain, audioContext.currentTime + delay);
+            gateNode.gain.setValueAtTime(gateNode.gain.value, now);
+            gateNode.gain.exponentialRampToValueAtTime(targetGain, now + delay);
         }
     }, []);
 
     // 🎯 2. 修正：更新 VAD 初始化和启动逻辑
-    const initializeVAD = useCallback(async (stream: MediaStream) => {
+    const initializeVAD = useCallback(async (stream: MediaStream, gateNode: GainNode, audioContext: AudioContext) => {
         if (vadRef.current) {
             // 先暂停并销毁旧实例
             vadRef.current.destroy();
         }
 
         try {
-            console.log('🎤 正在加载 VAD 模型并应用设置:', {
-                positiveSpeechThreshold: settings.vadPositiveSpeechThreshold,
-                negativeSpeechThreshold: settings.vadNegativeSpeechThreshold,
-                redemptionFrames: settings.vadRedemptionFrames,
-            });
+            console.log('🎤 正在加载 Silero v5 VAD 模型并应用可调参数...');
             
             // 使用 MicVAD.new() 并直接在构造函数中传入 stream
             const vad = await MicVAD.new({
@@ -189,8 +182,8 @@ export function useAudioProcessing(): AudioProcessingControls {
                 positiveSpeechThreshold: settings.vadPositiveSpeechThreshold,
                 negativeSpeechThreshold: settings.vadNegativeSpeechThreshold,
                 redemptionFrames: settings.vadRedemptionFrames,
-                minSpeechFrames: 1,
-                preSpeechPadFrames: 8,
+                minSpeechFrames: 2,
+                preSpeechPadFrames: 4,
             });
             
             // 实例创建后直接启动监听
@@ -204,7 +197,7 @@ export function useAudioProcessing(): AudioProcessingControls {
             controlGate('open');
         }
 
-    }, [controlGate]);
+    }, [controlGate, settings.vadPositiveSpeechThreshold, settings.vadNegativeSpeechThreshold, settings.vadRedemptionFrames]);
 
     // 初始化 Web Audio API 处理链
     const initializeAudioProcessingChain = useCallback(async () => {
@@ -427,7 +420,11 @@ export function useAudioProcessing(): AudioProcessingControls {
 
             if (settings.vadEnabled) {
                 // 🎯 修改：让VAD也分析经过前置处理的流，以便更准确地检测
-                await initializeVAD(boostedAndMonoStream);
+                await initializeVAD(
+                    boostedAndMonoStream,
+                    gateNodeRef.current!,
+                    audioContextRef.current!
+                );
             } else {
                 controlGate('open');
             }
@@ -485,7 +482,11 @@ export function useAudioProcessing(): AudioProcessingControls {
             if (settings.vadEnabled) {
                 if (originalStreamRef.current && !vadRef.current) {
                     console.log('VAD已启用，正在初始化VAD...');
-                    await initializeVAD(originalStreamRef.current);
+                    await initializeVAD(
+                        originalStreamRef.current,
+                        gateNodeRef.current!,
+                        audioContextRef.current!
+                    );
                 }
             } else { 
                 if (vadRef.current) {
@@ -515,11 +516,21 @@ export function useAudioProcessing(): AudioProcessingControls {
             const defaultWithEcho = { ...DEFAULT_SETTINGS, echoCancellation: false };
             setSettings(defaultWithEcho);
             saveSettings(defaultWithEcho);
-            
+                    if(originalStreamRef.current) await initializeVAD(
+                        originalStreamRef.current,
+                        gateNodeRef.current!,
+                        audioContextRef.current!
+                    );
             if (isInitialized) {
                 updateProcessingChain();
                 if (DEFAULT_SETTINGS.vadEnabled) {
-                    if(originalStreamRef.current) await initializeVAD(originalStreamRef.current);
+                    if(originalStreamRef.current && gateNodeRef.current && audioContextRef.current) {
+                        await initializeVAD(
+                            originalStreamRef.current,
+                            gateNodeRef.current,
+                            audioContextRef.current
+                        );
+                    }
                 } else {
                     if(vadRef.current) vadRef.current.destroy();
                     controlGate('open');

@@ -4,40 +4,38 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
 import { Track, LocalAudioTrack } from 'livekit-client';
+import { MicVAD } from '@ricky0123/vad-web';
 
 export interface AudioProcessingSettings {
     autoGainControl: boolean;
     noiseSuppression: boolean;
     echoCancellation: boolean;
-    voiceIsolation: boolean;
-    microphoneThreshold: number;
+    vadEnabled: boolean;
     sampleRate: number;
-    channelCount: number;
-    latency: number;
+    channels: number;
 }
 
 export interface AudioProcessingControls {
     settings: AudioProcessingSettings;
-    updateSetting: (key: keyof AudioProcessingSettings, value: boolean | number) => Promise<void>;
+    updateSetting: (key: keyof AudioProcessingSettings, value: boolean) => Promise<void>;
     isApplying: (key: keyof AudioProcessingSettings) => boolean;
     resetToDefaults: () => Promise<void>;
     isProcessingActive: boolean;
     isInitialized: boolean;
     audioLevel: number;
+    isVADActive: boolean;
 }
 
-const DEFAULT_SETTINGS: AudioProcessingSettings = {
+const DEFAULT_SETTINGS: Omit<AudioProcessingSettings, 'echoCancellation'> = {
     autoGainControl: true,
     noiseSuppression: true,
-    echoCancellation: false, // 只能在获取原始流时设置
-    voiceIsolation: false,
-    microphoneThreshold: 0.3,
+    vadEnabled: true,
     sampleRate: 48000,
-    channelCount: 1,
-    latency: 0.01
+    channels: 1,
 };
 
 const STORAGE_KEY = 'livekit_audio_processing_settings';
+type StoredSettings = Partial<AudioProcessingSettings & { microphoneThreshold?: number }>;
 
 export function useAudioProcessing(): AudioProcessingControls {
     const { localParticipant } = useLocalParticipant();
@@ -45,12 +43,18 @@ export function useAudioProcessing(): AudioProcessingControls {
     
     // 状态管理
     const [settings, setSettings] = useState<AudioProcessingSettings>(() => {
-        if (typeof window === 'undefined') return DEFAULT_SETTINGS;
+        if (typeof window === 'undefined') return { ...DEFAULT_SETTINGS, echoCancellation: false };
         try {
             const stored = localStorage.getItem(STORAGE_KEY);
-            return stored ? { ...DEFAULT_SETTINGS, ...JSON.parse(stored) } : DEFAULT_SETTINGS;
+            if (stored) {
+                const parsed: StoredSettings = JSON.parse(stored);
+                // 移除已废弃的 microphoneThreshold 属性
+                delete parsed.microphoneThreshold;
+                return { ...DEFAULT_SETTINGS, echoCancellation: false, ...parsed };
+            }
+            return { ...DEFAULT_SETTINGS, echoCancellation: false };
         } catch {
-            return DEFAULT_SETTINGS;
+            return { ...DEFAULT_SETTINGS, echoCancellation: false };
         }
     });
     
@@ -59,6 +63,8 @@ export function useAudioProcessing(): AudioProcessingControls {
     const [isInitialized, setIsInitialized] = useState(false);
     const [audioLevel, setAudioLevel] = useState(0);
     
+    const [isVADActive, setIsVADActive] = useState(false);
+
     // Web Audio API 节点引用
     const audioContextRef = useRef<AudioContext | null>(null);
     const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
@@ -70,6 +76,7 @@ export function useAudioProcessing(): AudioProcessingControls {
     const highpassFilterRef = useRef<BiquadFilterNode | null>(null);
     const lowpassFilterRef = useRef<BiquadFilterNode | null>(null);
     const gateNodeRef = useRef<GainNode | null>(null);
+    const vadRef = useRef<MicVAD | null>(null); // 引用类型更新为 MicVAD
     const analyserNodeRef = useRef<AnalyserNode | null>(null);
     
     // 其他引用
@@ -120,6 +127,63 @@ export function useAudioProcessing(): AudioProcessingControls {
         return 'default';
     }, []);
 
+    const controlGate = useCallback((action: 'open' | 'close') => {
+        if (!gateNodeRef.current || !audioContextRef.current) return;
+        const gateNode = gateNodeRef.current;
+        const audioContext = audioContextRef.current;
+        if (action === 'open') {
+            setIsVADActive(true);
+            gateNode.gain.exponentialRampToValueAtTime(1.0, audioContext.currentTime + 0.1);
+        } else {
+            setIsVADActive(false);
+            gateNode.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 0.5);
+        }
+    }, []);
+
+    // 🎯 2. 修正：更新 VAD 初始化和启动逻辑
+    const initializeVAD = useCallback(async (stream: MediaStream) => {
+        if (vadRef.current) {
+            // 先暂停并销毁旧实例
+            vadRef.current.destroy();
+            vadRef.current = null;
+        }
+
+        try {
+            console.log('🎤 正在加载 VAD 模型...');
+            
+            // 使用 MicVAD.new() 并直接在构造函数中传入 stream
+            const vad = await MicVAD.new({
+                // 关键：在这里传入我们自己创建的音频流
+                stream: stream,
+
+                // --- 回调函数 ---
+                onSpeechStart: () => {
+                    console.log('VAD: 检测到语音开始');
+                    controlGate('open');
+                },
+                onSpeechEnd: (audio) => { // audio 参数是录制的音频数据，我们用不上但可以接收
+                    console.log('VAD: 检测到语音结束');
+                    controlGate('close');
+                },
+                // 建议：添加对 VADMisfire 的处理，用于调试
+                onVADMisfire: () => {
+                    console.log('VAD Misfire: 检测到过短的语音片段，已忽略');
+                }
+            });
+            
+            // 实例创建后直接启动监听
+            vad.start();
+            vadRef.current = vad;
+            console.log('✅ VAD 模型加载并启动成功');
+            
+        } catch (error) {
+            console.error('❌ VAD 初始化失败:', error);
+            // VAD失败时，默认打开音频门，以保证通话可用性
+            controlGate('open');
+        }
+
+    }, [controlGate]);
+
     // 初始化 Web Audio API 处理链
     const initializeAudioProcessingChain = useCallback(async () => {
         console.log('🎛️ 初始化音频处理链...');
@@ -141,6 +205,8 @@ export function useAudioProcessing(): AudioProcessingControls {
             gateNodeRef.current = audioContext.createGain();
             analyserNodeRef.current = audioContext.createAnalyser();
             destinationNodeRef.current = audioContext.createMediaStreamDestination();
+
+            gateNodeRef.current.gain.value = 0.0;
 
             // 配置分析器
             analyserNodeRef.current.fftSize = 256;
@@ -165,8 +231,7 @@ export function useAudioProcessing(): AudioProcessingControls {
 
             // 配置增益节点
             gainNodeRef.current.gain.value = 1.0;
-            gateNodeRef.current.gain.value = 1.0;
-
+            
             console.log('✅ 音频处理链节点创建完成');
             return true;
         } catch (error) {
@@ -229,60 +294,29 @@ export function useAudioProcessing(): AudioProcessingControls {
             }
         }
 
-        // 3. 语音隔离（强化的噪声抑制）
-        if (settings.voiceIsolation && highpassFilterRef.current && lowpassFilterRef.current && compressorNodeRef.current) {
-            highpassFilterRef.current.frequency.value = 120; // 更激进的低频过滤
-            lowpassFilterRef.current.frequency.value = 6000; // 更激进的高频过滤
-            compressorNodeRef.current.threshold.value = -18; // 更强的压缩
-            compressorNodeRef.current.ratio.value = 16;
-        }
-
         console.log('✅ 音频处理参数已实时更新');
     }, [settings, isInitialized]);
 
     // 实时音频监控和噪声门控
     const startAudioMonitoring = useCallback(() => {
-        if (!analyserNodeRef.current || !audioDataRef.current || !gateNodeRef.current || !audioContextRef.current) return;
+        if (!analyserNodeRef.current || !audioDataRef.current) return;
 
         const processFrame = () => {
-            if (!isProcessingActive || !analyserNodeRef.current || !audioDataRef.current || !gateNodeRef.current || !audioContextRef.current) return;
+            if (!analyserNodeRef.current || !audioDataRef.current) return;
 
-            // 获取音频数据
             analyserNodeRef.current.getByteFrequencyData(audioDataRef.current);
-            
-            // 计算音量级别（RMS）
             let sum = 0;
             for (let i = 0; i < audioDataRef.current.length; i++) {
                 sum += audioDataRef.current[i] * audioDataRef.current[i];
             }
             const rms = Math.sqrt(sum / audioDataRef.current.length);
-            const volume = rms / 255; // 归一化到 0-1
-
-            // 更新音量状态
+            const volume = rms / 255;
             setAudioLevel(volume);
 
-            // 实现噪声门控（基于麦克风门限）
-            if (volume < settings.microphoneThreshold) {
-                // 音量低于门限，渐进式降低音量（避免突然切断）
-                const targetGain = Math.max(0, volume / settings.microphoneThreshold * 0.1);
-                gateNodeRef.current.gain.exponentialRampToValueAtTime(
-                    targetGain, 
-                    audioContextRef.current.currentTime + 0.1
-                );
-            } else {
-                // 音量高于门限，恢复正常音量
-                gateNodeRef.current.gain.exponentialRampToValueAtTime(
-                    1.0, 
-                    audioContextRef.current.currentTime + 0.05
-                );
-            }
-
-            // 继续下一帧
             animationFrameRef.current = requestAnimationFrame(processFrame);
         };
-
         processFrame();
-    }, [isProcessingActive, settings.microphoneThreshold]);
+    }, []);
 
     // 🎯 核心：初始化音频处理（只执行一次）
     const initializeAudioProcessing = useCallback(async () => {
@@ -335,29 +369,17 @@ export function useAudioProcessing(): AudioProcessingControls {
             const originalStream = await navigator.mediaDevices.getUserMedia(constraints);
             originalStreamRef.current = originalStream;
 
-            // 验证获取的音频流设置
-            const audioTrack = originalStream.getAudioTracks()[0];
-            if (audioTrack) {
-                const actualSettings = audioTrack.getSettings();
-                console.log('🔍 实际音频流设置:', {
-                    deviceId: actualSettings.deviceId,
-                    echoCancellation: actualSettings.echoCancellation,
-                    noiseSuppression: actualSettings.noiseSuppression,
-                    autoGainControl: actualSettings.autoGainControl,
-                    sampleRate: actualSettings.sampleRate,
-                    channelCount: actualSettings.channelCount
-                });
-
-                // 🎯 确保浏览器处理已被禁用
-                if (actualSettings.echoCancellation || actualSettings.noiseSuppression || actualSettings.autoGainControl) {
-                    console.warn('⚠️ 警告：浏览器音频处理未完全禁用，可能存在冲突');
-                }
-            }
-
             // 🎯 步骤4：连接到 Web Audio API 处理链
             sourceNodeRef.current = audioContextRef.current!.createMediaStreamSource(originalStream);
             connectAudioChain();
 
+            if (settings.vadEnabled) {
+                await initializeVAD(originalStream);
+            } else {
+                // 如果VAD被禁用，则手动打开门
+                controlGate('open');
+            }
+            
             // 🎯 步骤5：获取处理后的音频流
             const processedStream = destinationNodeRef.current!.stream;
             const processedAudioTrack = processedStream.getAudioTracks()[0];
@@ -422,6 +444,8 @@ export function useAudioProcessing(): AudioProcessingControls {
         room, 
         isInitialized, 
         settings,
+        initializeVAD, 
+        controlGate,
         initializeAudioProcessingChain,
         getCurrentAudioDeviceId,
         connectAudioChain,
@@ -444,45 +468,29 @@ export function useAudioProcessing(): AudioProcessingControls {
 
         try {
             const newSettings = { ...settings, [key]: value };
-            
-            // 立即更新本地状态和存储
             setSettings(newSettings);
             saveSettings(newSettings);
 
-            // 🎯 关键：只更新处理参数，不重建轨道
-            if (isInitialized) {
-                console.log(`🔄 实时更新 ${key} 设置: ${value}`);
-                
-                // 直接调用处理链更新，使用新设置
-                if (key === 'autoGainControl' && compressorNodeRef.current && gainNodeRef.current) {
-                    if (value) {
-                        compressorNodeRef.current.threshold.value = -24;
-                        compressorNodeRef.current.ratio.value = 12;
-                        gainNodeRef.current.gain.value = 1.2;
-                    } else {
-                        compressorNodeRef.current.threshold.value = -50;
-                        compressorNodeRef.current.ratio.value = 1;
-                        gainNodeRef.current.gain.value = 1.0;
+            if (key === 'vadEnabled' && isInitialized) {
+                if (value) {
+                    console.log('启用 VAD');
+                    // VAD被启用，初始化并启动它
+                    if (originalStreamRef.current) {
+                        await initializeVAD(originalStreamRef.current);
                     }
-                } else if (key === 'noiseSuppression' && highpassFilterRef.current && lowpassFilterRef.current) {
-                    if (value) {
-                        highpassFilterRef.current.frequency.value = 85;
-                        lowpassFilterRef.current.frequency.value = 8000;
-                    } else {
-                        highpassFilterRef.current.frequency.value = 20;
-                        lowpassFilterRef.current.frequency.value = 20000;
+                } else {
+                    console.log('禁用 VAD');
+                    // VAD被禁用，销毁实例并手动打开门
+                    if (vadRef.current) {
+                        // 使用 pause() 或 destroy()
+                        vadRef.current.destroy();
+                        vadRef.current = null;
                     }
-                } else if (key === 'voiceIsolation') {
-                    // 语音隔离需要完整更新处理链
-                    updateProcessingChain();
+                    controlGate('open');
                 }
-                // microphoneThreshold 会在实时监控中自动使用新值
-                
-                console.log(`✅ ${key} 设置已实时生效: ${value}`);
             } else {
-                console.log(`💾 ${key} 设置已保存，将在初始化时生效: ${value}`);
+                updateProcessingChain(); // 更新其他设置
             }
-
         } catch (error) {
             console.error(`❌ 更新 ${key} 设置失败:`, error);
             setSettings(settings); // 回滚
@@ -494,7 +502,7 @@ export function useAudioProcessing(): AudioProcessingControls {
                 return newSet;
             });
         }
-    }, [settings, applyingSettings, saveSettings, isInitialized, updateProcessingChain]);
+    }, [settings, saveSettings, isInitialized, initializeVAD, controlGate, updateProcessingChain]);
 
     // 检查是否正在应用设置
     const isApplying = useCallback((key: keyof AudioProcessingSettings) => {
@@ -506,12 +514,18 @@ export function useAudioProcessing(): AudioProcessingControls {
         console.log('🔄 重置音频处理设置为默认值');
         
         try {
-            setSettings(DEFAULT_SETTINGS);
-            saveSettings(DEFAULT_SETTINGS);
+            const defaultWithEcho = { ...DEFAULT_SETTINGS, echoCancellation: false };
+            setSettings(defaultWithEcho);
+            saveSettings(defaultWithEcho);
             
             if (isInitialized) {
-                // 🎯 只更新处理参数，不重建轨道
                 updateProcessingChain();
+                if (DEFAULT_SETTINGS.vadEnabled) {
+                    if(originalStreamRef.current) await initializeVAD(originalStreamRef.current);
+                } else {
+                    if(vadRef.current) vadRef.current.destroy();
+                    controlGate('open');
+                }
             }
             
             console.log('✅ 已重置为默认设置');
@@ -546,6 +560,11 @@ export function useAudioProcessing(): AudioProcessingControls {
     useEffect(() => {
         return () => {
             console.log('🧹 清理音频处理模块');
+            
+            if (vadRef.current) {
+                vadRef.current.destroy(); // destroy 会处理暂停和资源释放
+                vadRef.current = null;
+            }
             
             // 停止实时监控
             if (animationFrameRef.current) {
@@ -599,6 +618,7 @@ export function useAudioProcessing(): AudioProcessingControls {
         resetToDefaults,
         isProcessingActive,
         isInitialized,
-        audioLevel
+        audioLevel,
+        isVADActive
     };
 }

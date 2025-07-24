@@ -17,7 +17,9 @@ export function AudioProcessingControls({ className = '', audioProcessing }: Aud
         isApplying, 
         resetToDefaults, 
         isProcessingActive, 
-        isInitialized 
+        isInitialized,
+        isVADActive,
+        audioLevel,
     } = audioProcessing;
 
     const handleToggleSetting = async (key: keyof AudioProcessingSettings, currentValue: boolean) => {
@@ -25,14 +27,6 @@ export function AudioProcessingControls({ className = '', audioProcessing }: Aud
             await updateSetting(key, !currentValue);
         } catch (error) {
             console.error(`切换 ${key} 失败:`, error);
-        }
-    };
-
-    const handleNumberChange = async (key: keyof AudioProcessingSettings, value: number) => {
-        try {
-            await updateSetting(key, value);
-        } catch (error) {
-            console.error(`调整 ${key} 失败:`, error);
         }
     };
 
@@ -108,6 +102,61 @@ export function AudioProcessingControls({ className = '', audioProcessing }: Aud
 
             {/* 其余的 UI 控件保持不变... */}
             <div className="space-y-4">
+                {/* 🎯 2. 新增 VAD (语音激活检测) 开关 */}
+                <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
+                    <div className="flex-1">
+                        <span className="text-sm text-white flex items-center">
+                            语音激活检测 (VAD)
+                            <span className="ml-2 px-2 py-0.5 text-xs bg-green-600 text-white rounded">推荐</span>
+                        </span>
+                        <p className="text-xs text-gray-400 mt-1">
+                            仅在您说话时发送音频，有效过滤背景噪音。
+                        </p>
+                        {/* 实时 VAD 状态 */}
+                        <div className="flex items-center text-xs mt-2">
+                            <span className="mr-2 text-gray-400">状态:</span>
+                            {settings.vadEnabled ? (
+                                <span className={`px-2 py-0.5 rounded flex items-center ${isVADActive ? 'bg-green-500/30 text-green-300' : 'bg-gray-700 text-gray-400'}`}>
+                                    <span className={`w-2 h-2 rounded-full mr-1.5 ${isVADActive ? 'bg-green-400 animate-pulse' : 'bg-gray-500'}`}></span>
+                                    {isVADActive ? '语音传输中' : '等待语音'}
+                                </span>
+                            ) : (
+                                <span className="text-yellow-400">已禁用</span>
+                            )}
+                        </div>
+                    </div>
+                    <div className="flex items-center space-x-2 ml-4">
+                        {isApplying('vadEnabled') && (
+                            <div className="flex items-center space-x-1">
+                                <svg className="w-4 h-4 text-yellow-400 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">{/* ... */}</svg>
+                                <span className="text-xs text-yellow-400">应用中</span>
+                            </div>
+                        )}
+                        <button
+                            onClick={() => handleToggleSetting('vadEnabled', settings.vadEnabled)}
+                            disabled={isApplying('vadEnabled')}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+                                settings.vadEnabled ? 'bg-green-600' : 'bg-gray-600'
+                            }`}
+                        >
+                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${settings.vadEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                        </button>
+                    </div>
+                </div>
+
+                {/* 实时音量计 (可选但推荐)，可以放在VAD模块下面 */}
+                 <div>
+                    <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm text-white">实时麦克风音量</span>
+                    </div>
+                    <div className="w-full h-2 bg-gray-600 rounded-lg overflow-hidden">
+                        <div 
+                            className="h-full bg-blue-500 transition-all duration-75"
+                            style={{ width: `${audioLevel * 100}%` }}
+                        />
+                    </div>
+                 </div>
+
                 {/* 自动增益控制 */}
                 <div className="flex items-center justify-between">
                     <div className="flex-1">
@@ -201,64 +250,6 @@ export function AudioProcessingControls({ className = '', audioProcessing }: Aud
                             />
                         </button>
                     </div>
-                </div>
-
-                {/* 新增：语音隔离 */}
-                <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                        <span className="text-sm text-white flex items-center">
-                            语音隔离 
-                            <span className="ml-2 px-2 py-0.5 text-xs bg-yellow-600 text-white rounded">实验性</span>
-                        </span>
-                        <p className="text-xs text-gray-400">更强的噪声抑制，浏览器支持有限</p>
-                    </div>
-                    <div className="flex items-center space-x-2 ml-4">
-                        {isApplying('voiceIsolation') && (
-                            <div className="flex items-center space-x-1">
-                                <svg className="w-4 h-4 text-yellow-400 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                </svg>
-                                <span className="text-xs text-yellow-400">应用中</span>
-                            </div>
-                        )}
-                        <button
-                            onClick={() => handleToggleSetting('voiceIsolation', settings.voiceIsolation)}
-                            disabled={isApplying('voiceIsolation')}
-                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
-                                settings.voiceIsolation ? 'bg-yellow-600' : 'bg-gray-600'
-                            }`}
-                        >
-                            <span
-                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
-                                    settings.voiceIsolation ? 'translate-x-6' : 'translate-x-1'
-                                }`}
-                            />
-                        </button>
-                    </div>
-                </div>
-
-                {/* 麦克风收音门限 */}
-                <div>
-                    <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm text-white">麦克风收音门限</span>
-                        <span className="text-xs text-gray-400">{Math.round(settings.microphoneThreshold * 100)}%</span>
-                    </div>
-                    <div className="relative">
-                        <input
-                            type="range"
-                            min="0"
-                            max="1"
-                            step="0.01"
-                            value={settings.microphoneThreshold}
-                            onChange={(e) => handleNumberChange('microphoneThreshold', parseFloat(e.target.value))}
-                            className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer slider"
-                        />
-                    </div>
-                    <div className="flex justify-between text-xs text-gray-500 mt-1">
-                        <span>敏感</span>
-                        <span>不敏感</span>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">调整麦克风开始收音的音量阈值</p>
                 </div>
             </div>
 

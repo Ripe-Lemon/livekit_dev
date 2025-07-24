@@ -83,7 +83,7 @@ const MainControls = React.memo(({
                     <input 
                         type="range" 
                         min="0.5" 
-                        max="5.0"
+                        max="20.0"
                         step="0.1" 
                         defaultValue={settings.postamp} 
                         onChange={(e) => handleNumberChange('postamp', e.target.value)} 

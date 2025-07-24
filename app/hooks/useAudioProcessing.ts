@@ -151,7 +151,7 @@ export function useAudioProcessing(): AudioProcessingControls {
     }, []);
 
     // 🎯 2. 修正：更新 VAD 初始化和启动逻辑
-    const initializeVAD = useCallback(async (stream: MediaStream, gateNode: GainNode, audioContext: AudioContext) => {
+    const initializeVAD = useCallback(async (stream: MediaStream,) => {
         if (vadRef.current) {
             // 先暂停并销毁旧实例
             vadRef.current.destroy();
@@ -179,6 +179,7 @@ export function useAudioProcessing(): AudioProcessingControls {
                     console.log('VAD Misfire: 检测到过短的语音片段，已忽略');
                     controlGate('close');
                 },
+                model: "v5",
                 positiveSpeechThreshold: settings.vadPositiveSpeechThreshold,
                 negativeSpeechThreshold: settings.vadNegativeSpeechThreshold,
                 redemptionFrames: settings.vadRedemptionFrames,
@@ -422,8 +423,6 @@ export function useAudioProcessing(): AudioProcessingControls {
                 // 🎯 修改：让VAD也分析经过前置处理的流，以便更准确地检测
                 await initializeVAD(
                     boostedAndMonoStream,
-                    gateNodeRef.current!,
-                    audioContextRef.current!
                 );
             } else {
                 controlGate('open');
@@ -484,8 +483,6 @@ export function useAudioProcessing(): AudioProcessingControls {
                     console.log('VAD已启用，正在初始化VAD...');
                     await initializeVAD(
                         originalStreamRef.current,
-                        gateNodeRef.current!,
-                        audioContextRef.current!
                     );
                 }
             } else { 
@@ -518,8 +515,6 @@ export function useAudioProcessing(): AudioProcessingControls {
             saveSettings(defaultWithEcho);
                     if(originalStreamRef.current) await initializeVAD(
                         originalStreamRef.current,
-                        gateNodeRef.current!,
-                        audioContextRef.current!
                     );
             if (isInitialized) {
                 updateProcessingChain();
@@ -527,8 +522,6 @@ export function useAudioProcessing(): AudioProcessingControls {
                     if(originalStreamRef.current && gateNodeRef.current && audioContextRef.current) {
                         await initializeVAD(
                             originalStreamRef.current,
-                            gateNodeRef.current,
-                            audioContextRef.current
                         );
                     }
                 } else {

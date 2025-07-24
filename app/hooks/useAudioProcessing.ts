@@ -7,6 +7,7 @@ import { Track, LocalAudioTrack } from 'livekit-client';
 import { MicVAD } from '@ricky0123/vad-web';
 
 export interface AudioProcessingSettings {
+    preamp: number; // 前置增益
     autoGainControl: boolean;
     noiseSuppression: boolean;
     echoCancellation: boolean;
@@ -17,7 +18,7 @@ export interface AudioProcessingSettings {
 
 export interface AudioProcessingControls {
     settings: AudioProcessingSettings;
-    updateSetting: (key: keyof AudioProcessingSettings, value: boolean) => void;
+    updateSetting: (key: keyof AudioProcessingSettings, value: boolean | number) => void;
     isApplying: (key: keyof AudioProcessingSettings) => boolean;
     resetToDefaults: () => Promise<void>;
     isProcessingActive: boolean;
@@ -27,6 +28,7 @@ export interface AudioProcessingControls {
 }
 
 const DEFAULT_SETTINGS: Omit<AudioProcessingSettings, 'echoCancellation'> = {
+    preamp: 1.0,
     autoGainControl: true,
     noiseSuppression: true,
     vadEnabled: true,
@@ -360,40 +362,57 @@ export function useAudioProcessing(): AudioProcessingControls {
             }
             await new Promise(resolve => setTimeout(resolve, 200));
 
-            // 🎯 步骤2：初始化 Web Audio API 处理链
+            // 步骤2：初始化 Web Audio API 处理链
             await initializeAudioProcessingChain();
 
-            // 🎯 步骤3：获取原始音频流（使用默认设备，禁用浏览器处理）
+            // 步骤3：获取原始音频流（使用默认设备，禁用浏览器处理）
             const deviceId = getCurrentAudioDeviceId();
             const constraints: MediaStreamConstraints = {
                 audio: {
-                    // 🎯 设备选择
                     deviceId: deviceId === 'default' ? undefined : { exact: deviceId },
-                    
-                    // 🎯 关键：禁用所有浏览器原生音频处理
-                    echoCancellation: false,  // 禁用回声抑制
-                    noiseSuppression: false,  // 禁用噪声抑制  
-                    autoGainControl: false,   // 禁用自动增益
-                    
-                    // 音频质量设置
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false,
                     sampleRate: { ideal: settings.sampleRate },
-                    channelCount: { exact: 1 } // 强制单声道
+                    channelCount: { exact: 1 }
                 }
             };
 
             console.log('🎤 获取原始音频流（已禁用浏览器处理）:', constraints);
             const originalStream = await navigator.mediaDevices.getUserMedia(constraints);
             originalStreamRef.current = originalStream;
+            
+            // 🎯 新增步骤 3.5：创建前置处理阶段 (增益 + 单声道)
+            console.log('🔊 应用前置增益和单声道转换...');
+            const sourceForPreamp = audioContextRef.current!.createMediaStreamSource(originalStream);
+            
+            const preampNode = audioContextRef.current!.createGain();
+            // 使用settings中的增益值，如果不存在则默认为1.0
+            preampNode.gain.value = settings.preamp || 1.0; 
+
+            // 强制将音频混合为单声道，解决只有左声道的问题
+            preampNode.channelCount = 1;
+            preampNode.channelCountMode = 'explicit';
+            preampNode.channelInterpretation = 'speakers';
+
+            // 创建一个临时的目标节点，以生成包含前置处理效果的新音频流
+            const preampDestinationNode = audioContextRef.current!.createMediaStreamDestination();
+            sourceForPreamp.connect(preampNode);
+            preampNode.connect(preampDestinationNode);
+
+            // 这就是经过前置处理（增益放大+转为单声道）的新音频流
+            const boostedAndMonoStream = preampDestinationNode.stream;
+            
             await ensureAudioContextRunning();
 
-            // 🎯 步骤4：连接到 Web Audio API 处理链
-            sourceNodeRef.current = audioContextRef.current!.createMediaStreamSource(originalStream);
+            // 🎯 修改步骤 4：使用经过前置处理的流来连接主处理链
+            sourceNodeRef.current = audioContextRef.current!.createMediaStreamSource(boostedAndMonoStream);
             connectAudioChain();
 
             if (settings.vadEnabled) {
-                await initializeVAD(originalStream);
+                // 🎯 修改：让VAD也分析经过前置处理的流，以便更准确地检测
+                await initializeVAD(boostedAndMonoStream);
             } else {
-                // 如果VAD被禁用，则手动打开门
                 controlGate('open');
             }
             
@@ -418,6 +437,7 @@ export function useAudioProcessing(): AudioProcessingControls {
             isInitializingRef.current = false;
         }
     }, [
+        // 依赖项保持不变
         localParticipant, 
         room, 
         isInitialized, 
@@ -433,7 +453,7 @@ export function useAudioProcessing(): AudioProcessingControls {
     ]);
 
     // 🎯 更新单个设置（只更新处理参数，不重建轨道）
-    const updateSetting = useCallback((key: keyof AudioProcessingSettings, value: boolean): void => {
+    const updateSetting = useCallback((key: keyof AudioProcessingSettings, value: boolean | number): void => {
         setSettings(prevSettings => {
             const newSettings = { ...prevSettings, [key]: value };
             saveSettings(newSettings);

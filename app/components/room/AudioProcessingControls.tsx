@@ -32,12 +32,14 @@ const MainControls = React.memo(({
     settings, 
     isApplying, 
     isVADActive,
-    handleToggleSetting
+    handleToggleSetting,
+    handleNumberChange 
 }: {
     settings: any;
     isApplying: (key: keyof AudioProcessingSettings) => boolean;
     isVADActive: boolean;
     handleToggleSetting: (key: keyof AudioProcessingSettings, value: boolean) => void;
+    handleNumberChange: (key: keyof AudioProcessingSettings, value: string) => void;
 }) => {
     return (
         <div className="space-y-4">
@@ -61,6 +63,36 @@ const MainControls = React.memo(({
                     className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.vadEnabled ? 'bg-green-600' : 'bg-gray-600'}`}>
                     <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${settings.vadEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
+            </div>
+
+            {/* 🎯 新增的前置增益滑块 */}
+            <div className="p-3 border border-gray-700 rounded-lg">
+                <h4 className="text-xs font-medium text-gray-300 mb-2">输入音量</h4>
+                <div>
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-white">前置增益</span>
+                        <span className="text-xs text-gray-400">
+                            x{settings.preamp.toFixed(2)}
+                        </span>
+                    </div>
+                    <input 
+                        type="range" 
+                        min="0.5" 
+                        max="3.0" 
+                        step="0.1" 
+                        defaultValue={settings.preamp} 
+                        onChange={(e) => handleNumberChange('preamp', e.target.value)} 
+                        className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                    />
+                    <div className="flex justify-between text-xs text-gray-500 mt-1">
+                        <span>音量减小</span>
+                        <span>正常</span>
+                        <span>音量放大</span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-2">
+                        💡 在VAD处理前放大或减小麦克风输入音量。如果说话声音轻，可适当调高此值。
+                    </p>
+                </div>
             </div>
 
             {/* 自动增益控制 */}
@@ -177,6 +209,15 @@ export function AudioProcessingControls({ className = '', audioProcessing }: Aud
 
     const debounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
+    const handleNumberChange = React.useCallback((key: keyof AudioProcessingSettings, value: string) => {
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+        }
+        debounceTimerRef.current = setTimeout(() => {
+            updateSetting(key, parseFloat(value));
+        }, 250); // 250ms 防抖
+    }, [updateSetting]);
+
     return (
         <div className="space-y-4">
             {/* 实时音量条：这个组件会频繁渲染 */}
@@ -188,6 +229,7 @@ export function AudioProcessingControls({ className = '', audioProcessing }: Aud
                 isApplying={isApplying}
                 isVADActive={isVADActive}
                 handleToggleSetting={handleToggleSetting}
+                handleNumberChange={handleNumberChange}
             />
         </div>
     );

@@ -198,10 +198,22 @@ export function AudioProcessingControls({ className = '', audioProcessing }: Aud
     const handleToggleSetting = React.useCallback((key: string, currentValue: boolean) => {
         updateSetting(key as any, !currentValue);
     }, [updateSetting]);
+
+    const debounceTimerRef = React.useRef<NodeJS.Timeout | null>(null);
     
     // 使用 useCallback 确保函数稳定，避免子组件不必要的渲染
     const handleNumberChange = React.useCallback((key: string, value: string) => {
-        updateSetting(key as any, parseFloat(value));
+        // 清除上一次的定时器，以防用户仍在快速拖动
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+        }
+
+        // 设置一个新的定时器。只有当用户停止拖动250ms后，更新才会真正执行
+        debounceTimerRef.current = setTimeout(() => {
+            console.log(`Debounced update triggered: ${key} -> ${value}`);
+            updateSetting(key as any, parseFloat(value));
+        }, 250); // 250毫秒的防抖延迟
+
     }, [updateSetting]);
 
     return (

@@ -56,7 +56,7 @@ const MainControls = React.memo(({
                     <input 
                         type="range" 
                         min="0.5" // 最小值设为0.5倍
-                        max="6.0" // 最大值设为6倍，提供更大空间
+                        max="10.0" // 最大值设为10倍，提供更大空间
                         step="0.1" 
                         defaultValue={settings.preamp} 
                         onChange={(e) => handleNumberChange('preamp', e.target.value)} 
@@ -69,7 +69,7 @@ const MainControls = React.memo(({
                     </div>
                 </div>
             </div>
-            
+
             {/* VAD 主开关 */}
             <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg">
                 <div className="flex-1">

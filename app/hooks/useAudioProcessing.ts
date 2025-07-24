@@ -31,7 +31,7 @@ export interface AudioProcessingControls {
 }
 
 const DEFAULT_SETTINGS: Omit<AudioProcessingSettings, 'echoCancellation'> = {
-    preamp: 3.0,
+    preamp: 5.0,
     autoGainControl: true,
     noiseSuppression: true,
     vadEnabled: true,
@@ -87,6 +87,7 @@ export function useAudioProcessing(): AudioProcessingControls {
     const vadRef = useRef<MicVAD | null>(null); // 引用类型更新为 MicVAD
     const analyserNodeRef = useRef<AnalyserNode | null>(null);
     const preampNodeRef = useRef<GainNode | null>(null);
+    const vadAudioContextRef = useRef<AudioContext | null>(null);
 
     // 其他引用
     const originalStreamRef = useRef<MediaStream | null>(null);
@@ -151,20 +152,29 @@ export function useAudioProcessing(): AudioProcessingControls {
     }, []);
 
     // 🎯 2. 修正：更新 VAD 初始化和启动逻辑
-    const initializeVAD = useCallback(async (stream: MediaStream,) => {
+    const initializeVAD = useCallback(async (stream: MediaStream, gateNode: GainNode, audioContext: AudioContext) => {
         if (vadRef.current) {
             // 先暂停并销毁旧实例
             vadRef.current.destroy();
         }
 
         try {
-            console.log('🎤 正在加载 Silero v5 VAD 模型并应用可调参数...');
+            console.log('🎤 正在加载 Silero v5 VAD 模型并应用设置:', {
+                positiveSpeechThreshold: settings.vadPositiveSpeechThreshold,
+                negativeSpeechThreshold: settings.vadNegativeSpeechThreshold,
+                redemptionFrames: settings.vadRedemptionFrames,
+            });
             
             // 使用 MicVAD.new() 并直接在构造函数中传入 stream
             const vad = await MicVAD.new({
                 // 关键：在这里传入我们自己创建的音频流
                 stream: stream,
-
+                model: "v5",
+                positiveSpeechThreshold: settings.vadPositiveSpeechThreshold,
+                negativeSpeechThreshold: settings.vadNegativeSpeechThreshold,
+                redemptionFrames: settings.vadRedemptionFrames,
+                minSpeechFrames: 3,
+                preSpeechPadFrames: 10,
                 // --- 回调函数 ---
                 onSpeechStart: () => {
                     console.log('VAD: 检测到语音开始');
@@ -179,12 +189,6 @@ export function useAudioProcessing(): AudioProcessingControls {
                     console.log('VAD Misfire: 检测到过短的语音片段，已忽略');
                     controlGate('close');
                 },
-                model: "v5",
-                positiveSpeechThreshold: settings.vadPositiveSpeechThreshold,
-                negativeSpeechThreshold: settings.vadNegativeSpeechThreshold,
-                redemptionFrames: settings.vadRedemptionFrames,
-                minSpeechFrames: 3,
-                preSpeechPadFrames: 8,
             });
             
             // 实例创建后直接启动监听
@@ -198,7 +202,7 @@ export function useAudioProcessing(): AudioProcessingControls {
             controlGate('open');
         }
 
-    }, [controlGate, settings.vadPositiveSpeechThreshold, settings.vadNegativeSpeechThreshold, settings.vadRedemptionFrames]);
+    }, [controlGate, settings]);
 
     // 初始化 Web Audio API 处理链
     const initializeAudioProcessingChain = useCallback(async () => {
@@ -423,6 +427,8 @@ export function useAudioProcessing(): AudioProcessingControls {
                 // 🎯 修改：让VAD也分析经过前置处理的流，以便更准确地检测
                 await initializeVAD(
                     boostedAndMonoStream,
+                    gateNodeRef.current!,
+                    audioContextRef.current!
                 );
             } else {
                 controlGate('open');
@@ -483,6 +489,8 @@ export function useAudioProcessing(): AudioProcessingControls {
                     console.log('VAD已启用，正在初始化VAD...');
                     await initializeVAD(
                         originalStreamRef.current,
+                        gateNodeRef.current!,
+                        audioContextRef.current!
                     );
                 }
             } else { 
@@ -513,15 +521,21 @@ export function useAudioProcessing(): AudioProcessingControls {
             const defaultWithEcho = { ...DEFAULT_SETTINGS, echoCancellation: false };
             setSettings(defaultWithEcho);
             saveSettings(defaultWithEcho);
-                    if(originalStreamRef.current) await initializeVAD(
-                        originalStreamRef.current,
-                    );
+                    if(originalStreamRef.current && gateNodeRef.current && audioContextRef.current) {
+                        await initializeVAD(
+                            originalStreamRef.current,
+                            gateNodeRef.current,
+                            audioContextRef.current
+                        );
+                    }
             if (isInitialized) {
                 updateProcessingChain();
                 if (DEFAULT_SETTINGS.vadEnabled) {
                     if(originalStreamRef.current && gateNodeRef.current && audioContextRef.current) {
                         await initializeVAD(
                             originalStreamRef.current,
+                            gateNodeRef.current,
+                            audioContextRef.current
                         );
                     }
                 } else {
@@ -537,6 +551,33 @@ export function useAudioProcessing(): AudioProcessingControls {
         }
     }, [saveSettings, isInitialized, updateProcessingChain]);
 
+    // 🎯 核心修复：新增一个专门的useEffect来监听VAD相关设置的变化
+    useEffect(() => {
+        // 确保只在初始化完成、VAD启用、且有音频流时才执行
+        if (!isInitialized || !settings.vadEnabled || !originalStreamRef.current) {
+            return;
+        }
+
+        console.log('VAD settings changed, re-initializing VAD instance...');
+        
+        // 当VAD相关参数变化时，使用当前的音频流重新初始化VAD实例
+        // initializeVAD函数会从最新的`settings`状态中读取参数
+        initializeVAD(
+            originalStreamRef.current,
+            gateNodeRef.current!, // 此时这些Ref必定已存在
+            vadAudioContextRef.current!
+        );
+
+    // 依赖项数组中只包含VAD相关的设置，确保只在需要时运行
+    }, [
+        settings.vadEnabled, 
+        settings.vadPositiveSpeechThreshold, 
+        settings.vadNegativeSpeechThreshold, 
+        settings.vadRedemptionFrames,
+        isInitialized,
+        initializeVAD // 包含initializeVAD以遵循hook依赖规则
+    ]);
+    
     // 🎯 3. 新增一个useEffect来实时更新前置增益
     useEffect(() => {
         // 确保音频管线已初始化并且preampNode已存在

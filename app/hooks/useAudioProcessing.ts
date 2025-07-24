@@ -181,7 +181,7 @@ export function useAudioProcessing(): AudioProcessingControls {
                 negativeSpeechThreshold: settings.vadNegativeSpeechThreshold,
                 redemptionFrames: settings.vadRedemptionFrames,
                 minSpeechFrames: 1,
-                preSpeechPadFrames: 4,
+                preSpeechPadFrames: 8,
                 // --- 回调函数 ---
                 onSpeechStart: () => {
                     console.log('VAD: 检测到语音开始');
@@ -234,7 +234,7 @@ export function useAudioProcessing(): AudioProcessingControls {
             gateNodeRef.current.gain.value = 0.0;
 
             // 配置分析器
-            analyserNodeRef.current.fftSize = 256;
+            analyserNodeRef.current.fftSize = 512;
             analyserNodeRef.current.smoothingTimeConstant = 1;
             audioDataRef.current = new Uint8Array(analyserNodeRef.current.frequencyBinCount);
             

@@ -218,14 +218,11 @@ export function useRoom(options: UseRoomOptions = {}): UseRoomReturn {
                 adaptiveStream: true,
                 dynacast: true,
                 
-                // 🎯 关键：不设置任何默认音频捕获选项
-                // audioCaptureDefaults: undefined, // 完全不设置
-                
                 videoCaptureDefaults: {
                     resolution: {
-                        width: 1280,
-                        height: 720,
-                        frameRate: 30
+                        width: 1920,
+                        height: 1080,
+                        frameRate: 60
                     }
                 },
                 publishDefaults: {
@@ -284,7 +281,7 @@ export function useRoom(options: UseRoomOptions = {}): UseRoomReturn {
             await room.connect(serverUrl, token, connectOptions);
 
             // 启用音频和视频
-            await room.localParticipant.enableCameraAndMicrophone();
+            await room.localParticipant.setCameraEnabled(true);
 
             updateRoomState({
                 connectionState: RoomConnectionState.CONNECTED,

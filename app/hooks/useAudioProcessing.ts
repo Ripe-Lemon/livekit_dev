@@ -80,7 +80,8 @@ export function useAudioProcessing(): AudioProcessingControls {
     const gateNodeRef = useRef<GainNode | null>(null);
     const vadRef = useRef<MicVAD | null>(null); // 引用类型更新为 MicVAD
     const analyserNodeRef = useRef<AnalyserNode | null>(null);
-    
+    const preampNodeRef = useRef<GainNode | null>(null);
+
     // 其他引用
     const originalStreamRef = useRef<MediaStream | null>(null);
     const processedTrackRef = useRef<LocalAudioTrack | null>(null);
@@ -388,6 +389,7 @@ export function useAudioProcessing(): AudioProcessingControls {
             
             const preampNode = audioContextRef.current!.createGain();
             // 使用settings中的增益值，如果不存在则默认为1.0
+            preampNodeRef.current = preampNode;
             preampNode.gain.value = settings.preamp || 1.0; 
 
             // 强制将音频混合为单声道，解决只有左声道的问题
@@ -516,6 +518,27 @@ export function useAudioProcessing(): AudioProcessingControls {
             throw error;
         }
     }, [saveSettings, isInitialized, updateProcessingChain]);
+
+    // 🎯 3. 新增一个useEffect来实时更新前置增益
+    useEffect(() => {
+        // 确保音频管线已初始化并且preampNode已存在
+        if (isInitialized && preampNodeRef.current && audioContextRef.current) {
+            console.log(`🔊 应用新的前置增益值: ${settings.preamp}`);
+            // 使用setTargetAtTime可以平滑地改变音量，避免产生爆音
+            preampNodeRef.current.gain.setTargetAtTime(
+                settings.preamp, 
+                audioContextRef.current.currentTime, 
+                0.02 // 在0.02秒内平滑过渡到新音量
+            );
+        }
+    }, [settings.preamp, isInitialized]); // 这个effect只在`settings.preamp`或`isInitialized`变化时运行
+
+    // 🎯 4. 确保其他设置（噪声抑制等）也能实时更新
+    useEffect(() => {
+        if (isInitialized) {
+            updateProcessingChain();
+        }
+    }, [settings.autoGainControl, settings.noiseSuppression, isInitialized, updateProcessingChain]);
 
     // 监听房间连接状态，自动初始化
     useEffect(() => {

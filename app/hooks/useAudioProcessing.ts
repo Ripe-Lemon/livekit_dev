@@ -406,7 +406,7 @@ export function useAudioProcessing(): AudioProcessingControls {
             const processedStream = destinationNodeRef.current!.stream;
             const processedAudioTrack = processedStream.getAudioTracks()[0];
             processedTrackRef.current = new LocalAudioTrack(processedAudioTrack, undefined, false);
-            await localParticipant.publishTrack(processedTrackRef.current, { name: 'custom-microphone-vad', source: Track.Source.Microphone, stopMicTrackOnMute: true });
+            await localParticipant.publishTrack(processedTrackRef.current, { name: 'custom-microphone-vad', source: Track.Source.Microphone, stopMicTrackOnMute: false });
 
             // 更新和启动监控
             updateProcessingChain();

@@ -6,7 +6,7 @@ import {
     useLocalParticipant, 
     useRoomContext
 } from '@livekit/components-react';
-import { Track } from 'livekit-client';
+import { LocalTrackPublication, Track } from 'livekit-client';
 import { useControlAudio } from '../../hooks/useControlAudio';
 import { useDeviceManager } from '../../hooks/useDeviceManager';
 
@@ -494,67 +494,44 @@ export function ControlBar({
 
     // 修复麦克风切换逻辑 - 权限获取后刷新设备列表
     const toggleMicrophone = useCallback(async () => {
-        if (!room || !localParticipant || isTogglingMic) return;
+        if (!localParticipant || isTogglingMic) return;
 
         setIsTogglingMic(true);
         try {
-            const currentlyMuted = !localParticipant.isMicrophoneEnabled;
-            
+            // 从 localParticipant 中找到麦克风的 TrackPublication
+            const micPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
+
+            if (!micPublication) {
+                console.warn("未找到已发布的麦克风轨道。VAD轨道可能尚未发布。");
+                // 在这种情况下，我们不应该调用 setMicrophoneEnabled，因为这会与 useAudioProcessing 冲突
+                // 而是应该信任 useAudioProcessing hook 会自行处理发布
+                playErrorSound();
+                return;
+            }
+
+            // 检查当前是否静音
+            const currentlyMuted = micPublication.isMuted;
+
             if (currentlyMuted) {
-                // 要开启麦克风，首先检查是否已有权限
-                if (!localPermissions.audio) {
-                    console.log('🎤 开启麦克风需要权限，正在请求麦克风权限...');
-                    
-                    try {
-                        const stream = await navigator.mediaDevices.getUserMedia({ 
-                            audio: true,
-                            video: false // 明确指定不要视频
-                        });
-                        
-                        // 立即关闭流，我们只是为了获取权限
-                        stream.getTracks().forEach(track => track.stop());
-                        
-                        console.log('✅ 麦克风权限已获取');
-                        
-                        // 权限获取后，立即更新权限状态
-                        await checkPermissions();
-                        
-                        // 权限获取后，手动刷新设备列表以获取真实设备名称
-                        setTimeout(async () => {
-                            try {
-                                await refreshDevices();
-                                console.log('🔄 设备列表已刷新');
-                            } catch (error) {
-                                console.warn('刷新设备列表失败:', error);
-                            }
-                        }, 100);
-                        
-                    } catch (permissionError) {
-                        console.warn('❌ 麦克风权限被拒绝:', permissionError);
-                        setIsTogglingMic(false);
-                        return;
-                    }
-                }
-                
-                // 开启麦克风
-                await localParticipant.setMicrophoneEnabled(true);
+                // 如果是静音状态，则取消静音
+                await micPublication.unmute();
                 setIsMuted(false);
                 playUnmuteSound();
-                console.log('🔊 麦克风已开启');
+                console.log('🔊 麦克风已通过轨道取消静音');
             } else {
-                // 关闭麦克风不需要权限
-                await localParticipant.setMicrophoneEnabled(false);
+                // 如果是开启状态，则静音
+                await micPublication.mute();
                 setIsMuted(true);
                 playMuteSound();
-                console.log('🔇 麦克风已关闭');
+                console.log('🔇 麦克风已通过轨道静音');
             }
         } catch (error) {
-            console.error('切换麦克风失败:', error);
+            console.error('切换麦克风轨道静音状态失败:', error);
             playErrorSound();
         } finally {
             setIsTogglingMic(false);
         }
-    }, [localParticipant, playMuteSound, playUnmuteSound, playErrorSound, isTogglingMic, room, localPermissions.audio, refreshDevices, checkPermissions]);
+    }, [localParticipant, isTogglingMic, playMuteSound, playUnmuteSound, playErrorSound]);
 
     // 修复摄像头切换逻辑 - 权限获取后刷新设备列表
     const toggleCamera = useCallback(async () => {
@@ -713,28 +690,41 @@ export function ControlBar({
 
     // 🎯 修复：初始化时确保选择默认麦克风
     useEffect(() => {
-        const initializeDefaultDevices = async () => {
+        const initializeControlBar = async () => {
             try {
-                // 检查当前选择的音频设备
-                const currentDevice = getSelectedDeviceInfo('audioinput');
-                
-                if (!currentDevice) {
-                    console.log('🎤 未选择音频设备，设置为默认设备');
-                    selectDevice('audioinput', 'default');
-                }
-                
-                // 刷新设备列表
+                // 确保只在组件挂载后执行一次
+                console.log('🚀 控制栏正在进行一次性初始化...');
                 await refreshDevices();
-                
-                console.log('🚀 控制栏设备初始化完成');
+                const currentAudioDevice = room.getActiveDevice('audioinput');
+                if (!currentAudioDevice) {
+                    console.log('🎤 未发现活动的音频设备，将尝试设置为默认。');
+                    await room.switchActiveDevice('audioinput', 'default');
+                }
+                console.log('✅ 控制栏设备初始化完成');
             } catch (error) {
                 console.warn('控制栏设备初始化失败:', error);
             }
         };
+
+        // 延迟500ms执行，等待其他模块加载
+        const timer = setTimeout(initializeControlBar, 500);
+        return () => clearTimeout(timer);
         
-        // 延迟初始化，确保页面完全加载
-        setTimeout(initializeDefaultDevices, 1000);
-    }, [getSelectedDeviceInfo, selectDevice, refreshDevices]);
+    // 使用空依赖数组 `[]` 确保此 effect 只在组件挂载时运行一次
+    }, []); 
+
+    // 状态同步逻辑
+    useEffect(() => {
+        if (!localParticipant) return;
+
+        const micPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
+        const camPublication = localParticipant.getTrackPublication(Track.Source.Camera);
+
+        setIsMuted(!micPublication || micPublication.isMuted);
+        setIsCameraOff(!camPublication || !camPublication.isSubscribed || camPublication.isMuted);
+        setIsScreenSharing(localParticipant.isScreenShareEnabled);
+
+    }, [localParticipant, localParticipant.trackPublications, localParticipant.isScreenShareEnabled]);
 
     // 自动隐藏控制栏（全屏模式）
     useEffect(() => {

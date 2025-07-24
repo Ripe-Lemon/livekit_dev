@@ -147,7 +147,14 @@ export function useAudioProcessing(): AudioProcessingControls {
             const targetGain = action === 'open' ? 1.0 : 0.0001;
             const delay = action === 'open' ? 0.1 : 0.5;
             gateNode.gain.setValueAtTime(gateNode.gain.value, now);
-            gateNode.gain.exponentialRampToValueAtTime(targetGain, now + delay);
+            if (action === 'open') {
+            // 🎯 核心修复：将开门的延迟从 0.1 大幅缩短到 0.015
+            // 这样音频门会几乎瞬间打开，让 preSpeechPadFrames 缓存的音头通过
+            gateNode.gain.exponentialRampToValueAtTime(1.0, now + 0.01);
+        } else {
+            // 关门时可以保留一个较长的延迟，让语音结束得更自然
+            gateNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
+        }
         }
     }, []);
 
@@ -174,7 +181,7 @@ export function useAudioProcessing(): AudioProcessingControls {
                 negativeSpeechThreshold: settings.vadNegativeSpeechThreshold,
                 redemptionFrames: settings.vadRedemptionFrames,
                 minSpeechFrames: 3,
-                preSpeechPadFrames: 16,
+                preSpeechPadFrames: 3,
                 // --- 回调函数 ---
                 onSpeechStart: () => {
                     console.log('VAD: 检测到语音开始');

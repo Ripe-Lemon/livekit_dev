@@ -36,6 +36,7 @@ import { useImagePreview } from '../hooks/useImagePreview';
 import { useAudioManager, useAudioTesting, SoundEvent } from '../hooks/useAudioManager';
 import { useAudioNotifications } from '../hooks/useAudioNotifications';
 import { useChat } from '../hooks/useChat';
+import { useAudioProcessing } from '../hooks/useAudioProcessing';
 
 // Types
 import { DisplayMessage, ChatState } from '../types/chat';
@@ -113,6 +114,9 @@ function RoomInnerContent({
     const room = useRoomContext();
     const participants = useParticipants();
     
+    // 🎯 关键：在房间组件中启用音频处理，让其常驻
+    const audioProcessing = useAudioProcessing(); // 获取完整的音频处理对象
+    
     // 添加音频通知 Hook
     useAudioNotifications(room, {
         enableUserJoinLeave: true,       // 保留用户加入/离开音效
@@ -122,7 +126,7 @@ function RoomInnerContent({
         enableConnection: true,          // 保留连接状态音效
         messageVolume: 0.6,
         controlVolume: 0.7
-    },{ isOpen: uiState.showChat });
+    }, { isOpen: uiState.showChat });
 
     // 在 RoomInnerContent 组件中修改 useChat 的调用
     const { 
@@ -250,6 +254,17 @@ function RoomInnerContent({
         };
     }, [room, participants.length, addNotification, playSound]);
 
+    // 显示音频处理状态（仅开发环境）
+    useEffect(() => {
+        if (process.env.NODE_ENV === 'development') {
+            console.log('🎛️ 音频处理状态:', {
+                isInitialized: audioProcessing.isInitialized,
+                isActive: audioProcessing.isProcessingActive,
+                settings: audioProcessing.settings
+            });
+        }
+    }, [audioProcessing]);
+
     return (
         <div className="relative w-full h-full flex">
             {/* 左侧边栏 - 移动端改为抽屉式 */}
@@ -313,10 +328,11 @@ function RoomInnerContent({
                 </div>
             )}
 
-            {/* 设置面板 - 替换为新的悬浮窗口版本 */}
+            {/* 设置面板 - 传递音频处理对象 */}
             {uiState.showSettings && (
                 <SettingsPanel
                     onClose={() => toggleUIPanel('showSettings')}
+                    audioProcessing={audioProcessing} // 🎯 传递音频处理对象
                 />
             )}
 

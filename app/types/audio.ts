@@ -336,3 +336,57 @@ export interface AudioQualitySettings {
     reliability: 'best-effort' | 'guaranteed';
     adaptive: boolean;
 }
+
+// 在现有内容基础上添加音频处理相关类型
+
+// 现有的音频设置类型
+export interface LiveKitAudioSettings {
+    noiseSuppression: boolean;
+    echoCancellation: boolean;
+    autoGainControl: boolean;
+    voiceDetectionThreshold: number;
+}
+
+export interface ParticipantVolumeSettings {
+    [participantId: string]: number;
+}
+
+// 新增：音频处理模块设置
+export interface AudioProcessingSettings {
+    autoGainControl: boolean;
+    noiseSuppression: boolean;
+    echoCancellation: boolean;
+    microphoneThreshold: number; // 0-1 范围
+}
+
+// 新增：音频处理状态
+export interface AudioProcessingState {
+    isProcessing: boolean;
+    currentSettings: AudioProcessingSettings;
+    lastError?: string;
+}
+
+// 新增：音频约束配置
+export interface AudioConstraintsConfig {
+    echoCancellation?: boolean;
+    noiseSuppression?: boolean;
+    autoGainControl?: boolean;
+    sampleRate?: number | ConstrainULong;
+    channelCount?: number | ConstrainULong;
+    deviceId?: string;
+}
+
+// 新增：音频处理事件
+export type AudioProcessingEvent = 
+    | 'settings-changed'
+    | 'processing-started'
+    | 'processing-completed'
+    | 'processing-failed'
+    | 'track-recreated';
+
+export interface AudioProcessingEventData {
+    event: AudioProcessingEvent;
+    settings?: AudioProcessingSettings;
+    error?: Error;
+    timestamp: number;
+}

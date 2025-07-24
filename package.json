@@ -14,6 +14,7 @@
   "dependencies": {
     "@livekit/components-react": "^2.9.9",
     "@livekit/components-styles": "^1.1.6",
+    "@ricky0123/vad-web": "^0.0.24",
     "@types/jsonwebtoken": "^9.0.9",
     "date-fns": "^4.1.0",
     "jsonwebtoken": "^9.0.2",

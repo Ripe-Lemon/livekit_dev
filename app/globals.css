@@ -40,12 +40,6 @@ body {
     background: #3b82f6;
     cursor: pointer;
     border: 2px solid #1f2937;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-}
-
-.slider::-webkit-slider-thumb:hover {
-    background: #2563eb;
-    transform: scale(1.1);
 }
 
 .slider::-moz-range-thumb {
@@ -55,7 +49,18 @@ body {
     background: #3b82f6;
     cursor: pointer;
     border: 2px solid #1f2937;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.slider::-webkit-slider-track {
+    height: 8px;
+    background: #4b5563;
+    border-radius: 4px;
+}
+
+.slider::-moz-range-track {
+    height: 8px;
+    background: #4b5563;
+    border-radius: 4px;
 }
 
 .slider-sm::-webkit-slider-thumb {

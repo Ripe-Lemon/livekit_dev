@@ -141,14 +141,21 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
 
     // 从本地存储加载选择的设备
     const loadSelectedDevices = useCallback((): SelectedDevices => {
-        if (typeof window === 'undefined') return {};
+        if (typeof window === 'undefined') return { audioinput: 'default' };
         
         try {
             const stored = localStorage.getItem(storageKey);
-            return stored ? JSON.parse(stored) : {};
+            const parsed = stored ? JSON.parse(stored) : {};
+            
+            // 🎯 确保默认选择系统默认麦克风
+            if (!parsed.audioinput) {
+                parsed.audioinput = 'default';
+            }
+            
+            return parsed;
         } catch (error) {
             console.warn('加载设备选择失败:', error);
-            return {};
+            return { audioinput: 'default' }; // 🎯 出错时也选择默认麦克风
         }
     }, [storageKey]);
 
@@ -635,12 +642,18 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
             return;
         }
 
-        // 加载保存的设备选择
+        // 🎯 加载保存的设备选择，确保有默认麦克风
         const savedDevices = loadSelectedDevices();
         setState(prev => ({
             ...prev,
             selectedDevices: savedDevices
         }));
+
+        // 🎯 立即保存默认选择（如果是首次访问）
+        if (savedDevices.audioinput === 'default') {
+            saveSelectedDevices(savedDevices);
+            console.log('🎤 已设置默认麦克风为系统默认设备');
+        }
 
         // 初始枚举设备（不请求权限）
         setTimeout(() => {
@@ -658,7 +671,7 @@ export function useDeviceManager(options: UseDeviceManagerOptions = {}) {
                 clearTimeout(debounceTimeoutRef.current);
             }
         };
-    }, [checkSupport, loadSelectedDevices]);
+    }, [checkSupport, loadSelectedDevices, saveSelectedDevices]);
 
     return {
         // 状态

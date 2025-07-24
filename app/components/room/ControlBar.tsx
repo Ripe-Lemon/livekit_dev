@@ -6,7 +6,7 @@ import {
     useLocalParticipant, 
     useRoomContext
 } from '@livekit/components-react';
-import { Track } from 'livekit-client';
+import { LocalTrackPublication, Track } from 'livekit-client';
 import { useControlAudio } from '../../hooks/useControlAudio';
 import { useDeviceManager } from '../../hooks/useDeviceManager';
 
@@ -337,6 +337,10 @@ export function ControlBar({
         video: false
     });
 
+    // 🎯 修复：添加初始化状态控制
+    const [isInitialized, setIsInitialized] = useState(false);
+    const initializingRef = useRef(false);
+
     // 音效控制
     const {
         playMuteSound,
@@ -392,15 +396,17 @@ export function ControlBar({
                 
                 setLocalPermissions(newPermissions);
                 
-                // 延迟刷新，确保权限状态已更新
-                setTimeout(async () => {
-                    try {
-                        await refreshDevices();
-                        throttleLog('control-device-refresh', '🔄 控制栏权限变化后设备列表已刷新');
-                    } catch (error) {
-                        console.warn('控制栏权限变化后刷新设备列表失败:', error);
-                    }
-                }, 500);
+                // 🎯 只有初始化完成后才刷新设备
+                if (isInitialized) {
+                    setTimeout(async () => {
+                        try {
+                            await refreshDevices();
+                            throttleLog('control-device-refresh', '🔄 控制栏权限变化后设备列表已刷新');
+                        } catch (error) {
+                            console.warn('控制栏权限变化后刷新设备列表失败:', error);
+                        }
+                    }, 500);
+                }
             } else {
                 // 静默更新权限状态
                 setLocalPermissions(newPermissions);
@@ -413,17 +419,62 @@ export function ControlBar({
                 video: permissions.video
             });
         }
-    }, [permissions, localPermissions, refreshDevices, throttleLog]);
+    }, [permissions, localPermissions, refreshDevices, throttleLog, isInitialized]);
 
-    // 定期检查权限状态 - 减少检查频率
+    // 🎯 修复：统一的初始化函数
+    const initializeControlBar = useCallback(async () => {
+        if (initializingRef.current || isInitialized) {
+            console.log('⏭️ 控制栏已初始化或正在初始化，跳过');
+            return;
+        }
+
+        initializingRef.current = true;
+
+        try {
+            console.log('🚀 开始初始化控制栏...');
+
+            // 1. 检查权限状态
+            await checkPermissions();
+
+            // 2. 确保选择默认麦克风
+            const currentDevice = getSelectedDeviceInfo('audioinput');
+            if (!currentDevice) {
+                console.log('🎤 未选择音频设备，设置为默认设备');
+                selectDevice('audioinput', 'default');
+            }
+
+            // 3. 刷新设备列表
+            await refreshDevices();
+
+            setIsInitialized(true);
+            console.log('✅ 控制栏初始化完成');
+
+        } catch (error) {
+            console.warn('❌ 控制栏初始化失败:', error);
+        } finally {
+            initializingRef.current = false;
+        }
+    }, [checkPermissions, getSelectedDeviceInfo, selectDevice, refreshDevices, isInitialized]);
+
+    // 🎯 修复：只在组件挂载时初始化一次
     useEffect(() => {
-        checkPermissions();
-        
+        // 延迟初始化，确保页面完全加载
+        const timer = setTimeout(() => {
+            initializeControlBar();
+        }, 1000);
+
+        return () => clearTimeout(timer);
+    }, []); // 🎯 空依赖数组，只执行一次
+
+    // 🎯 修复：减少权限检查频率，只有初始化完成后才检查
+    useEffect(() => {
+        if (!isInitialized) return;
+
         // 每10秒检查一次权限状态（减少频率）
         const interval = setInterval(checkPermissions, 10000);
         
         return () => clearInterval(interval);
-    }, [checkPermissions]);
+    }, [checkPermissions, isInitialized]); // 🎯 添加 isInitialized 依赖
 
     // 同步设备状态
     useEffect(() => {
@@ -436,137 +487,56 @@ export function ControlBar({
             setIsCameraOff(!cameraEnabled);
             setIsScreenSharing(screenSharing);
             
-            console.log('设备状态同步:', { micEnabled, cameraEnabled, screenSharing });
+            // 🎯 减少日志频率
+            throttleLog('device-state-sync', '设备状态同步:', { micEnabled, cameraEnabled, screenSharing }, 5000);
         }
-    }, [localParticipant?.isMicrophoneEnabled, localParticipant?.isCameraEnabled, localParticipant?.isScreenShareEnabled]);
+    }, [localParticipant?.isMicrophoneEnabled, localParticipant?.isCameraEnabled, localParticipant?.isScreenShareEnabled, throttleLog]);
 
     // 修复麦克风切换逻辑 - 权限获取后刷新设备列表
     const toggleMicrophone = useCallback(async () => {
-        if (!room || !localParticipant || isTogglingMic) return;
+        if (!localParticipant || isTogglingMic) return;
 
         setIsTogglingMic(true);
         try {
-            const currentlyMuted = !localParticipant.isMicrophoneEnabled;
-            
-            if (currentlyMuted) {
-                // 要开启麦克风，首先检查是否已有权限
-                if (!localPermissions.audio) {
-                    console.log('🎤 开启麦克风需要权限，正在请求麦克风权限...');
-                    
-                    try {
-                        const stream = await navigator.mediaDevices.getUserMedia({ 
-                            audio: true,
-                            video: false // 明确指定不要视频
-                        });
-                        
-                        // 立即关闭流，我们只是为了获取权限
-                        stream.getTracks().forEach(track => track.stop());
-                        
-                        console.log('✅ 麦克风权限已获取');
-                        
-                        // 权限获取后，立即更新权限状态
-                        await checkPermissions();
-                        
-                        // 权限获取后，手动刷新设备列表以获取真实设备名称
-                        setTimeout(async () => {
-                            try {
-                                await refreshDevices();
-                                console.log('🔄 设备列表已刷新');
-                            } catch (error) {
-                                console.warn('刷新设备列表失败:', error);
-                            }
-                        }, 100);
-                        
-                    } catch (permissionError) {
-                        console.warn('❌ 麦克风权限被拒绝:', permissionError);
-                        setIsTogglingMic(false);
-                        return;
-                    }
+            const micPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
+
+            if (micPublication?.track) {
+                if (micPublication.isMuted) {
+                    await micPublication.unmute();
+                    playUnmuteSound();
+                } else {
+                    await micPublication.mute();
+                    playMuteSound();
                 }
-                
-                // 开启麦克风
-                await localParticipant.setMicrophoneEnabled(true);
-                setIsMuted(false);
-                playUnmuteSound();
-                console.log('🔊 麦克风已开启');
             } else {
-                // 关闭麦克风不需要权限
-                await localParticipant.setMicrophoneEnabled(false);
-                setIsMuted(true);
-                playMuteSound();
-                console.log('🔇 麦克风已关闭');
+                // This case should ideally not happen if useAudioProcessing is working.
+                // We do NOT call setMicrophoneEnabled here to avoid conflicts.
+                console.warn("Attempted to toggle mic, but no VAD track was found.");
+                playErrorSound();
             }
         } catch (error) {
-            console.error('切换麦克风失败:', error);
+            console.error('Failed to toggle microphone mute state:', error);
             playErrorSound();
         } finally {
             setIsTogglingMic(false);
         }
-    }, [localParticipant, playMuteSound, playUnmuteSound, playErrorSound, isTogglingMic, room, localPermissions.audio, refreshDevices, checkPermissions]);
+    }, [localParticipant, isTogglingMic, playMuteSound, playUnmuteSound, playErrorSound]);
 
     // 修复摄像头切换逻辑 - 权限获取后刷新设备列表
     const toggleCamera = useCallback(async () => {
-        if (!room || !localParticipant || isTogglingCamera) return;
-
+        if (isTogglingCamera || !localParticipant) return;
         setIsTogglingCamera(true);
         try {
-            const currentlyOff = !localParticipant.isCameraEnabled;
-            
-            if (currentlyOff) {
-                // 要开启摄像头，首先检查是否已有权限
-                if (!localPermissions.video) {
-                    console.log('📹 开启摄像头需要权限，正在请求摄像头权限...');
-                    
-                    try {
-                        const stream = await navigator.mediaDevices.getUserMedia({ 
-                            video: true,
-                            audio: false // 明确指定不要音频
-                        });
-                        
-                        // 立即关闭流，我们只是为了获取权限
-                        stream.getTracks().forEach(track => track.stop());
-                        
-                        console.log('✅ 摄像头权限已获取');
-                        
-                        // 权限获取后，立即更新权限状态
-                        await checkPermissions();
-                        
-                        // 权限获取后，手动刷新设备列表以获取真实设备名称
-                        setTimeout(async () => {
-                            try {
-                                await refreshDevices();
-                                console.log('🔄 设备列表已刷新');
-                            } catch (error) {
-                                console.warn('刷新设备列表失败:', error);
-                            }
-                        }, 100);
-                        
-                    } catch (permissionError) {
-                        console.warn('❌ 摄像头权限被拒绝:', permissionError);
-                        setIsTogglingCamera(false);
-                        return;
-                    }
-                }
-                
-                // 开启摄像头
-                await localParticipant.setCameraEnabled(true);
-                setIsCameraOff(false);
-                playCameraOnSound();
-                console.log('📹 摄像头已开启');
-            } else {
-                // 关闭摄像头不需要权限
-                await localParticipant.setCameraEnabled(false);
-                setIsCameraOff(true);
-                playCameraOffSound();
-                console.log('📹❌ 摄像头已关闭');
-            }
+            const isOff = !localParticipant.isCameraEnabled;
+            if (isOff) playCameraOnSound(); else playCameraOffSound();
+            await localParticipant.setCameraEnabled(isOff);
         } catch (error) {
-            console.error('切换摄像头失败:', error);
+            console.error('Failed to toggle camera:', error);
             playErrorSound();
         } finally {
             setIsTogglingCamera(false);
         }
-    }, [localParticipant, playCameraOnSound, playCameraOffSound, playErrorSound, isTogglingCamera, room, localPermissions.video, refreshDevices, checkPermissions]);
+    }, [localParticipant, isTogglingCamera, playCameraOnSound, playCameraOffSound, playErrorSound]);
 
     // 更新权限请求处理函数 - 权限获取后刷新设备列表
     const handleRequestAudioPermission = useCallback(async () => {
@@ -659,6 +629,55 @@ export function ControlBar({
         setTimeout(initializeDevices, 1000);
     }, []);
 
+    // 🎯 修复：初始化时确保选择默认麦克风
+    useEffect(() => {
+        const initializeControlBar = async () => {
+            try {
+                // 确保只在组件挂载后执行一次
+                console.log('🚀 控制栏正在进行一次性初始化...');
+                await refreshDevices();
+                const currentAudioDevice = room.getActiveDevice('audioinput');
+                if (!currentAudioDevice) {
+                    console.log('🎤 未发现活动的音频设备，将尝试设置为默认。');
+                    await room.switchActiveDevice('audioinput', 'default');
+                }
+                console.log('✅ 控制栏设备初始化完成');
+            } catch (error) {
+                console.warn('控制栏设备初始化失败:', error);
+            }
+        };
+
+        // 延迟500ms执行，等待其他模块加载
+        const timer = setTimeout(initializeControlBar, 500);
+        return () => clearTimeout(timer);
+        
+    // 使用空依赖数组 `[]` 确保此 effect 只在组件挂载时运行一次
+    }, []); 
+
+    // 状态同步逻辑
+    useEffect(() => {
+        if (!localParticipant) return;
+
+        // Sync microphone state
+        const micPub = localParticipant.getTrackPublication(Track.Source.Microphone);
+        // The button is "muted" if there is no publication OR if the publication is muted.
+        setIsMuted(!micPub || micPub.isMuted);
+
+        // Sync camera state
+        const camPub = localParticipant.getTrackPublication(Track.Source.Camera);
+        setIsCameraOff(!camPub || !camPub.isSubscribed || camPub.isMuted);
+
+        // Sync screen share state
+        setIsScreenSharing(localParticipant.isScreenShareEnabled);
+
+    }, [
+        localParticipant, 
+        localParticipant.trackPublications, 
+        localParticipant.isMicrophoneEnabled, // Listen to high-level property changes
+        localParticipant.isCameraEnabled,
+        localParticipant.isScreenShareEnabled
+    ]);
+
     // 自动隐藏控制栏（全屏模式）
     useEffect(() => {
         let timeout: NodeJS.Timeout;
@@ -686,76 +705,39 @@ export function ControlBar({
         };
     }, [isFullscreen]);
 
-    // 切换屏幕共享
-    const toggleScreenShare = useCallback(async () => {
-        if (!room || !localParticipant || isTogglingScreen) return;
-
-        setIsTogglingScreen(true);
-        try {
-            const currentlySharing = localParticipant.isScreenShareEnabled;
-            
-            if (currentlySharing) {
-                await localParticipant.setScreenShareEnabled(false);
-                setIsScreenSharing(false);
-                playScreenShareStopSound();
-                console.log('🖥️❌ 屏幕共享已停止');
-            } else {
-                await localParticipant.setScreenShareEnabled(true);
-                setIsScreenSharing(true);
-                playScreenShareStartSound();
-                console.log('🖥️ 屏幕共享已开始');
-            }
-        } catch (error) {
-            console.error('切换屏幕共享失败:', error);
-            playErrorSound();
-            
-            if (error instanceof Error && error.name === 'NotAllowedError') {
-                alert('屏幕共享权限被拒绝，请在浏览器中允许屏幕共享权限。');
-            }
-        } finally {
-            setIsTogglingScreen(false);
-        }
-    }, [localParticipant, playScreenShareStartSound, playScreenShareStopSound, playErrorSound, isTogglingScreen, room]);
-
     // 切换音频设备
     const handleAudioDeviceChange = useCallback(async (deviceId: string) => {
         try {
-            console.log('🎤 切换音频设备到:', deviceId);
-            
-            // 使用设备管理器选择设备
-            selectDevice('audioinput', deviceId);
-            
-            // 如果有 LiveKit room，也通过 room 切换设备
-            if (room && room.switchActiveDevice) {
-                await room.switchActiveDevice('audioinput', deviceId);
-            }
-            
-            console.log('✅ 音频设备切换成功');
+            await room.switchActiveDevice('audioinput', deviceId);
         } catch (error) {
-            console.error('❌ 切换音频设备失败:', error);
-            playErrorSound();
+            console.error('Failed to switch audio device:', error);
         }
-    }, [room, selectDevice, playErrorSound]);
+    }, [room]);
 
     // 切换视频设备
     const handleVideoDeviceChange = useCallback(async (deviceId: string) => {
         try {
-            console.log('📹 切换视频设备到:', deviceId);
-            
-            // 使用设备管理器选择设备
-            selectDevice('videoinput', deviceId);
-            
-            // 如果有 LiveKit room，也通过 room 切换设备
-            if (room && room.switchActiveDevice) {
-                await room.switchActiveDevice('videoinput', deviceId);
-            }
-            
-            console.log('✅ 视频设备切换成功');
+            await room.switchActiveDevice('videoinput', deviceId);
         } catch (error) {
-            console.error('❌ 切换视频设备失败:', error);
-            playErrorSound();
+            console.error('Failed to switch video device:', error);
         }
-    }, [room, selectDevice, playErrorSound]);
+    }, [room]);
+
+        // 切换屏幕共享
+    const toggleScreenShare = useCallback(async () => {
+        if (isTogglingScreen || !localParticipant) return;
+        setIsTogglingScreen(true);
+        try {
+            const isSharing = localParticipant.isScreenShareEnabled;
+            if (isSharing) playScreenShareStopSound(); else playScreenShareStartSound();
+            await localParticipant.setScreenShareEnabled(!isSharing);
+        } catch (error) {
+            console.error('Failed to toggle screen share:', error);
+            playErrorSound();
+        } finally {
+            setIsTogglingScreen(false);
+        }
+    }, [localParticipant, isTogglingScreen, playScreenShareStartSound, playScreenShareStopSound, playErrorSound]);
 
     // 获取当前选择的设备信息
     const currentAudioDevice = getSelectedDeviceInfo('audioinput');

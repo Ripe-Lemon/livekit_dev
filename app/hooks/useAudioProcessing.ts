@@ -234,7 +234,7 @@ export function useAudioProcessing(): AudioProcessingControls {
             gateNodeRef.current.gain.value = 0.0;
 
             // 配置分析器
-            analyserNodeRef.current.fftSize = 256;
+            analyserNodeRef.current.fftSize = 512;
             analyserNodeRef.current.smoothingTimeConstant = 1;
             audioDataRef.current = new Uint8Array(analyserNodeRef.current.frequencyBinCount);
             

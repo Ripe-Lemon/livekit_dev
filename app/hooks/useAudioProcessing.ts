@@ -32,19 +32,19 @@ export interface AudioProcessingControls {
 }
 
 const DEFAULT_SETTINGS: Omit<AudioProcessingSettings, 'echoCancellation'> = {
-    preamp: 2.0,
-    postamp: 3.0,
+    preamp: 1.0,
+    postamp: 7.0,
     autoGainControl: true,
     noiseSuppression: false,
     vadEnabled: true,
-    vadPositiveSpeechThreshold: 0.5,
-    vadNegativeSpeechThreshold: 0.35,
-    vadRedemptionFrames: 8,
+    vadPositiveSpeechThreshold: 0.65,
+    vadNegativeSpeechThreshold: 0.45,
+    vadRedemptionFrames: 1,
     sampleRate: 48000,
     channels: 1,
 };
 
-const STORAGE_KEY = 'livekit_audio_processing_settings';
+const STORAGE_KEY = 'livekit_audio_processing_settings_V2';
 type StoredSettings = Partial<AudioProcessingSettings & { microphoneThreshold?: number }>;
 
 export function useAudioProcessing(): AudioProcessingControls {

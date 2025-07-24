@@ -8,6 +8,7 @@ import { MicVAD } from '@ricky0123/vad-web';
 
 export interface AudioProcessingSettings {
     preamp: number; // 前置增益
+    postamp: number;
     autoGainControl: boolean;
     noiseSuppression: boolean;
     echoCancellation: boolean;
@@ -31,12 +32,13 @@ export interface AudioProcessingControls {
 }
 
 const DEFAULT_SETTINGS: Omit<AudioProcessingSettings, 'echoCancellation'> = {
-    preamp: 5.0,
+    preamp: 2.0,
+    postamp: 3.0,
     autoGainControl: true,
     noiseSuppression: false,
     vadEnabled: true,
-    vadPositiveSpeechThreshold: 0.4,
-    vadNegativeSpeechThreshold: 0.3,
+    vadPositiveSpeechThreshold: 0.5,
+    vadNegativeSpeechThreshold: 0.35,
     vadRedemptionFrames: 8,
     sampleRate: 48000,
     channels: 1,
@@ -83,6 +85,7 @@ export function useAudioProcessing(): AudioProcessingControls {
     const vadRef = useRef<MicVAD | null>(null); // 引用类型更新为 MicVAD
     const analyserNodeRef = useRef<AnalyserNode | null>(null);
     const preampNodeRef = useRef<GainNode | null>(null);
+    const postampNodeRef = useRef<GainNode | null>(null);
     const vadAudioContextRef = useRef<AudioContext | null>(null);
 
     // 其他引用
@@ -225,6 +228,8 @@ export function useAudioProcessing(): AudioProcessingControls {
             gateNodeRef.current = audioContext.createGain();
             analyserNodeRef.current = audioContext.createAnalyser();
             destinationNodeRef.current = audioContext.createMediaStreamDestination();
+            postampNodeRef.current = audioContext.createGain();
+            postampNodeRef.current.gain.value = settings.postamp || 1.0;
 
             gateNodeRef.current.gain.value = 0.0;
 
@@ -239,7 +244,7 @@ export function useAudioProcessing(): AudioProcessingControls {
             console.error('❌ 音频处理链初始化失败:', error);
             throw error;
         }
-    }, [settings.sampleRate]);
+    }, [settings.sampleRate, settings.postamp]);
 
     // 连接音频处理链
     const connectAudioChain = useCallback(() => {
@@ -252,6 +257,7 @@ export function useAudioProcessing(): AudioProcessingControls {
 
         const source = sourceNodeRef.current; // 这是经过前置处理的源
         const gate = gateNodeRef.current!;
+        const postamp = postampNodeRef.current!;
         const analyser = analyserNodeRef.current!;
         const destination = destinationNodeRef.current!;
 
@@ -260,6 +266,7 @@ export function useAudioProcessing(): AudioProcessingControls {
 
         // 新的连接顺序
         source.connect(gate);
+        gate.connect(postamp);
         gate.connect(analyser); // 分析器现在监听门后的纯语音
         analyser.connect(destination);
 
@@ -539,6 +546,18 @@ export function useAudioProcessing(): AudioProcessingControls {
             );
         }
     }, [settings.preamp, isInitialized]); // 这个effect只在`settings.preamp`或`isInitialized`变化时运行
+
+    useEffect(() => {
+        // 确保音频管线已初始化并且postampNode已存在
+        if (isInitialized && postampNodeRef.current && audioContextRef.current) {
+            console.log(`🔊 应用新的后置增益值: ${settings.postamp}`);
+            postampNodeRef.current.gain.setTargetAtTime(
+                settings.postamp, 
+                audioContextRef.current.currentTime, 
+                0.02 // 平滑过渡
+            );
+        }
+    }, [settings.postamp, isInitialized]); // 只在`settings.postamp`变化时运行
 
     // 监听房间连接状态，自动初始化
     useEffect(() => {

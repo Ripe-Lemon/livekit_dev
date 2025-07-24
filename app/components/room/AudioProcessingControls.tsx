@@ -56,7 +56,7 @@ const MainControls = React.memo(({
                     <input 
                         type="range" 
                         min="0.5" // 最小值设为0.5倍
-                        max="20.0" // 最大值设为20倍，提供更大空间
+                        max="5.0" // 最大值设为5倍，提供更大空间
                         step="0.1" 
                         defaultValue={settings.preamp} 
                         onChange={(e) => handleNumberChange('preamp', e.target.value)} 
@@ -67,6 +67,36 @@ const MainControls = React.memo(({
                         <span className="font-bold text-gray-300">正常</span>
                         <span>更大</span>
                     </div>
+                </div>
+            </div>
+
+            {/* 🎯 新增：输出音量模块 */}
+            <div className="p-3 border border-gray-700 rounded-lg">
+                <h4 className="text-xs font-medium text-gray-300 mb-2">输出音量</h4>
+                <div>
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-white">后置增益 (补偿增益)</span>
+                        <span className="text-xs text-gray-400">
+                            x{settings.postamp.toFixed(1)}
+                        </span>
+                    </div>
+                    <input 
+                        type="range" 
+                        min="0.5" 
+                        max="5.0"
+                        step="0.1" 
+                        defaultValue={settings.postamp} 
+                        onChange={(e) => handleNumberChange('postamp', e.target.value)} 
+                        className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
+                    />
+                    <div className="flex justify-between text-xs text-gray-500 mt-1">
+                        <span>较小</span>
+                        <span>正常</span>
+                        <span>更大</span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-2">
+                        💡 在所有处理完成后，对最终音量进行补偿。如果整体声音依然偏小，请调高此值。
+                    </p>
                 </div>
             </div>
 
@@ -98,12 +128,12 @@ const MainControls = React.memo(({
                      <h4 className="text-xs font-medium text-gray-300">VAD 参数微调</h4>
                      <div>
                          <div className="flex items-center justify-between mb-2"><span className="text-sm text-white">触发灵敏度</span><span className="text-xs text-gray-400">{settings.vadPositiveSpeechThreshold.toFixed(2)}</span></div>
-                         <input type="range" min="0.3" max="0.8" step="0.05" defaultValue={settings.vadPositiveSpeechThreshold} onChange={(e) => handleNumberChange('vadPositiveSpeechThreshold', e.target.value)} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" />
+                         <input type="range" min="0.2" max="0.9" step="0.01" defaultValue={settings.vadPositiveSpeechThreshold} onChange={(e) => handleNumberChange('vadPositiveSpeechThreshold', e.target.value)} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" />
                          <div className="flex justify-between text-xs text-gray-500 mt-1"><span>不易触发</span><span>容易触发</span></div>
                      </div>
                      <div>
                          <div className="flex items-center justify-between mb-2"><span className="text-sm text-white">结束灵敏度</span><span className="text-xs text-gray-400">{settings.vadNegativeSpeechThreshold.toFixed(2)}</span></div>
-                         <input type="range" min="0.1" max="0.5" step="0.05" defaultValue={settings.vadNegativeSpeechThreshold} onChange={(e) => handleNumberChange('vadNegativeSpeechThreshold', e.target.value)} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" />
+                         <input type="range" min="0.1" max="0.7" step="0.01" defaultValue={settings.vadNegativeSpeechThreshold} onChange={(e) => handleNumberChange('vadNegativeSpeechThreshold', e.target.value)} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" />
                          <div className="flex justify-between text-xs text-gray-500 mt-1"><span>不易断句</span><span>容易断句</span></div>
                      </div>
                      <div>

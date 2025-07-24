@@ -12,6 +12,9 @@ export interface AudioProcessingSettings {
     noiseSuppression: boolean;
     echoCancellation: boolean;
     vadEnabled: boolean;
+    vadPositiveSpeechThreshold: number; 
+    vadNegativeSpeechThreshold: number;
+    vadRedemptionFrames: number;
     sampleRate: number;
     channels: number;
 }
@@ -28,10 +31,13 @@ export interface AudioProcessingControls {
 }
 
 const DEFAULT_SETTINGS: Omit<AudioProcessingSettings, 'echoCancellation'> = {
-    preamp: 1.0,
+    preamp: 3.0,
     autoGainControl: true,
     noiseSuppression: true,
     vadEnabled: true,
+    vadPositiveSpeechThreshold: 0.5,
+    vadNegativeSpeechThreshold: 0.35,
+    vadRedemptionFrames: 8,
     sampleRate: 48000,
     channels: 1,
 };
@@ -155,7 +161,11 @@ export function useAudioProcessing(): AudioProcessingControls {
         }
 
         try {
-            console.log('🎤 正在加载 Silero v5 VAD 模型...');
+            console.log('🎤 正在加载 VAD 模型并应用设置:', {
+                positiveSpeechThreshold: settings.vadPositiveSpeechThreshold,
+                negativeSpeechThreshold: settings.vadNegativeSpeechThreshold,
+                redemptionFrames: settings.vadRedemptionFrames,
+            });
             
             // 使用 MicVAD.new() 并直接在构造函数中传入 stream
             const vad = await MicVAD.new({
@@ -176,13 +186,17 @@ export function useAudioProcessing(): AudioProcessingControls {
                     console.log('VAD Misfire: 检测到过短的语音片段，已忽略');
                     controlGate('close');
                 },
-                model: "v5"
+                positiveSpeechThreshold: settings.vadPositiveSpeechThreshold,
+                negativeSpeechThreshold: settings.vadNegativeSpeechThreshold,
+                redemptionFrames: settings.vadRedemptionFrames,
+                minSpeechFrames: 3,
+                preSpeechPadFrames: 6,
             });
             
             // 实例创建后直接启动监听
             vad.start();
             vadRef.current = vad;
-            console.log('✅ Silero v5 VAD 模型加载并启动成功');
+            console.log('✅ VAD 模型加载并启动成功');
             
         } catch (error) {
             console.error('❌ VAD 初始化失败:', error);

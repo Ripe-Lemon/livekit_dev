@@ -175,13 +175,13 @@ export function useAudioProcessing(): AudioProcessingControls {
             postampNodeRef.current = audioContext.createGain();
             postampNodeRef.current.gain.value = settings.postamp || 1.0;
             delayNodeRef.current = audioContext.createDelay(0.5); // 最大延迟0.5秒
-            delayNodeRef.current.delayTime.value = 0.15; // 默认延迟150ms
+            delayNodeRef.current.delayTime.value = 0.2; // 默认延迟200ms
 
             gateNodeRef.current.gain.value = 0.0;
 
             // 配置分析器
             analyserNodeRef.current.fftSize = 256;
-            analyserNodeRef.current.smoothingTimeConstant = 0.6;
+            analyserNodeRef.current.smoothingTimeConstant = 0.8;
             audioDataRef.current = new Uint8Array(analyserNodeRef.current.frequencyBinCount);
             
             console.log('✅ 音频处理链节点创建完成');
@@ -215,10 +215,10 @@ export function useAudioProcessing(): AudioProcessingControls {
         analyser.disconnect();
 
         // 新的连接顺序
-        source.connect(analyser); 
         source.connect(gate);
         gate.connect(delay);
         delay.connect(postamp);
+        postamp.connect(analyser); 
         postamp.connect(destination);
 
         console.log('✅ 自定义VAD处理链已连接');

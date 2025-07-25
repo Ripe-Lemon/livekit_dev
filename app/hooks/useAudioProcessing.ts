@@ -177,7 +177,7 @@ export function useAudioProcessing(): AudioProcessingControls {
             postampNodeRef.current = audioContext.createGain();
             postampNodeRef.current.gain.value = settings.postamp || 1.0;
             delayNodeRef.current = audioContext.createDelay(0.5); // 最大延迟0.5秒
-            delayNodeRef.current.delayTime.value = 0.2; // 默认延迟200ms
+            delayNodeRef.current.delayTime.value = 0.1; // 默认延迟100ms
 
             gateNodeRef.current.gain.value = 0.0;
 

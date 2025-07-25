@@ -122,24 +122,33 @@ const MainControls = React.memo(({
                 </button>
             </div>
 
-            {/* VAD 参数微调UI */}
+            {/* 使用新的自定义VAD参数替换旧的UI */}
             {settings.vadEnabled && (
                  <div className="space-y-4 p-3 border border-gray-700 rounded-lg">
-                     <h4 className="text-xs font-medium text-gray-300">VAD 参数微调</h4>
+                     <h4 className="text-xs font-medium text-gray-300">自定义VAD参数</h4>
                      <div>
-                         <div className="flex items-center justify-between mb-2"><span className="text-sm text-white">触发灵敏度</span><span className="text-xs text-gray-400">{settings.vadPositiveSpeechThreshold.toFixed(2)}</span></div>
-                         <input type="range" min="0.2" max="0.99" step="0.01" defaultValue={settings.vadPositiveSpeechThreshold} onChange={(e) => handleNumberChange('vadPositiveSpeechThreshold', e.target.value)} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" />
-                         <div className="flex justify-between text-xs text-gray-500 mt-1"><span>不易触发</span><span>容易触发</span></div>
+                         <div className="flex items-center justify-between mb-2">
+                             <span className="text-sm text-white">激活阈值</span>
+                             <span className="text-xs text-gray-400">{(settings.vadThreshold * 100).toFixed(0)}%</span>
+                         </div>
+                         <input type="range" min="0.01" max="0.5" step="0.01" defaultValue={settings.vadThreshold} onChange={(e) => handleNumberChange('vadThreshold', e.target.value)} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" />
+                         <p className="text-xs text-gray-400 mt-1">音量超过此值时，判定为开始说话。</p>
                      </div>
                      <div>
-                         <div className="flex items-center justify-between mb-2"><span className="text-sm text-white">结束灵敏度</span><span className="text-xs text-gray-400">{settings.vadNegativeSpeechThreshold.toFixed(2)}</span></div>
-                         <input type="range" min="0.1" max="0.9" step="0.01" defaultValue={settings.vadNegativeSpeechThreshold} onChange={(e) => handleNumberChange('vadNegativeSpeechThreshold', e.target.value)} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" />
-                         <div className="flex justify-between text-xs text-gray-500 mt-1"><span>不易断句</span><span>容易断句</span></div>
+                         <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm text-white">激活前缓冲</span>
+                            <span className="text-xs text-gray-400">{settings.vadAttackTime} ms</span>
+                         </div>
+                         <input type="range" min="0" max="300" step="10" defaultValue={settings.vadAttackTime} onChange={(e) => handleNumberChange('vadAttackTime', e.target.value)} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" />
+                         <p className="text-xs text-gray-400 mt-1">语音持续超过此时长，才会打开音频门，可防止短促噪音误触发。</p>
                      </div>
                      <div>
-                         <div className="flex items-center justify-between mb-2"><span className="text-sm text-white">静音延迟</span><span className="text-xs text-gray-400">{settings.vadRedemptionFrames} 帧</span></div>
-                         <input type="range" min="1" max="20" step="1" defaultValue={settings.vadRedemptionFrames} onChange={(e) => handleNumberChange('vadRedemptionFrames', e.target.value)} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" />
-                         <div className="flex justify-between text-xs text-gray-500 mt-1"><span>快速静音</span><span>延迟静音</span></div>
+                         <div className="flex items-center justify-between mb-2">
+                             <span className="text-sm text-white">静音延迟</span>
+                             <span className="text-xs text-gray-400">{settings.vadReleaseTime} ms</span>
+                         </div>
+                         <input type="range" min="100" max="2000" step="50" defaultValue={settings.vadReleaseTime} onChange={(e) => handleNumberChange('vadReleaseTime', e.target.value)} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" />
+                         <p className="text-xs text-gray-400 mt-1">语音停止后，等待此时长再关闭音频门，可防止句间停顿被切断。</p>
                      </div>
                  </div>
             )}

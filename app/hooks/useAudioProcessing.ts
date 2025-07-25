@@ -73,6 +73,8 @@ export function useAudioProcessing(): AudioProcessingControls {
     
     const [isVADActive, setIsVADActive] = useState(false);
 
+    const settingsRef = useRef(settings);
+
     // Web Audio API 节点引用
     const audioContextRef = useRef<AudioContext | null>(null);
     const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
@@ -231,15 +233,18 @@ export function useAudioProcessing(): AudioProcessingControls {
         const audioData = audioDataRef.current;
         
         const processFrame = () => {
-            if (analyser && settings.vadEnabled) {
+            // 使用 settingsRef.current 来确保总是获取最新的设置
+            const currentSettings = settingsRef.current; 
+
+            if (analyser && currentSettings.vadEnabled) {
                 analyser.getByteFrequencyData(audioData);
                 let sum = 0;
                 for (const amplitude of audioData) { sum += amplitude * amplitude; }
                 const rms = Math.sqrt(sum / audioData.length);
                 const volume = rms / 255;
 
-                // --- 自定义VAD状态机 ---
-                if (volume > settings.vadThreshold) {
+                // --- 自定义VAD状态机，现在读取Ref中的最新值 ---
+                if (volume > currentSettings.vadThreshold) {
                     // 音量高于阈值
                     if (vadStateRef.current.releaseTimeout) {
                         clearTimeout(vadStateRef.current.releaseTimeout);
@@ -251,7 +256,7 @@ export function useAudioProcessing(): AudioProcessingControls {
                             setIsVADActive(true);
                             vadStateRef.current.isSpeaking = true;
                             vadStateRef.current.attackTimeout = null;
-                        }, settings.vadAttackTime);
+                        }, currentSettings.vadAttackTime); // 使用 Ref 中的值
                     }
                 } else {
                     // 音量低于阈值
@@ -265,7 +270,7 @@ export function useAudioProcessing(): AudioProcessingControls {
                             setIsVADActive(false);
                             vadStateRef.current.isSpeaking = false;
                             vadStateRef.current.releaseTimeout = null;
-                        }, settings.vadReleaseTime);
+                        }, currentSettings.vadReleaseTime); // 使用 Ref 中的值
                     }
                 }
             }
@@ -273,12 +278,14 @@ export function useAudioProcessing(): AudioProcessingControls {
         };
         processFrame();
 
+        // 返回清理函数
         return () => {
             if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
             if(vadStateRef.current.attackTimeout) clearTimeout(vadStateRef.current.attackTimeout);
             if(vadStateRef.current.releaseTimeout) clearTimeout(vadStateRef.current.releaseTimeout);
         };
-    }, [settings, controlGate]);
+    // 移除了对 settings 的依赖，使此函数更稳定
+    }, [controlGate]);
 
     // 🎯 新增：确保 AudioContext 处于运行状态的函数
     const ensureAudioContextRunning = useCallback(async () => {
@@ -395,13 +402,19 @@ export function useAudioProcessing(): AudioProcessingControls {
     ]);
 
     // 🎯 更新单个设置（只更新处理参数，不重建轨道）
-    const updateSetting = useCallback((key: keyof AudioProcessingSettings, value: boolean | number): void => {
+    const updateSetting = useCallback((key: keyof AudioProcessingSettings, value: boolean | number) => {
         setSettings(prevSettings => {
             const newSettings = { ...prevSettings, [key]: value };
             saveSettings(newSettings);
             return newSettings;
         });
-    }, []);
+    }, [saveSettings]);
+
+    // 🎯 2. 创建一个useEffect，在每次settings变化时，都去更新ref的值
+    // 这确保了settingsRef.current永远是最新的
+    useEffect(() => {
+        settingsRef.current = settings;
+    }, [settings]);
 
     // 新增一个useEffect来处理需要重建管线的设置
     useEffect(() => {

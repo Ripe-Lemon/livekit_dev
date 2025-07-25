@@ -31,18 +31,18 @@ export interface AudioProcessingControls {
 
 const DEFAULT_SETTINGS: Omit<AudioProcessingSettings, 'echoCancellation'> = {
     preamp: 1.0,
-    postamp: 7.0,
+    postamp: 3.5,
     autoGainControl: false,
     noiseSuppression: false,
     vadEnabled: true,
-    vadAttackTime: 80, // 默认80ms
-    vadReleaseTime: 500, // 默认500ms
-    vadThreshold: 0.15,
+    vadAttackTime: 40, // 默认40ms
+    vadReleaseTime: 300, // 默认300ms
+    vadThreshold: 0.50,
     sampleRate: 48000,
     channels: 1,
 };
 
-const STORAGE_KEY = 'livekit_audio_processing_settings_custom_vad';
+const STORAGE_KEY = 'livekit_audio_processing_settings_custom_vad_V2';
 type StoredSettings = Partial<AudioProcessingSettings & { microphoneThreshold?: number }>;
 
 export function useAudioProcessing(): AudioProcessingControls {
@@ -215,11 +215,11 @@ export function useAudioProcessing(): AudioProcessingControls {
         analyser.disconnect();
 
         // 新的连接顺序
-        source.connect(gate);
-        gate.connect(delay);
-        delay.connect(postamp);
+        source.connect(postamp);
+        postamp.connect(delay);
         postamp.connect(analyser); 
-        postamp.connect(destination);
+        delay.connect(gate);
+        gate.connect(destination);
 
         console.log('✅ 自定义VAD处理链已连接');
     }, []);

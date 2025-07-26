@@ -10,17 +10,59 @@ interface AudioProcessingControlsProps {
 }
 
 // 🎯 修复4：将需要频繁渲染的音量条单独封装成组件
-const RealtimeVolumeMeter = React.memo(({ audioLevel }: { audioLevel: number }) => {
+const RealtimeVolumeMeter = React.memo(({ 
+    audioLevel, 
+    activationThreshold, 
+    deactivationThreshold 
+}: { 
+    audioLevel: number;
+    activationThreshold: number;
+    deactivationThreshold: number;
+}) => {
+    // 为了防止音量条在静音时跳动，我们增加一个平滑过渡
+    const smoothedLevel = React.useRef(0);
+    smoothedLevel.current = smoothedLevel.current * 0.8 + audioLevel * 0.2;
+
     return (
         <div>
             <div className="flex items-center justify-between mb-1">
-                <span className="text-sm text-white">实时麦克风音量</span>
+                <span className="text-sm text-white">VAD 输入音量</span>
             </div>
-            <div className="w-full h-2 bg-gray-600 rounded-lg overflow-hidden">
+            {/* 容器：相对定位，用于放置阈值标线 */}
+            <div className="relative w-full h-4 bg-gray-700 rounded-lg overflow-hidden">
+                {/* 音量条本体 */}
                 <div 
                     className="h-full bg-blue-500 transition-all duration-75"
-                    style={{ width: `${audioLevel * 100}%` }}
+                    style={{ width: `${smoothedLevel.current * 100}%` }}
                 />
+
+                {/* 上门限阈值标线 (激活) */}
+                <div
+                    className="absolute top-0 bottom-0 w-0.5 bg-green-400"
+                    style={{ left: `${activationThreshold * 100}%` }}
+                    title={`激活阈值: ${(activationThreshold * 100).toFixed(0)}%`}
+                >
+                    <div className="absolute -top-1.5 -translate-x-1/2 w-2 h-2 bg-green-400 rounded-full" />
+                </div>
+
+                {/* 下门限阈值标线 (停止) */}
+                <div
+                    className="absolute top-0 bottom-0 w-0.5 bg-red-400"
+                    style={{ left: `${deactivationThreshold * 100}%` }}
+                    title={`停止阈值: ${(deactivationThreshold * 100).toFixed(0)}%`}
+                >
+                    <div className="absolute -bottom-1.5 -translate-x-1/2 w-2 h-2 bg-red-400 rounded-full" />
+                </div>
+            </div>
+            <div className="flex justify-between text-xs text-gray-400 mt-1 px-1">
+                <div className="flex items-center">
+                    <div className="w-2 h-2 bg-green-400 rounded-full mr-1.5" />
+                    <span>激活</span>
+                </div>
+                <div className="flex items-center">
+                    <div className="w-2 h-2 bg-red-400 rounded-full mr-1.5" />
+                    <span>停止</span>
+                </div>
             </div>
         </div>
     );
@@ -286,10 +328,14 @@ export function AudioProcessingControls({ className = '', audioProcessing }: Aud
 
     return (
         <div className="space-y-4">
-            {/* 实时音量条：这个组件会频繁渲染 */}
-            <RealtimeVolumeMeter audioLevel={audioLevel} />
+            {/* 实时音量条：现在传入阈值数据 */}
+            <RealtimeVolumeMeter 
+                audioLevel={audioLevel}
+                activationThreshold={settings.vadActivationThreshold}
+                deactivationThreshold={settings.vadDeactivationThreshold}
+            />
             
-            {/* 主要控件：这个组件不会因为 audioLevel 变化而渲染 */}
+            {/* 主要控件 */}
             <MainControls 
                 settings={settings}
                 isApplying={isApplying}

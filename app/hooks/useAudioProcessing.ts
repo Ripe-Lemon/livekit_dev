@@ -14,7 +14,8 @@ export interface AudioProcessingSettings {
     vadEnabled: boolean;
     vadAttackTime: number;      // 语音持续超过此时长才开门 (ms)
     vadReleaseTime: number;     // 语音低于阈值超过此时长才关门 (ms)
-    vadThreshold: number;       // 语音活动检测阈值 (0-1)
+    vadActivationThreshold: number;   // 激活VAD的音量阈值 (上门限)
+    vadDeactivationThreshold: number; // 停止VAD的音量阈值 (下门限)
     sampleRate: number;
     channels: number;
 }
@@ -37,12 +38,13 @@ const DEFAULT_SETTINGS: Omit<AudioProcessingSettings, 'echoCancellation'> = {
     vadEnabled: true,
     vadAttackTime: 40, // 默认40ms
     vadReleaseTime: 300, // 默认300ms
-    vadThreshold: 0.50,
+    vadActivationThreshold: 0.35,
+    vadDeactivationThreshold: 0.25,
     sampleRate: 48000,
     channels: 1,
 };
 
-const STORAGE_KEY = 'livekit_audio_processing_settings_custom_vad_V2';
+const STORAGE_KEY = 'livekit_audio_processing_settings_custom_vad_V3';
 type StoredSettings = Partial<AudioProcessingSettings & { microphoneThreshold?: number }>;
 
 export function useAudioProcessing(): AudioProcessingControls {
@@ -233,7 +235,6 @@ export function useAudioProcessing(): AudioProcessingControls {
         const audioData = audioDataRef.current;
         
         const processFrame = () => {
-            // 使用 settingsRef.current 来确保总是获取最新的设置
             const currentSettings = settingsRef.current; 
 
             if (analyser && currentSettings.vadEnabled) {
@@ -243,36 +244,43 @@ export function useAudioProcessing(): AudioProcessingControls {
                 const rms = Math.sqrt(sum / audioData.length);
                 const volume = rms / 255;
 
-                // --- 自定义VAD状态机，现在读取Ref中的最新值 ---
-                if (volume > currentSettings.vadThreshold) {
-                    // 音量高于阈值
+                // --- 带有迟滞功能的自定义VAD状态机 ---
+                if (volume > currentSettings.vadActivationThreshold) {
+                    // --- 音量高于“上门限” (激活) ---
+                    // 如果有关闭门的计时器，立即取消它，因为我们还在说话
                     if (vadStateRef.current.releaseTimeout) {
                         clearTimeout(vadStateRef.current.releaseTimeout);
                         vadStateRef.current.releaseTimeout = null;
                     }
+                    // 如果当前是“不说话”状态，并且没有正在计时的“开门”任务
                     if (!vadStateRef.current.isSpeaking && !vadStateRef.current.attackTimeout) {
+                        // 开始一个“开门”计时
                         vadStateRef.current.attackTimeout = setTimeout(() => {
                             controlGate('open');
                             setIsVADActive(true);
                             vadStateRef.current.isSpeaking = true;
                             vadStateRef.current.attackTimeout = null;
-                        }, currentSettings.vadAttackTime); // 使用 Ref 中的值
+                        }, currentSettings.vadAttackTime);
                     }
-                } else {
-                    // 音量低于阈值
+                } else if (volume < currentSettings.vadDeactivationThreshold) {
+                    // --- 音量低于“下门限” (准备关闭) ---
+                    // 如果有“开门”的计时器，立即取消它，因为声音已经变小了
                     if (vadStateRef.current.attackTimeout) {
                         clearTimeout(vadStateRef.current.attackTimeout);
                         vadStateRef.current.attackTimeout = null;
                     }
+                    // 如果当前是“说话”状态，并且没有正在计时的“关门”任务
                     if (vadStateRef.current.isSpeaking && !vadStateRef.current.releaseTimeout) {
+                        // 开始一个“关门”计时
                         vadStateRef.current.releaseTimeout = setTimeout(() => {
                             controlGate('close');
                             setIsVADActive(false);
                             vadStateRef.current.isSpeaking = false;
                             vadStateRef.current.releaseTimeout = null;
-                        }, currentSettings.vadReleaseTime); // 使用 Ref 中的值
+                        }, currentSettings.vadReleaseTime);
                     }
                 }
+                // 如果音量在上门限和下门限之间，则“维持现状”，不做任何操作
             }
             animationFrameRef.current = requestAnimationFrame(processFrame);
         };

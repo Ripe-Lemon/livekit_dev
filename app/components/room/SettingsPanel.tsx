@@ -11,6 +11,63 @@ interface SettingsPanelProps {
     audioProcessing: ReturnType<typeof useAudioProcessing>; // 🎯 接收外部的音频处理对象
 }
 
+// 🎯 修复4：将需要频繁渲染的音量条单独封装成组件
+const RealtimeVolumeMeter = React.memo(({ 
+    audioLevel, 
+    activationThreshold, 
+    deactivationThreshold 
+}: { 
+    audioLevel: number;
+    activationThreshold: number;
+    deactivationThreshold: number;
+}) => {
+
+    return (
+        <div>
+            <div className="flex items-center justify-between mb-1">
+                <span className="text-sm text-white">VAD 输入音量</span>
+            </div>
+            {/* 容器：相对定位，用于放置阈值标线 */}
+            <div className="relative w-full h-4 bg-gray-700 rounded-lg overflow-hidden">
+                {/* 音量条本体 */}
+                <div 
+                    className="h-full bg-blue-500 transition-all duration-75"
+                    style={{ width: `${audioLevel * 100}%` }}
+                />
+
+                {/* 上门限阈值标线 (激活) */}
+                <div
+                    className="absolute top-0 bottom-0 w-0.5 bg-green-400"
+                    style={{ left: `${activationThreshold * 100}%` }}
+                    title={`激活阈值: ${(activationThreshold * 100).toFixed(0)}%`}
+                >
+                    <div className="absolute -top-1.5 -translate-x-1/2 w-2 h-2 bg-green-400 rounded-full" />
+                </div>
+
+                {/* 下门限阈值标线 (停止) */}
+                <div
+                    className="absolute top-0 bottom-0 w-0.5 bg-red-400"
+                    style={{ left: `${deactivationThreshold * 100}%` }}
+                    title={`停止阈值: ${(deactivationThreshold * 100).toFixed(0)}%`}
+                >
+                    <div className="absolute -bottom-1.5 -translate-x-1/2 w-2 h-2 bg-red-400 rounded-full" />
+                </div>
+            </div>
+            <div className="flex justify-between text-xs text-gray-400 mt-1 px-1">
+                <div className="flex items-center">
+                    <div className="w-2 h-2 bg-green-400 rounded-full mr-1.5" />
+                    <span>激活</span>
+                </div>
+                <div className="flex items-center">
+                    <div className="w-2 h-2 bg-red-400 rounded-full mr-1.5" />
+                    <span>停止</span>
+                </div>
+            </div>
+        </div>
+    );
+});
+RealtimeVolumeMeter.displayName = 'RealtimeVolumeMeter';
+
 export function SettingsPanel({ onClose, audioProcessing }: SettingsPanelProps) {
     const room = useRoomContext();
     const participants = useParticipants();
@@ -101,63 +158,6 @@ export function SettingsPanel({ onClose, audioProcessing }: SettingsPanelProps) 
         });
     }, [participants, participantVolumes]);
 
-    // 调试功能（仅开发环境）
-    const handleDebugAudio = useCallback(() => {
-        console.log('🔧 开始音频调试...');
-        console.log('='.repeat(50));
-        
-        if (localParticipant) {
-            // 修复类型错误：使用 Track.Source.Microphone 而不是字符串
-            const audioPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
-            if (audioPublication?.track) {
-                const track = audioPublication.track.mediaStreamTrack;
-                const settings = track.getSettings();
-                console.log('🎤 当前音频轨道设置:', settings);
-                console.log('🎤 音频发布信息:', {
-                    sid: audioPublication.trackSid,
-                    source: audioPublication.source,
-                    isMuted: audioPublication.isMuted,
-                    isEnabled: audioPublication.isEnabled,
-                    kind: audioPublication.kind
-                });
-            } else {
-                console.log('🎤 未找到麦克风音频发布');
-            }
-
-            // 显示所有音频发布
-            const allAudioPublications = localParticipant.audioTrackPublications;
-            console.log(`📊 本地音频发布总数: ${allAudioPublications.size}`);
-            allAudioPublications.forEach((publication, key) => {
-                console.log(`音频发布 ${key}:`, {
-                    sid: publication.trackSid,
-                    source: publication.source,
-                    isMuted: publication.isMuted,
-                    isEnabled: publication.isEnabled
-                });
-            });
-        }
-        
-        const audioElements = document.querySelectorAll('audio');
-        console.log(`🔍 找到 ${audioElements.length} 个音频元素:`);
-        audioElements.forEach((audio, i) => {
-            const htmlElement = audio as HTMLElement;
-            const audioElement = audio as HTMLAudioElement;
-            console.log(`音频元素 ${i}:`, {
-                src: audioElement.src,
-                volume: audioElement.volume,
-                muted: audioElement.muted,
-                paused: audioElement.paused,
-                dataset: htmlElement.dataset,
-                className: htmlElement.className,
-                participantId: htmlElement.dataset.participantId || htmlElement.dataset.lkParticipant
-            });
-        });
-        
-        console.log('当前参与者音量设置:', participantVolumes);
-        console.log('='.repeat(50));
-        console.log('🔧 音频调试完成');
-    }, [localParticipant, participantVolumes]);
-
     return (
         <div 
             className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
@@ -217,6 +217,15 @@ export function SettingsPanel({ onClose, audioProcessing }: SettingsPanelProps) 
                     >
                         常规设置
                     </button>
+                </div>
+
+                {/* 🎯 新增：固定的实时音量条 */}
+                <div className="p-4 border-b border-gray-700 flex-shrink-0 bg-gray-800">
+                     <RealtimeVolumeMeter 
+                        audioLevel={audioProcessing.audioLevel}
+                        activationThreshold={audioProcessing.settings.vadActivationThreshold}
+                        deactivationThreshold={audioProcessing.settings.vadDeactivationThreshold}
+                    />
                 </div>
 
                 {/* 内容区域 - 可滚动 */}
@@ -467,17 +476,6 @@ export function SettingsPanel({ onClose, audioProcessing }: SettingsPanelProps) 
                             </div>
                             
                             <div className="flex space-x-2">
-                                {/* 开发环境调试按钮 */}
-                                {process.env.NODE_ENV === 'development' && (
-                                    <button
-                                        onClick={handleDebugAudio}
-                                        className="px-3 py-2 bg-yellow-600 text-white rounded-lg text-sm font-medium hover:bg-yellow-500 transition-colors"
-                                        title="音频调试"
-                                    >
-                                        🔧
-                                    </button>
-                                )}
-                                
                                 <button
                                     onClick={onClose}
                                     className="px-4 py-2 bg-gray-600 text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-500 transition-colors"

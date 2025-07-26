@@ -220,8 +220,8 @@ export function useAudioProcessing(): AudioProcessingControls {
 
         // 新的连接顺序
         source.connect(postamp);
-        postamp.connect(delay);
-        postamp.connect(analyser); 
+        postamp.connect(analyser);
+        analyser.connect(delay); 
         delay.connect(gate);
         gate.connect(destination);
 

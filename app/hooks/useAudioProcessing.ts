@@ -249,7 +249,7 @@ export function useAudioProcessing(): AudioProcessingControls {
             setAudioLevel(volume);
 
             const currentSettings = settingsRef.current;
-            if (!currentSettings.vadEnabled) return;
+            //if (!currentSettings.vadEnabled) return;
 
             // 🎯 核心修复：重构为更健壮的状态机逻辑
             const { isSpeaking, attackTimeout, releaseTimeout } = vadStateRef.current;

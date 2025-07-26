@@ -235,67 +235,67 @@ export function useAudioProcessing(): AudioProcessingControls {
         const audioData = new Uint8Array(analyser.fftSize);
         
         const processFrame = () => {
-            if (animationFrameRef.current === null) return;
-            if (!analyser) return;
+            if (animationFrameRef.current === null) return; // 检查是否已被清理
 
-            // 1. 获取当前音量
-            analyser.getByteTimeDomainData(audioData);
-            let peak = 0;
-            for (let i = 0; i < audioData.length; i++) {
-                const value = Math.abs(audioData[i] - 128);
-                if (value > peak) peak = value;
-            }
-            const volume = peak / 128.0;
-            setAudioLevel(volume);
+            if (analyser) {
+                // 🎯 2. 改用 getByteTimeDomainData 获取原始波形数据
+                analyser.getByteTimeDomainData(audioData);
 
-            const currentSettings = settingsRef.current;
-            //if (!currentSettings.vadEnabled) return;
+                // 🎯 3. 寻找波形中的峰值作为当前音量
+                let peak = 0;
+                // audioData 中的值范围是 0-255，静音时是 128
+                for (let i = 0; i < audioData.length; i++) {
+                    const value = Math.abs(audioData[i] - 128); // 计算偏离中心的振幅
+                    if (value > peak) {
+                        peak = value;
+                    }
+                }
+                
+                // 将峰值 (0-128) 归一化到 0-1 的范围
+                const volume = peak / 128.0;
+                setAudioLevel(volume);
 
-            // 🎯 核心修复：重构为更健壮的状态机逻辑
-            const { isSpeaking, attackTimeout, releaseTimeout } = vadStateRef.current;
-            const isLoud = volume > currentSettings.vadActivationThreshold;
-            const isQuiet = volume < currentSettings.vadDeactivationThreshold;
-
-            if (isSpeaking) {
-                // --- 当前是“说话”状态 ---
-                if (isQuiet) {
-                    // 音量变小了，准备关门
-                    if (!releaseTimeout) { // 如果没有正在计时的关门任务
-                        vadStateRef.current.releaseTimeout = setTimeout(() => {
-                            controlGate('close');
-                            setIsVADActive(false);
-                            vadStateRef.current.isSpeaking = false;
+                // --- 带有迟滞功能的自定义VAD状态机 ---
+                const currentSettings = settingsRef.current; 
+                //if (currentSettings.vadEnabled) {
+                    if (volume > currentSettings.vadActivationThreshold) {
+                        // --- 音量高于“上门限” (激活) ---
+                        // 如果有关闭门的计时器，立即取消它，因为我们还在说话
+                        if (vadStateRef.current.releaseTimeout) {
+                            clearTimeout(vadStateRef.current.releaseTimeout);
                             vadStateRef.current.releaseTimeout = null;
-                        }, currentSettings.vadReleaseTime);
-                    }
-                } else {
-                    // 音量还足够大，取消任何准备关门的任务
-                    if (releaseTimeout) {
-                        clearTimeout(releaseTimeout);
-                        vadStateRef.current.releaseTimeout = null;
-                    }
-                }
-            } else {
-                // --- 当前是“不说话”状态 ---
-                if (isLoud) {
-                    // 音量变大了，准备开门
-                    if (!attackTimeout) { // 如果没有正在计划开门任务
-                        vadStateRef.current.attackTimeout = setTimeout(() => {
-                            controlGate('open');
-                            setIsVADActive(true);
-                            vadStateRef.current.isSpeaking = true;
+                        }
+                        // 如果当前是“不说话”状态，并且没有正在计时的“开门”任务
+                        if (!vadStateRef.current.isSpeaking && !vadStateRef.current.attackTimeout) {
+                            // 开始一个“开门”计时
+                            vadStateRef.current.attackTimeout = setTimeout(() => {
+                                controlGate('open');
+                                setIsVADActive(true);
+                                vadStateRef.current.isSpeaking = true;
+                                vadStateRef.current.attackTimeout = null;
+                            }, currentSettings.vadAttackTime);
+                        }
+                    } else if (volume < currentSettings.vadDeactivationThreshold) {
+                        // --- 音量低于“下门限” (准备关闭) ---
+                        // 如果有“开门”的计时器，立即取消它，因为声音已经变小了
+                        if (vadStateRef.current.attackTimeout) {
+                            clearTimeout(vadStateRef.current.attackTimeout);
                             vadStateRef.current.attackTimeout = null;
-                        }, currentSettings.vadAttackTime);
+                        }
+                        // 如果当前是“说话”状态，并且没有正在计时的“关门”任务
+                        if (vadStateRef.current.isSpeaking && !vadStateRef.current.releaseTimeout) {
+                            // 开始一个“关门”计时
+                            vadStateRef.current.releaseTimeout = setTimeout(() => {
+                                controlGate('close');
+                                setIsVADActive(false);
+                                vadStateRef.current.isSpeaking = false;
+                                vadStateRef.current.releaseTimeout = null;
+                            }, currentSettings.vadReleaseTime);
+                        }
                     }
-                } else {
-                    // 音量还不够大，取消任何准备开门的任务
-                    if (attackTimeout) {
-                        clearTimeout(attackTimeout);
-                        vadStateRef.current.attackTimeout = null;
-                    }
-                }
+                    // 如果音量在上门限和下门限之间，则“维持现状”，不做任何操作
+                //}
             }
-
             animationFrameRef.current = requestAnimationFrame(processFrame);
         };
         processFrame();
@@ -309,6 +309,7 @@ export function useAudioProcessing(): AudioProcessingControls {
             if (vadStateRef.current.attackTimeout) clearTimeout(vadStateRef.current.attackTimeout);
             if (vadStateRef.current.releaseTimeout) clearTimeout(vadStateRef.current.releaseTimeout);
         };
+    // 移除了对 settings 的依赖，使此函数更稳定
     }, [controlGate]);
 
     // 🎯 新增：确保 AudioContext 处于运行状态的函数
